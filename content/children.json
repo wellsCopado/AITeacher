@@ -1,0 +1,14 @@
+{
+  "gege": {
+    "name": "哥哥", "grade": 4, "system": "五四制", "region": "上海",
+    "wish_prompt": "下一次课，你最想在哪里学数学？",
+    "wish_options_from_interests": true,
+    "wish_fallback_options": ["螳螂虾和海底", "昆虫", "高楼", "大桥和隧道", "机器人"]
+  },
+  "meimei": {
+    "name": "妹妹", "grade": 2, "system": "五四制", "region": "上海",
+    "wish_prompt": "下一次课，你想和什么一起学数学？",
+    "wish_options_from_interests": false,
+    "wish_fallback_options": ["海洋动物", "小虫子", "花和植物", "做手工", "画画", "音乐"]
+  }
+}

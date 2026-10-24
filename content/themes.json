@@ -1,0 +1,22 @@
+{
+  "skins": {
+    "reef": { "name": "珊瑚礁样方调查", "component": "PerimeterArea", "status": "已有" },
+    "garden": { "name": "花园围栏与铺砖", "component": "PerimeterArea", "status": "已有" },
+    "blocks": { "name": "积木方块", "component": "ArrayMultiplier", "status": "已有" },
+    "insect_meadow": { "name": "草地昆虫样方调查", "component": "PerimeterArea", "status": "待开发" },
+    "tower_floor": { "name": "高楼楼层平面", "component": "PerimeterArea", "status": "待开发" },
+    "tunnel_walkway": { "name": "隧道检修通道", "component": "PerimeterArea", "status": "待开发" },
+    "robot_vacuum": { "name": "扫地机器人清扫", "component": "PerimeterArea", "status": "待开发" }
+  },
+  "topics": {
+    "螳螂虾": ["reef"],
+    "螳螂虾和海底": ["reef"],
+    "海洋动物": ["reef"],
+    "昆虫": ["insect_meadow"],
+    "小虫子": ["insect_meadow"],
+    "高楼": ["tower_floor"],
+    "大桥和隧道": ["tunnel_walkway"],
+    "机器人": ["robot_vacuum"]
+  },
+  "neutral": { "PerimeterArea": "garden", "ArrayMultiplier": "blocks" }
+}

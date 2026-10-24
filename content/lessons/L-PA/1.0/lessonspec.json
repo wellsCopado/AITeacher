@@ -1,0 +1,467 @@
+{
+  "schema_version": "lessonspec/1.0",
+  "lesson_id": "L-PA",
+  "version": "1.0",
+  "tenant_id": "family-001",
+  "for_child": "gege",
+  "title": "珊瑚礁海底调查：螳螂虾的家有多大",
+  "primary_concept": {
+    "id": "M3.MEAS.perimeter_vs_area",
+    "name": "周长与面积的区别",
+    "target_misconceptions": [
+      "MC.unit_len_vs_area",
+      "MC.perim_area_swap"
+    ]
+  },
+  "prerequisites": [
+    "M2.MEAS.length_metre",
+    "M2.MUL.table",
+    "M.MEAS.length_cm_m"
+  ],
+  "curriculum_mapping": {
+    "region": "上海",
+    "system": "五四制",
+    "grade": 4,
+    "term": "2026 秋",
+    "source": "沪学习 App 参考目录",
+    "publisher": "待核对",
+    "unit": "待核对",
+    "status": "先修补强",
+    "verified_by": null,
+    "checked_on": "2026-10-24"
+  },
+  "theme": {
+    "id": "reef",
+    "name": "珊瑚礁样方调查",
+    "skin": "reef",
+    "interest_refs": [
+      "IO-0003"
+    ],
+    "why": "孩子自述：螳螂虾（近期最喜欢）",
+    "no_husbandry": true
+  },
+  "learner_profile": {
+    "grade": 4,
+    "scaffold": [
+      "challenge_first",
+      "short_hints"
+    ],
+    "language": {
+      "default": "zh",
+      "cycle_enabled": false
+    },
+    "recent_judgment_ref": null,
+    "est_minutes": [
+      10,
+      15
+    ]
+  },
+  "scene_component_ids": [
+    "PerimeterArea@1.2"
+  ],
+  "component_params": {
+    "PerimeterArea": {
+      "a": 6,
+      "b": 4,
+      "theme": "reef",
+      "showUnits": true
+    }
+  },
+  "experiment_model_version": {
+    "id": "perim-area",
+    "ver": "1.0.0",
+    "deterministic": true,
+    "vars": {
+      "a": {
+        "unit": "m",
+        "min": 1,
+        "max": 10,
+        "step": 1
+      },
+      "b": {
+        "unit": "m",
+        "min": 1,
+        "max": 10,
+        "step": 1
+      }
+    },
+    "outputs": {
+      "P": {
+        "expr": "2*(a+b)",
+        "unit": "m"
+      },
+      "S": {
+        "expr": "a*b",
+        "unit": "m²"
+      }
+    },
+    "reference_cases": [
+      {
+        "in": {
+          "a": 6,
+          "b": 4
+        },
+        "out": {
+          "P": 20,
+          "S": 24
+        }
+      },
+      {
+        "in": {
+          "a": 4,
+          "b": 4
+        },
+        "out": {
+          "P": 16,
+          "S": 16
+        }
+      },
+      {
+        "in": {
+          "a": 10,
+          "b": 10
+        },
+        "out": {
+          "P": 40,
+          "S": 100
+        }
+      },
+      {
+        "in": {
+          "a": 0,
+          "b": 4
+        },
+        "expect": "reject_out_of_range"
+      }
+    ]
+  },
+  "activity_graph": [
+    {
+      "id": "n1",
+      "type": "explain",
+      "teaches": "MC.perim_area_swap",
+      "complete": "tap_continue"
+    },
+    {
+      "id": "n2",
+      "type": "demo",
+      "action": "walk",
+      "teaches": "MC.perim_area_swap",
+      "hints": [
+        "看卷尺围一圈用了几米"
+      ],
+      "complete": "walk_done"
+    },
+    {
+      "id": "n3",
+      "type": "demo",
+      "action": "fill",
+      "teaches": "MC.perim_area_swap",
+      "hints": [
+        "数一数铺满用了几个样方"
+      ],
+      "complete": "fill_done"
+    },
+    {
+      "id": "n4",
+      "type": "predict",
+      "prompt": "卷尺都是 16 米时，样方一定一样多吗？",
+      "teaches": "MC.perim_area_swap",
+      "complete": "answered"
+    },
+    {
+      "id": "n5",
+      "type": "transfer",
+      "no_theme": true,
+      "items": [
+        "c1",
+        "c2",
+        "c3"
+      ],
+      "teaches": "MC.unit_len_vs_area",
+      "complete": "submitted_or_skipped"
+    },
+    {
+      "id": "n6",
+      "type": "chat",
+      "teaches": "MC.perim_area_swap",
+      "complete": "answered_or_skipped"
+    }
+  ],
+  "hotspots": [
+    {
+      "id": "fence",
+      "label": "卷尺",
+      "anchor": "fence",
+      "teaches": "MC.perim_area_swap",
+      "language_pack": {
+        "zh": "调查员沿着调查区的边拉一圈卷尺。拉一圈用了多少米，就是周长，单位是米。",
+        "en": [
+          "The tape goes all the way around the survey area. Its length is the perimeter.",
+          "perimeter — 周长。",
+          "Pull the tape around the edge."
+        ]
+      }
+    },
+    {
+      "id": "tile",
+      "label": "样方",
+      "anchor": "tile",
+      "teaches": "MC.perim_area_swap",
+      "language_pack": {
+        "zh": "白色方框叫样方，每个围住 1 平方米的海底。铺满调查区需要几个样方，就是面积。",
+        "en": [
+          "Each white frame covers one square metre of sea floor. The number of frames is the area.",
+          "quadrat — 样方；area — 面积。",
+          "Tap “放样方” and count the frames."
+        ]
+      }
+    },
+    {
+      "id": "unit",
+      "label": "单位",
+      "anchor": "unit",
+      "teaches": "MC.unit_len_vs_area",
+      "language_pack": {
+        "zh": "卷尺上一大格是 1 米；一个样方是 1 平方米。长度和面积用的单位不一样。",
+        "en": [
+          "One mark on the tape is one metre. One frame is one square metre.",
+          "metre, square metre — 米，平方米。",
+          "Point to one metre, then one square metre."
+        ]
+      }
+    },
+    {
+      "id": "shrimp",
+      "label": "螳螂虾的洞",
+      "anchor": "shrimp",
+      "teaches": "M.MEAS.length_cm_m",
+      "facts": [
+        {
+          "text": "孔雀螳螂虾成年体长常见约 10–18 厘米",
+          "ref": "待科学审核"
+        },
+        {
+          "text": "捕肢挥击速度最高约 23 米/秒",
+          "ref": "Patek, Korff & Caldwell 2004, Nature 428:819"
+        }
+      ],
+      "language_pack": {
+        "zh": "这是孔雀螳螂虾的洞口。孔雀螳螂虾成年后身长常见约 10 到 18 厘米，平时躲在珊瑚礁附近沙石里的洞中。它挥出捕肢的速度最快约每秒 23 米。比一比：它的身长和 1 米的样方边相比，差多少？",
+        "en": [
+          "This is the burrow of a peacock mantis shrimp. It is about 10 to 18 centimetres long.",
+          "mantis shrimp — 螳螂虾；centimetre — 厘米。",
+          "Compare its body with one metre."
+        ]
+      }
+    }
+  ],
+  "challenges": [
+    {
+      "id": "c1",
+      "prompt": "新的调查区长 5 米、宽 3 米。拉一圈卷尺要多少？铺满要几个 1 平方米的样方？",
+      "with_theme": true,
+      "answers": [
+        {
+          "field": "P",
+          "label": "卷尺",
+          "value": 16,
+          "unit": "米"
+        },
+        {
+          "field": "S",
+          "label": "样方",
+          "value": 15,
+          "unit": "平方米"
+        }
+      ],
+      "hints": [
+        "卷尺沿着边走：5+3+5+3。",
+        "样方是 3 行，每行 5 个。",
+        "卷尺量长度用“米”，样方数面积用“平方米”。"
+      ]
+    },
+    {
+      "id": "c2",
+      "prompt": "卷尺只有 16 米长。调查区的长和宽是多少时，能铺下的样方最多？",
+      "with_theme": true,
+      "answers": [
+        {
+          "field": "a",
+          "label": "长",
+          "value": 4,
+          "unit": "米"
+        },
+        {
+          "field": "b",
+          "label": "宽",
+          "value": 4,
+          "unit": "米"
+        },
+        {
+          "field": "S",
+          "label": "样方",
+          "value": 16,
+          "unit": "平方米"
+        }
+      ],
+      "hints": [
+        "长 + 宽 = 8。",
+        "试试 7 和 1、6 和 2、5 和 3、4 和 4。",
+        "比一比每种能放几个样方。"
+      ]
+    },
+    {
+      "id": "c3",
+      "prompt": "一个长方形长 7 厘米、宽 2 厘米。周长是多少？面积是多少？",
+      "with_theme": false,
+      "answers": [
+        {
+          "field": "P",
+          "label": "周长",
+          "value": 18,
+          "unit": "厘米"
+        },
+        {
+          "field": "S",
+          "label": "面积",
+          "value": 14,
+          "unit": "平方厘米"
+        }
+      ],
+      "hints": [
+        "7+2+7+2。",
+        "2 行，每行 7 个 1 平方厘米。",
+        "注意单位换成了厘米。"
+      ]
+    }
+  ],
+  "end_chat": {
+    "skippable": true,
+    "questions": [
+      {
+        "id": "q1",
+        "kind": "reflection",
+        "prompt": "今天两种方法，你更想用哪一种去研究一个新问题？",
+        "options": [
+          "拉卷尺围一圈",
+          "一格格铺样方",
+          "都想试",
+          "还没想好"
+        ]
+      },
+      {
+        "id": "wish",
+        "kind": "next_lesson_wish",
+        "prompt": "下一次课，你最想在哪里学数学？",
+        "options": [
+          "还是螳螂虾",
+          "高楼",
+          "大桥和隧道",
+          "机器人",
+          "昆虫"
+        ],
+        "allow_own_words": true
+      }
+    ]
+  },
+  "object_asset_versions": [
+    {
+      "asset_id": "T-sand-ripples",
+      "kind": "texture",
+      "realism": "pbr",
+      "ver": "1.0",
+      "license": "CC0",
+      "commercial_ok": true,
+      "source": "程序生成",
+      "depiction": "PBR 贴图",
+      "checked_by": "家长"
+    },
+    {
+      "asset_id": "M-pvc-quadrat",
+      "kind": "object",
+      "realism": "pbr_measured",
+      "ver": "1.0",
+      "license": "CC0",
+      "commercial_ok": true,
+      "source": "按 1 m × 1 m 实物建模",
+      "depiction": "写实",
+      "checked_by": "家长"
+    },
+    {
+      "asset_id": "M-survey-tape",
+      "kind": "object",
+      "realism": "pbr_measured",
+      "ver": "1.0",
+      "license": "CC0",
+      "commercial_ok": true,
+      "source": "按实物建模，刻度 0.25 m",
+      "depiction": "写实",
+      "checked_by": "家长"
+    },
+    {
+      "asset_id": "H-park-daylight",
+      "kind": "hdri",
+      "realism": "photo",
+      "ver": "1.0",
+      "license": "CC0",
+      "commercial_ok": true,
+      "source": "Poly Haven（经 npm @pmndrs/assets）",
+      "depiction": "实拍光照",
+      "checked_by": "家长"
+    }
+  ],
+  "pending_assets": [
+    {
+      "asset_id": "M-peacock-mantis-shrimp",
+      "kind": "organism",
+      "realism_required": "scan",
+      "status": "待采购：标本扫描、商用模型或依据照片 AI 生成",
+      "until_ready": "不展示该生物，只显示洞口和文字讲解"
+    }
+  ],
+  "assessment_plan": {
+    "in_lesson": [
+      "c1",
+      "c2",
+      "c3"
+    ],
+    "followup": "下一次真实作业中的周长、面积题",
+    "states": [
+      "未观察",
+      "待确认",
+      "有独立应用证据",
+      "需再支持"
+    ]
+  },
+  "offscreen": {
+    "task": "在纸上按 1:1 画一只 15 厘米长的螳螂虾，再用尺子量一量；或者用卷尺量一张地垫的长和宽，算一圈有多长、能铺几个 10 厘米 × 10 厘米的方格。",
+    "adult": true,
+    "materials": [
+      "尺子",
+      "卷尺",
+      "纸笔"
+    ],
+    "optional": true
+  },
+  "parent_tip": "问“哪个是一圈、哪个是铺满”，不要问“你懂了吗”。",
+  "source_refs": [
+    {
+      "id": "E01",
+      "for": "课标范围"
+    },
+    {
+      "id": "MATH-DEF",
+      "for": "周长、面积定义"
+    },
+    {
+      "id": "Patek2004",
+      "for": "螳螂虾挥击速度",
+      "url": "https://doi.org/10.1038/428819a"
+    }
+  ],
+  "distribution": {
+    "scope": "family",
+    "tenant_id": "family-001"
+  }
+}

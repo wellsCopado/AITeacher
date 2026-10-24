@@ -1,0 +1,48 @@
+{
+  "lesson_id": "L-ARR",
+  "version": "1.0",
+  "tenant_id": "family-001",
+  "for_child": "meimei",
+  "previous_version": null,
+  "trigger_judgment_ref": null,
+  "primary_concept": {
+    "id": "M2.MUL.meaning_groups",
+    "name": "乘法的意义（几个几）",
+    "target_misconceptions": [
+      "MC.mul_as_repeated_groups",
+      "MC.commutative_array"
+    ]
+  },
+  "prerequisites": [
+    "M1.COUNT.skip"
+  ],
+  "curriculum_mapping": {
+    "region": "上海",
+    "system": "五四制",
+    "grade": 2,
+    "term": "2026 秋",
+    "source": "沪学习 App 参考目录",
+    "publisher": "待核对",
+    "unit": "二年级第一学期 表内乘法（待核对）",
+    "status": "参考·待核对",
+    "verified_by": null,
+    "checked_on": "2026-10-24"
+  },
+  "learner_profile": {
+    "grade": 2,
+    "scaffold": [
+      "concrete_first",
+      "small_steps",
+      "repeatable"
+    ],
+    "language": {
+      "default": "zh",
+      "cycle_enabled": true
+    },
+    "recent_judgment_ref": null,
+    "est_minutes": [
+      8,
+      10
+    ]
+  }
+}

@@ -1,0 +1,125 @@
+{
+  "lesson": "L-ARR@1.0",
+  "ok": true,
+  "errors": 0,
+  "warnings": 1,
+  "results": [
+    {
+      "id": "V01",
+      "name": "LessonSpec 符合 Schema，组件参数符合组件自带 Schema",
+      "basis": "FR45",
+      "level": "error",
+      "ok": true,
+      "issues": []
+    },
+    {
+      "id": "V02",
+      "name": "参考算例全部通过（含零值与越界），公式只用安全四则运算",
+      "basis": "FR09 / AC05",
+      "level": "error",
+      "ok": true,
+      "issues": []
+    },
+    {
+      "id": "V03",
+      "name": "每个活动节点和热点都写了 teaches，且引用存在的知识点或误区",
+      "basis": "BL02",
+      "level": "error",
+      "ok": true,
+      "issues": []
+    },
+    {
+      "id": "V04",
+      "name": "每个热点都有中文讲解",
+      "basis": "FR13",
+      "level": "error",
+      "ok": true,
+      "issues": []
+    },
+    {
+      "id": "V05",
+      "name": "英文 3 条齐全（缺失时回落中文）",
+      "basis": "FR13 / BL06",
+      "level": "warn",
+      "ok": true,
+      "issues": []
+    },
+    {
+      "id": "V06",
+      "name": "只引用已审组件及其版本；Spec 中没有脚本、HTML 或代码",
+      "basis": "FR44",
+      "level": "error",
+      "ok": true,
+      "issues": []
+    },
+    {
+      "id": "V07",
+      "name": "每个素材有许可证和来源，已在资产库登记并采用，示意已标注",
+      "basis": "FR04 / FR05",
+      "level": "error",
+      "ok": true,
+      "issues": []
+    },
+    {
+      "id": "V08",
+      "name": "教材映射未核对时不标「已核对本年级」",
+      "basis": "R01 / BL04",
+      "level": "error",
+      "ok": true,
+      "issues": []
+    },
+    {
+      "id": "V09",
+      "name": "有迁移节点，且迁移题不带原主题",
+      "basis": "FR24 / R11",
+      "level": "error",
+      "ok": true,
+      "issues": []
+    },
+    {
+      "id": "V10",
+      "name": "重教版与上一版相比主表征有实质变化",
+      "basis": "FR24",
+      "level": "error",
+      "ok": true,
+      "issues": []
+    },
+    {
+      "id": "V11",
+      "name": "商用发布不得含仅家用素材",
+      "basis": "FR04",
+      "level": "error",
+      "ok": true,
+      "issues": []
+    },
+    {
+      "id": "V12",
+      "name": "含仅家用素材时提示：商用前需替换",
+      "basis": "FR04",
+      "level": "warn",
+      "ok": false,
+      "issues": [
+        {
+          "path": "$.object_asset_versions[1]",
+          "msg": "T-wood 仅限家用，商用前替换"
+        }
+      ]
+    },
+    {
+      "id": "V13",
+      "name": "写实底线：无卡通或简化生物；生物只用扫描、实拍或依据照片的 AI 生成；未到位不展示",
+      "basis": "BL14 / R04",
+      "level": "error",
+      "ok": true,
+      "issues": []
+    },
+    {
+      "id": "V14",
+      "name": "主题来自该孩子的兴趣记录；课末有「下一课心愿」；不含养殖经营",
+      "basis": "BL05 / BL12",
+      "level": "error",
+      "ok": true,
+      "issues": []
+    }
+  ]
+}

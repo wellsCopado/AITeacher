@@ -1,0 +1,275 @@
+{
+  "title": "一排排的积木：用阵列看懂乘法",
+  "scene_component_ids": [
+    "ArrayMultiplier@1.0"
+  ],
+  "component_params": {
+    "ArrayMultiplier": {
+      "rows": 3,
+      "cols": 4,
+      "theme": "blocks"
+    }
+  },
+  "experiment_model_version": {
+    "id": "array-mul",
+    "ver": "1.0.0",
+    "deterministic": true,
+    "vars": {
+      "rows": {
+        "unit": "行",
+        "min": 1,
+        "max": 9,
+        "step": 1
+      },
+      "cols": {
+        "unit": "个",
+        "min": 1,
+        "max": 9,
+        "step": 1
+      }
+    },
+    "outputs": {
+      "total": {
+        "expr": "rows*cols",
+        "unit": "个"
+      }
+    },
+    "reference_cases": [
+      {
+        "in": {
+          "rows": 3,
+          "cols": 4
+        },
+        "out": {
+          "total": 12
+        }
+      },
+      {
+        "in": {
+          "rows": 4,
+          "cols": 3
+        },
+        "out": {
+          "total": 12
+        }
+      },
+      {
+        "in": {
+          "rows": 1,
+          "cols": 9
+        },
+        "out": {
+          "total": 9
+        }
+      },
+      {
+        "in": {
+          "rows": 0,
+          "cols": 4
+        },
+        "expect": "reject_out_of_range"
+      }
+    ]
+  },
+  "activity_graph": [
+    {
+      "id": "n1",
+      "type": "explain",
+      "teaches": "MC.mul_as_repeated_groups",
+      "complete": "tap_continue"
+    },
+    {
+      "id": "n2",
+      "type": "demo",
+      "action": "reveal",
+      "teaches": "MC.mul_as_repeated_groups",
+      "hints": [
+        "一行一行地数"
+      ],
+      "complete": "reveal_done"
+    },
+    {
+      "id": "n3",
+      "type": "contrast",
+      "action": "rotate",
+      "teaches": "MC.commutative_array",
+      "hints": [
+        "转过来以后再数一数"
+      ],
+      "complete": "rotated"
+    },
+    {
+      "id": "n4",
+      "type": "transfer",
+      "no_theme": true,
+      "items": [
+        "c1",
+        "c2"
+      ],
+      "teaches": "MC.mul_as_repeated_groups",
+      "complete": "submitted_or_skipped"
+    },
+    {
+      "id": "n5",
+      "type": "chat",
+      "teaches": "MC.mul_as_repeated_groups",
+      "complete": "answered_or_skipped"
+    }
+  ],
+  "hotspots": [
+    {
+      "id": "row",
+      "label": "行",
+      "anchor": "row",
+      "teaches": "MC.mul_as_repeated_groups",
+      "language_pack": {
+        "zh": "这是一行。每一行的方块一样多，所以可以一行一行地加。",
+        "en": [
+          "This is a row. Every row has the same number of blocks.",
+          "row — 行。One row, two rows, three rows.",
+          "Tap “一行一行摆” to add one more row."
+        ]
+      }
+    },
+    {
+      "id": "col",
+      "label": "列",
+      "anchor": "col",
+      "teaches": "MC.commutative_array",
+      "language_pack": {
+        "zh": "这是一列。竖着看，也能数出一样的总数。",
+        "en": [
+          "This is a column. Count down the column.",
+          "column — 列。",
+          "Turn the blocks and count the columns again."
+        ]
+      }
+    },
+    {
+      "id": "total",
+      "label": "总数",
+      "anchor": "total",
+      "teaches": "MC.mul_as_repeated_groups",
+      "language_pack": {
+        "zh": "一共有多少块？可以一个一个数，也可以用乘法：行数乘每行的个数。",
+        "en": [
+          "How many blocks in all? Rows times blocks in each row.",
+          "in all — 一共。",
+          "Say the multiplication out loud."
+        ]
+      }
+    }
+  ],
+  "challenges": [
+    {
+      "id": "c1",
+      "prompt": "4 行，每行 3 个，一共几个？写成乘法。",
+      "with_theme": false,
+      "answers": [
+        {
+          "field": "rows",
+          "value": 4
+        },
+        {
+          "field": "cols",
+          "value": 3
+        },
+        {
+          "field": "total",
+          "value": 12,
+          "unit": "个"
+        }
+      ],
+      "hints": [
+        "一行一行摆：3+3+3+3。",
+        "有 4 个 3。",
+        "4 × 3 = ?"
+      ]
+    },
+    {
+      "id": "c2",
+      "prompt": "3 × 4 和 4 × 3 一样多吗？",
+      "with_theme": false,
+      "answers": [
+        {
+          "field": "choice",
+          "value": "一样多"
+        }
+      ],
+      "hints": [
+        "把方块转个方向试试。"
+      ]
+    }
+  ],
+  "end_chat": {
+    "skippable": true,
+    "questions": [
+      {
+        "id": "q1",
+        "kind": "reflection",
+        "prompt": "今天你最喜欢哪一步？",
+        "options": [
+          "一行一行摆",
+          "转个方向",
+          "自己做题",
+          "都喜欢"
+        ]
+      },
+      {
+        "id": "wish",
+        "kind": "next_lesson_wish",
+        "prompt": "下一次课，你想和什么一起学数学？",
+        "options": [
+          "海洋动物",
+          "小虫子",
+          "花和植物",
+          "做手工",
+          "画画",
+          "音乐"
+        ],
+        "allow_own_words": true
+      }
+    ]
+  },
+  "assessment_plan": {
+    "in_lesson": [
+      "c1",
+      "c2"
+    ],
+    "followup": "下一次真实作业中的乘法意义题",
+    "states": [
+      "未观察",
+      "待确认",
+      "有独立应用证据",
+      "需再支持"
+    ]
+  },
+  "offscreen": {
+    "task": "用纽扣或积木摆 3 行、每行 4 个，再转过来数一数。",
+    "adult": true,
+    "materials": [
+      "纽扣或积木"
+    ],
+    "optional": true
+  },
+  "parent_tip": "请她说“有几个几”，不急着背口诀。",
+  "source_refs": [
+    {
+      "id": "E01",
+      "for": "课标范围"
+    },
+    {
+      "id": "MATH-DEF",
+      "for": "乘法意义定义"
+    }
+  ],
+  "theme": {
+    "id": "blocks",
+    "name": "积木方块",
+    "skin": "blocks",
+    "interest_refs": [],
+    "neutral": true,
+    "why": "还没有孩子自述的兴趣，先用中性题材",
+    "no_husbandry": true
+  }
+}

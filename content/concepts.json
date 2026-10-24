@@ -1,0 +1,8 @@
+{
+  "M3.MEAS.perimeter_vs_area": { "name": "周长与面积的区别", "misconceptions": ["MC.unit_len_vs_area", "MC.perim_area_swap"] },
+  "M2.MEAS.length_metre": { "name": "长度单位：米与厘米", "misconceptions": [] },
+  "M.MEAS.length_cm_m": { "name": "厘米与米的比较", "misconceptions": [] },
+  "M2.MUL.table": { "name": "表内乘法", "misconceptions": [] },
+  "M2.MUL.meaning_groups": { "name": "乘法的意义（几个几）", "misconceptions": ["MC.mul_as_repeated_groups", "MC.commutative_array"] },
+  "M1.COUNT.skip": { "name": "几个几地数", "misconceptions": [] }
+}

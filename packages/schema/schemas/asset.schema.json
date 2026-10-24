@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-discovery-world/schemas/asset-1.0.json",
+  "title": "Asset registry entry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["asset_id", "kind", "realism", "version", "source", "license", "commercial_ok", "depiction", "status"],
+  "properties": {
+    "asset_id": { "type": "string", "pattern": "^[A-Z]-[a-z0-9-]+$" },
+    "name": { "type": "string" },
+    "kind": { "enum": ["organism", "object", "texture", "hdri", "photo"] },
+    "realism": { "enum": ["scan", "photo", "ai_from_photo", "pbr_measured", "pbr", "stylized"] },
+    "version": { "type": "string" },
+    "file": {
+      "type": ["object", "null"], "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": { "path": { "type": "string" }, "sha256": { "type": "string" } }
+    },
+    "source": { "type": "string" },
+    "license": { "type": "string" },
+    "commercial_ok": { "type": "boolean" },
+    "real_scale": { "type": "string" },
+    "depiction": { "type": "string" },
+    "reference_photos": { "type": "array", "items": { "type": "string" } },
+    "checked_by": { "type": ["string", "null"] },
+    "status": { "enum": ["采用", "采用标记", "拒绝", "待采购"] },
+    "note": { "type": "string" }
+  }
+}

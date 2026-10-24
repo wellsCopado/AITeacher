@@ -1,0 +1,954 @@
+<title>AI Discovery World 原型</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: graph-paper workbench. A sticky top bar switches between four roles; the child view sits inside a tablet frame. */
+:root{
+  --bg:#eef2f7; --surface:#ffffff; --surface-2:#f6f8fb; --ink:#16213a; --muted:#5a6578; --line:#d6dde8;
+  --grid:rgba(37,87,214,.07); --accent:#2557d6; --accent-ink:#ffffff; --accent-soft:#e3ebff;
+  --mark:#e9821c; --mark-soft:#fff1e2; --good:#1d8657; --good-soft:#e2f4ea; --warn:#a86b0f; --warn-soft:#fff4dc;
+  --bad:#c03b35; --bad-soft:#fde8e6; --zh:#c03b35; --en:#2557d6; --scene:#e7edf6; --pad:#1b2233;
+  --f-display:"ZCOOL KuaiLe","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+  --f-body:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0e131d; --surface:#161d2b; --surface-2:#1c2434; --ink:#e5eaf3; --muted:#97a2b6; --line:#2a3447;
+  --grid:rgba(111,148,255,.07); --accent:#7097ff; --accent-ink:#0b1020; --accent-soft:#1d2b4f;
+  --mark:#ffa04a; --mark-soft:#3a2a17; --good:#4cc68c; --good-soft:#163527; --warn:#e9b04f; --warn-soft:#382b12;
+  --bad:#ff7a72; --bad-soft:#3d1c1b; --zh:#ff7a72; --en:#7097ff; --scene:#1a2232; --pad:#05070b; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e131d; --surface:#161d2b; --surface-2:#1c2434; --ink:#e5eaf3; --muted:#97a2b6; --line:#2a3447;
+  --grid:rgba(111,148,255,.07); --accent:#7097ff; --accent-ink:#0b1020; --accent-soft:#1d2b4f;
+  --mark:#ffa04a; --mark-soft:#3a2a17; --good:#4cc68c; --good-soft:#163527; --warn:#e9b04f; --warn-soft:#382b12;
+  --bad:#ff7a72; --bad-soft:#3d1c1b; --zh:#ff7a72; --en:#7097ff; --scene:#1a2232; --pad:#05070b; color-scheme:dark}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:14px;line-height:1.6;
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:24px 24px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--surface)}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.mono{font-family:var(--f-mono);font-size:12px}
+.tnum{font-variant-numeric:tabular-nums}
+h1,h2,h3{text-wrap:balance;margin:0;line-height:1.3}
+p{margin:0}
+
+/* top bar */
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--surface);border-bottom:1px solid var(--line);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:10px}
+.top-in{max-width:1280px;margin:0 auto;display:flex;flex-wrap:wrap;gap:10px 20px;align-items:center}
+.brand{display:flex;align-items:baseline;gap:10px}
+.brand b{font-family:var(--f-display);font-size:20px;font-weight:400;letter-spacing:.02em}
+.brand span{color:var(--muted);font-size:12px}
+.roles{display:flex;gap:4px;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:3px;flex-wrap:wrap}
+.roles button{border:0;background:transparent;padding:6px 12px;border-radius:7px;font-weight:500;color:var(--muted)}
+.roles button[aria-selected="true"]{background:var(--accent);color:var(--accent-ink)}
+.clock{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;color:var(--muted);font-size:12px}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:6px 12px;font-weight:500}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.mark{background:var(--mark);border-color:var(--mark);color:#1b1206}
+.btn.ghost{background:transparent}
+.btn.sm{padding:3px 9px;font-size:12px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+main{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 48px}
+.wrap{max-width:1280px;margin:0 auto}
+.view-head{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline;margin-bottom:14px}
+.view-head h2{font-size:20px}
+.view-head p{color:var(--muted);max-width:70ch}
+.fr{display:inline-block;font-family:var(--f-mono);font-size:10.5px;padding:0 5px;border-radius:4px;border:1px solid var(--line);color:var(--muted);background:var(--surface-2);vertical-align:middle;white-space:nowrap}
+.chip{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:1px 8px;border-radius:999px;border:1px solid var(--line);background:var(--surface-2);white-space:nowrap}
+.chip.good{background:var(--good-soft);border-color:transparent;color:var(--good)}
+.chip.warn{background:var(--warn-soft);border-color:transparent;color:var(--warn)}
+.chip.bad{background:var(--bad-soft);border-color:transparent;color:var(--bad)}
+.chip.acc{background:var(--accent-soft);border-color:transparent;color:var(--accent)}
+.chip.mk{background:var(--mark-soft);border-color:transparent;color:var(--mark)}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;min-width:0}
+.panel h3{font-size:15px;margin-bottom:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.muted{color:var(--muted)}
+.small{font-size:12px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.stack{display:flex;flex-direction:column;gap:10px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-weight:600;color:var(--muted);font-size:12px;white-space:nowrap}
+.note{border-left:3px solid var(--mark);background:var(--mark-soft);padding:8px 12px;border-radius:0 8px 8px 0;font-size:13px}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:9px;z-index:50;font-size:13px;max-width:min(90vw,520px)}
+label.f{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted)}
+label.f input,label.f select,label.f textarea{border:1px solid var(--line);background:var(--surface);border-radius:7px;padding:6px 8px;font-size:13px;color:var(--ink)}
+.subtabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:14px;overflow-x:auto}
+.subtabs button{border:0;background:transparent;padding:8px 12px;color:var(--muted);border-bottom:2px solid transparent;white-space:nowrap;font-weight:500}
+.subtabs button[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* child tablet */
+.child-layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;align-items:start}
+@media (max-width:1000px){.child-layout{grid-template-columns:1fr}}
+.pad{background:var(--pad);border-radius:28px;padding:14px;box-shadow:0 18px 40px rgba(10,20,40,.18)}
+.screen{background:var(--surface-2);border-radius:16px;overflow:hidden;min-height:620px;display:flex;flex-direction:column;position:relative}
+.sbar{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:8px 14px;background:var(--surface);border-bottom:1px solid var(--line);font-size:12px;flex-wrap:wrap}
+.sbody{padding:16px;flex:1;display:flex;flex-direction:column;gap:14px;min-width:0}
+.kid h1,.kid h2,.kid .disp{font-family:var(--f-display);font-weight:400;letter-spacing:.02em}
+.pick{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
+.pick button{border:2px solid var(--line);background:var(--surface);border-radius:16px;padding:22px;text-align:left;display:flex;flex-direction:column;gap:6px}
+.pick button:hover{border-color:var(--accent)}
+.pick .ava{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;font-family:var(--f-display);font-size:24px;background:var(--accent-soft);color:var(--accent)}
+.pick .ava.m{background:var(--mark-soft);color:var(--mark)}
+.today{background:var(--surface);border:2px solid var(--accent);border-radius:16px;padding:18px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center}
+@media (max-width:560px){.today{grid-template-columns:1fr}}
+.today h2{font-size:22px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.tile h3{font-size:14px}
+.lockrow{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:6px 0;border-top:1px dashed var(--line);font-size:13px;flex-wrap:wrap}
+.steps{display:flex;gap:6px;flex-wrap:wrap}
+.steps span{font-size:12px;padding:3px 10px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+.steps span.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.steps span.done{color:var(--good);border-color:var(--good)}
+.lesson-head{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center}
+.pending-card{position:absolute;left:50%;top:14px;transform:translateX(-50%);background:rgba(15,23,32,.82);color:#fff;border-radius:10px;padding:8px 14px;font-size:13px;line-height:1.5;max-width:78%;text-align:center;pointer-events:none}
+.stage{position:relative;border-radius:12px;overflow:hidden;background:#9fb0a0;aspect-ratio:16/10;max-width:100%;touch-action:none;user-select:none}
+.stage canvas{display:block;width:100%;height:100%}
+.hs{position:absolute;transform:translate(-50%,-50%);border:1px solid rgba(255,255,255,.55);background:rgba(12,16,24,.62);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);color:#fff;border-radius:6px;padding:3px 9px 3px 20px;font-size:12px;font-weight:500;white-space:nowrap}
+.hs::before{content:"";position:absolute;left:8px;top:50%;width:6px;height:6px;margin-top:-3px;border-radius:50%;background:#ffd166;box-shadow:0 0 0 3px rgba(255,209,102,.25)}
+.loading3d{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:13px}
+.hs.dim{background:var(--surface);color:var(--ink);border-color:var(--line);font-weight:500}
+.dimlab{position:absolute;transform:translate(-50%,-50%);font-family:var(--f-mono);font-size:11px;background:rgba(255,255,255,.85);color:#16213a;padding:0 5px;border-radius:4px;pointer-events:none;opacity:.92}
+.stage-tools{position:absolute;left:10px;top:10px;display:flex;flex-direction:column;gap:6px}
+.stage-tools button{width:36px;height:36px;border-radius:9px;border:1px solid var(--line);background:var(--surface);font-size:15px}
+.badge-sim{position:absolute;right:10px;top:10px;font-size:11px;background:var(--surface);border:1px solid var(--line);padding:2px 8px;border-radius:6px}
+.sub{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);width:min(92%,560px);background:rgba(10,15,25,.82);color:#fff;border-radius:10px;padding:8px 12px;font-size:13px}
+.sub .tag{font-size:11px;padding:0 6px;border-radius:4px;margin-right:6px;background:#fff;color:#111}
+.demo-grid{display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:12px}
+@media (max-width:820px){.demo-grid{grid-template-columns:1fr}}
+.ctrl{display:flex;flex-direction:column;gap:10px}
+.ctrl .slider{display:flex;flex-direction:column;gap:2px}
+.ctrl .slider div{display:flex;justify-content:space-between}
+.ctrl input[type=range]{width:100%;accent-color:var(--accent)}
+.formula{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px;font-size:13px}
+.formula .big{font-family:var(--f-mono);font-size:16px;font-weight:600}
+.alt{display:flex;flex-wrap:wrap;gap:6px}
+.lang{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
+.lang select{border:1px solid var(--line);border-radius:7px;padding:3px 6px;background:var(--surface);font-size:12px}
+.dots{display:inline-flex;gap:3px;vertical-align:middle}
+.dots i{width:16px;height:16px;border-radius:4px;font-style:normal;font-size:10px;display:grid;place-items:center;border:1px solid var(--line);color:var(--muted)}
+.dots i.zh{color:var(--zh)} .dots i.en{color:var(--en)}
+.dots i.next{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.q{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:8px}
+.q input.ans{width:64px;border:1px solid var(--line);border-radius:7px;padding:4px 6px;text-align:center;background:var(--surface-2)}
+.opt{display:flex;gap:8px;flex-wrap:wrap}
+.opt button{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:8px 14px}
+.opt button[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft)}
+.side .panel{margin-bottom:12px}
+.log{max-height:220px;overflow:auto;font-family:var(--f-mono);font-size:11px;display:flex;flex-direction:column;gap:2px}
+.log div{padding:2px 0;border-bottom:1px dashed var(--line)}
+.overlay{position:absolute;inset:0;background:rgba(10,15,25,.45);display:grid;place-items:center;z-index:5;padding:16px}
+.dialog{background:var(--surface);border-radius:14px;padding:18px;max-width:380px;display:flex;flex-direction:column;gap:10px}
+
+/* studio */
+.studio{display:grid;grid-template-columns:250px minmax(0,1fr);gap:14px;align-items:start}
+@media (max-width:860px){.studio{grid-template-columns:1fr}}
+.pipe{display:flex;flex-direction:column;gap:0;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.pipe button{display:grid;grid-template-columns:26px 1fr auto;gap:8px;align-items:center;text-align:left;border:0;border-bottom:1px solid var(--line);background:transparent;padding:10px 12px}
+.pipe button:last-child{border-bottom:0}
+.pipe button[aria-selected="true"]{background:var(--accent-soft)}
+.pipe .n{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;border:1.5px solid var(--line)}
+.pipe .ok .n{background:var(--good);border-color:var(--good);color:#fff}
+.pipe .fail .n{background:var(--bad);border-color:var(--bad);color:#fff}
+.pipe .run .n{border-color:var(--accent);color:var(--accent)}
+pre.json{background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:12px;overflow:auto;max-height:520px;font-family:var(--f-mono);font-size:11.5px;line-height:1.5;margin:0}
+.statebar{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px}
+.statebar span{font-size:11px;padding:2px 8px;border-radius:6px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+.statebar span.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.statebar span.past{color:var(--good);border-color:var(--good)}
+.rule{display:grid;grid-template-columns:22px minmax(0,1fr);gap:8px;padding:6px 0;border-bottom:1px dashed var(--line);font-size:13px}
+.rule .ic{font-weight:700}
+.hw{display:grid;grid-template-columns:minmax(0,340px) minmax(0,1fr);gap:14px}
+@media (max-width:860px){.hw{grid-template-columns:1fr}}
+.photo{background:#fbfaf4;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.photo svg{display:block;width:100%;height:auto}
+.judg{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.judg .cell{border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--surface-2)}
+.judg .cell h4{margin:0 0 4px;font-size:13px}
+.srcgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.src{border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--surface-2);display:flex;flex-direction:column;gap:4px}
+.consent{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px 12px;align-items:start;padding:8px 0;border-bottom:1px solid var(--line)}
+textarea.card{width:100%;min-height:200px;border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--surface-2);font-size:13px;line-height:1.7}
+@media (max-width:640px){.top{position:static}.brand span{display:none}.roles button{padding:5px 9px}}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<header class="top">
+  <div class="top-in">
+    <div class="brand"><b>AI Discovery World</b><span>可交互系统原型 · 对应 PRD V1.1 + 审计修正</span></div>
+    <nav class="roles" role="tablist" aria-label="角色">
+      <button role="tab" data-view="child" id="tab-child">儿童端 Pad</button>
+      <button role="tab" data-view="parent" id="tab-parent">家长端</button>
+      <button role="tab" data-view="studio" id="tab-studio">Skill 制作台</button>
+      <button role="tab" data-view="spec" id="tab-spec">规格对照</button>
+    </nav>
+    <div class="clock"><span>服务器日期 <b class="tnum" id="srvDate"></b> · Asia/Shanghai</span>
+      <button class="btn sm" id="nextDay" title="FR55：跨日先保存再锁定">模拟跨日</button>
+      <button class="btn sm ghost" id="resetAll">重置原型</button></div>
+  </div>
+</header>
+<main><div class="wrap" id="app"></div></main>
+<div id="toast" class="toast" hidden></div>
+
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+<script>/*ASSETS*/</script>
+<script type="module">/*ENGINE*/</script>
+<script>
+/* ============ data ============ */
+const BASE_DATE = new Date('2026-10-24T00:00:00+08:00');
+const CHILDREN = {
+  gege:{id:'gege',name:'哥哥',grade:'小学四年级',gradeN:4,ava:'哥',mins:'10–15 分钟',scaffold:'快速进入挑战 · 短提示 · 允许自由实验并说明理由'},
+  meimei:{id:'meimei',name:'妹妹',grade:'小学二年级',gradeN:2,ava:'妹',mins:'8–10 分钟',scaffold:'具体实物 · 小步演示 · 可重复操作 · 留出等待时间'}
+};
+const HOTSPOTS = {
+  ArrayMultiplier:[
+    {id:'row',label:'行',teaches:'MC.mul_as_repeated_groups',zh:'这是一行。每一行的方块一样多，所以可以一行一行地加。',en:['This is a row. Every row has the same number of blocks.','row — 行。One row, two rows, three rows.','Tap “加一行” to add one more row.']},
+    {id:'col',label:'列',teaches:'MC.commutative_array',zh:'这是一列。竖着看，也能数出一样的总数。',en:['This is a column. Count down the column.','column — 列。','Turn the blocks and count the columns again.']},
+    {id:'total',label:'总数',teaches:'MC.mul_as_repeated_groups',zh:'一共有多少块？可以一个一个数，也可以用乘法：行数乘每行的个数。',en:['How many blocks in all? Rows times blocks in each row.','in all — 一共。','Say the multiplication out loud.']}
+  ],
+  Reef:[
+    {id:'fence',label:'卷尺',teaches:'MC.perim_area_swap',zh:'调查员沿着调查区的边拉一圈卷尺。拉一圈用了多少米，就是周长，单位是米。',en:['The tape goes all the way around the survey area. Its length is the perimeter.','perimeter — 周长。','Pull the tape around the edge.']},
+    {id:'tile',label:'样方',teaches:'MC.perim_area_swap',zh:'白色方框叫样方，每个围住 1 平方米的海底。铺满调查区需要几个样方，就是面积。',en:['Each white frame covers one square metre of sea floor. The number of frames is the area.','quadrat — 样方；area — 面积。','Tap “放样方” and count the frames.']},
+    {id:'unit',label:'单位',teaches:'MC.unit_len_vs_area',zh:'卷尺上一大格是 1 米；一个样方是 1 平方米。长度和面积用的单位不一样。',en:['One mark on the tape is one metre. One frame is one square metre.','metre, square metre — 米，平方米。','Point to one metre, then one square metre.']},
+    {id:'shrimp',label:'螳螂虾的洞',teaches:'M.MEAS.length_cm_m',zh:'这是孔雀螳螂虾的洞口。孔雀螳螂虾成年后身长常见约 10 到 18 厘米，平时躲在珊瑚礁附近沙石里的洞中。它挥出捕肢的速度最快约每秒 23 米。比一比：它的身长和 1 米的样方边相比，差多少？',en:['This is a peacock mantis shrimp. It is about 10 to 18 centimetres long.','mantis shrimp — 螳螂虾；centimetre — 厘米。','Compare its body with one metre.']}
+  ],
+  PerimeterArea:[
+    {id:'fence',label:'围栏',teaches:'MC.perim_area_swap',zh:'围栏沿着边界围一圈。围一圈的总长度叫周长，单位是米。',en:['The fence goes all the way around. Its length is the perimeter.','perimeter — 周长。','Roll the measuring wheel along the fence.']},
+    {id:'tile',label:'地砖',teaches:'MC.perim_area_swap',zh:'把里面铺满，用了多少块一平方米的地砖，就是面积。',en:['Cover the inside with tiles. The number of tiles is the area.','area — 面积。','Tap “铺地砖” and count the tiles.']},
+    {id:'unit',label:'单位',teaches:'MC.unit_len_vs_area',zh:'一段围栏长一米；一块地砖是一平方米。长度和面积的单位不一样。',en:['One fence piece is one metre. One tile is one square metre.','metre, square metre — 米，平方米。','Point to one metre, then one square metre.']}
+  ]
+};
+function initialState(){
+  return {
+    day:0, view:'child', child:null, curKey:null, kidScreen:'home', confirmSwitch:null,
+    lang:{gege:{mode:'zh',muted:false,rate:1},meimei:{mode:'zh',muted:false,rate:1}},
+    failAudio:false, pointers:{},
+    library:[
+      {id:'L-ARR',ver:'1.0',title:'一排排的积木：用阵列看懂乘法',concept:'乘法的意义（几个几）',component:'ArrayMultiplier',interest:null,for:'meimei',mapping:'参考 · 待核对',mapNote:'沪学习参考：二年级第一学期 表内乘法；学校进度未核对，不显示“同步”',theme:'积木方块',hash:'sha256:9c1e…a07b',status:'已发布'},
+      {id:'L-PA',ver:'1.0',title:'珊瑚礁海底调查：螳螂虾的家有多大',concept:'周长与面积的区别',component:'PerimeterArea',theme:'reef',interest:'螳螂虾（孩子自述）',for:'gege',mapping:'先修补强',mapNote:'周长面积一般在三年级学习，对四年级为先修补强',themeName:'珊瑚礁样方调查',hash:'sha256:41bd…e3c2',status:'已发布'},
+      {id:'L-MS',ver:'0.9',title:'秤和杯子：总量与部分',concept:'总量 = 部分 + 部分',component:'—',for:'gege',mapping:'兴趣拓展',mapNote:'',theme:'厨房称量',hash:'sha256:77aa…0c91',status:'已发布'},
+      {id:'L-CNT',ver:'1.0',title:'两个两个地数',concept:'几个几的计数',component:'—',for:'meimei',mapping:'参考 · 待核对',mapNote:'',theme:'纽扣',hash:'sha256:20f3…bb18',status:'已发布'}
+    ],
+    assign:[
+      {child:'gege',day:0,lesson:'L-PA@1.0'},{child:'meimei',day:0,lesson:'L-ARR@1.0'},
+      {child:'gege',day:-2,lesson:'L-MS@0.9'},{child:'meimei',day:-1,lesson:'L-CNT@1.0'}
+    ],
+    requests:[], grants:[],
+    sess:{}, works:[], questions:[], wishes:[],
+    interests:[
+      {id:'IO-0003',child:'gege',topic:'螳螂虾',src:'孩子自述',when:'2026-10',state:'近期最喜欢'},
+      {id:'IO-0002',child:'gege',topic:'昆虫',src:'家长报告',when:'2026-09',state:'长期喜欢'},
+      {id:'IO-0004',child:'gege',topic:'高楼',src:'家长报告',when:'2026-10',state:'有时喜欢'},
+      {id:'IO-0005',child:'gege',topic:'大桥和隧道',src:'家长报告',when:'2026-10',state:'有时喜欢'},
+      {id:'IO-0006',child:'gege',topic:'机器人',src:'家长报告',when:'2026-10',state:'有时喜欢'},
+      {id:'IO-0001',child:'gege',topic:'枪械',src:'家长报告',when:'2026-09',state:'只转成机械、工程题材（FR28）'}
+    ],
+    feedback:[
+      {who:'teacher_via_parent',label:'家长转述老师',text:'这周数学课上有三次离开座位。',ctx:'10月21日 家长群消息',kind:'观察'},
+      {who:'parent',label:'家长',text:'我觉得他缺少自律。',ctx:'10月22日 晚饭后',kind:'观察者解释'},
+      {who:'child',label:'孩子自述',text:'听不懂的时候就不想听了。',ctx:'10月22日 睡前聊天',kind:'自述'},
+      {who:'ai',label:'AI 推测',text:'可能有先修缺口，导致听课吃力。待验证：做 2 道三年级周长面积题。',ctx:'由作业 HW-1023 生成',kind:'待验证推测'}
+    ],
+    consent:{core:true,homework:true,interest:true,endq:true,voice:false,external:null,share:false},
+    hw:{stage:'idle',mode:'full',fixed:{}},
+    studio:{stage:0,results:{},fixApplied:false,review:{},published:false,source:'manual'},
+    subtab:{parent:'today',studio:'pipe'}
+  };
+}
+let S = initialState();
+const today = ()=> S.day;
+function dateStr(off){const d=new Date(BASE_DATE.getTime()+off*864e5);
+  const p=new Date(d.toLocaleString('en-US',{timeZone:'Asia/Shanghai'}));return `${p.getFullYear()}-${String(p.getMonth()+1).padStart(2,'0')}-${String(p.getDate()).padStart(2,'0')} 周${'日一二三四五六'[p.getDay()]}`}
+function md(off){const p=new Date(new Date(BASE_DATE.getTime()+off*864e5).toLocaleString('en-US',{timeZone:'Asia/Shanghai'}));return `${p.getMonth()+1}月${p.getDate()}日`}
+const lessonByKey = k=>{const [id,ver]=k.split('@');return S.library.find(l=>l.id===id&&l.ver===ver)};
+const esc = s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.hidden=false;clearTimeout(toast._t);toast._t=setTimeout(()=>t.hidden=true,2600)}
+function now(){const d=new Date();return d.toTimeString().slice(0,8)}
+function sessFor(c,key){const k=c+'|'+key;if(!S.sess[k])S.sess[k]={step:0,log:[],helps:0,ch:{},end:null,started:false,modesSeen:{},lessonKey:key};return S.sess[k]}
+function sess(){return sessFor(S.child,S.curKey)}
+function todaySess(c){const a=todayAssign(c);return a?S.sess[c+'|'+a.lesson]:null}
+
+/* ============ routing ============ */
+const app = document.getElementById('app');
+function setView(v){S.view=v;try{history.replaceState(null,'','#'+v)}catch(e){}render()}
+document.querySelectorAll('.roles button').forEach(b=>b.onclick=()=>setView(b.dataset.view));
+document.getElementById('nextDay').onclick=()=>{
+  const c=S.child; let msg='已进入下一天。';
+  Object.entries(S.sess).forEach(([k,s])=>{if(s.started&&s.step<4){s.log.push(`${now()} 跨日：已保存当前结果（步骤 ${s.step+1}），课程锁定`);s.savedAtCut=true;msg='跨日：未完成的学习已先保存，今天的课程现已锁定，需要父母安排或授权。'}});
+  S.day++; S.curKey=null; S.kidScreen='home'; disposeScene(); render(); toast(msg)};
+document.getElementById('resetAll').onclick=()=>{disposeScene();S=initialState();render();toast('原型已重置')};
+
+/* ============ render root ============ */
+function render(){
+  document.getElementById('srvDate').textContent=dateStr(S.day);
+  document.querySelectorAll('.roles button').forEach(b=>b.setAttribute('aria-selected',b.dataset.view===S.view));
+  if(S.view!=='child'||S.kidScreen!=='lesson'||sess().step!==1) disposeScene();
+  ({child:renderChild,parent:renderParent,studio:renderStudio,spec:renderSpec})[S.view]();
+}
+
+/* ============ CHILD ============ */
+function todayAssign(c){return S.assign.find(a=>a.child===c&&a.day===S.day)}
+function activeGrant(c,key){return S.grants.find(g=>g.child===c&&g.lesson===key&&!g.revoked&&g.untilDay>=S.day)}
+function renderChild(){
+  const c=S.child;
+  app.innerHTML=`<div class="view-head"><h2>儿童端</h2><p>Pad 轻 App 的界面。孩子只能打开当天安排的课程；历史课程需要父母按人按课授权。<span class="fr">J01</span> <span class="fr">FR55</span> <span class="fr">FR06–13</span></p></div>
+  <div class="child-layout"><div class="pad"><div class="screen kid" id="screen"></div></div><aside class="side" id="kidSide"></aside></div>`;
+  const scr=document.getElementById('screen');
+  const childName=c?CHILDREN[c].name:'未选择';
+  scr.innerHTML=`<div class="sbar"><span>${md(S.day)} · ${c?esc(CHILDREN[c].name+' · '+CHILDREN[c].grade):'请选择学习者'}</span>
+    <span class="row">${c?langControl():''}${c?`<button class="btn sm" id="switchKid">换人</button>`:''}</span></div><div class="sbody" id="sbody"></div>`;
+  const body=document.getElementById('sbody');
+  if(!c){body.innerHTML=kidPicker();bindPicker();}
+  else if(S.kidScreen==='lesson')renderLesson(body);
+  else renderKidHome(body);
+  if(S.confirmSwitch){scr.insertAdjacentHTML('beforeend',`<div class="overlay"><div class="dialog"><h3 class="disp">要换人吗？</h3><p class="small muted">换人会关闭${esc(childName)}的页面并清除本机缓存，不会显示${esc(childName)}的作品和记录。<span class="fr">FR51</span></p><div class="row"><button class="btn primary" id="cfYes">换人</button><button class="btn" id="cfNo">取消</button></div></div></div>`);
+    document.getElementById('cfYes').onclick=()=>{S.confirmSwitch=null;S.child=null;S.curKey=null;S.kidScreen='home';disposeScene();render()};
+    document.getElementById('cfNo').onclick=()=>{S.confirmSwitch=null;render()};}
+  const sw=document.getElementById('switchKid'); if(sw) sw.onclick=()=>{S.confirmSwitch=true;render()};
+  bindLang();
+  renderKidSide();
+}
+function kidPicker(){return `<div style="text-align:center;padding-top:20px"><h1 style="font-size:30px">今天谁来探索？</h1><p class="muted small">每个人有自己的课程和作品，互相看不到，也不比较。<span class="fr">BL05</span></p></div>
+  <div class="pick">${Object.values(CHILDREN).map(k=>`<button data-k="${k.id}"><span class="ava ${k.id==='meimei'?'m':''}">${k.ava}</span><span class="disp" style="font-size:22px">${k.name}</span><span class="muted small">${k.grade}</span></button>`).join('')}</div>`}
+function bindPicker(){document.querySelectorAll('.pick button').forEach(b=>b.onclick=()=>{S.child=b.dataset.k;S.kidScreen='home';render()})}
+function langControl(){const L=S.lang[S.child];return `<span class="lang"><select id="langMode" aria-label="讲解语言">
+  <option value="zh"${L.mode==='zh'?' selected':''}>中文</option><option value="en"${L.mode==='en'?' selected':''}>英文</option>
+  <option value="bi"${L.mode==='bi'?' selected':''}>双语辅助</option><option value="cycle"${L.mode==='cycle'?' selected':''}>1 中 3 英循环</option></select>
+  <button class="btn sm" id="muteBtn" aria-pressed="${L.muted}">${L.muted?'已静音':'有声'}</button></span>`}
+function bindLang(){const m=document.getElementById('langMode');if(m)m.onchange=()=>{const old=S.lang[S.child].mode;S.lang[S.child].mode=m.value;
+  if(m.value==='cycle'&&old!=='cycle')toast('已开启 1 中 3 英循环。随时可以改回中文，不影响学习记录。');render()};
+  const mu=document.getElementById('muteBtn');if(mu)mu.onclick=()=>{S.lang[S.child].muted=!S.lang[S.child].muted;try{speechSynthesis.cancel()}catch(e){}render()}}
+
+function renderKidHome(body){
+  const c=S.child, a=todayAssign(c), L=a&&lessonByKey(a.lesson), s=todaySess(c);
+  const past=S.assign.filter(x=>x.child===c&&x.day<S.day).sort((x,y)=>y.day-x.day);
+  const myWorks=S.works.filter(w=>w.child===c), myQ=S.questions.filter(q=>q.child===c);
+  body.innerHTML=`<h1 style="font-size:26px">你好，${CHILDREN[c].name}！今天想研究什么？</h1>
+  ${L?`<div class="today"><div class="stack" style="gap:6px"><span class="row"><span class="chip acc">今日学习</span><span class="chip ${L.mapping==='先修补强'?'mk':''}">${esc(L.mapping)}</span><span class="small muted">约 ${CHILDREN[c].mins}，可以提前结束</span></span>
+    <h2>${esc(L.title)}</h2><p class="muted">数学目标：${esc(L.concept)}</p>${L.interest&&!dislikedFor(c,L)?`<p class="small" style="color:var(--mark)">因为你说最近最喜欢${esc(L.interest.split('（')[0])}，今天的数学在这里面找。</p>`:''}</div>
+    <button class="btn primary" id="startL" style="font-size:16px;padding:10px 22px">${s&&s.step>0?(s.step>=4?'再看一遍':'继续'):'开始'}</button></div>`
+   :`<div class="panel"><h3 class="disp">今天没有安排课程</h3><p class="muted small">休息也很好。想学的东西可以先存成问题，或请爸爸妈妈安排。<span class="fr">FR55</span></p></div>`}
+  <div class="tiles">
+   <div class="tile"><h3 class="disp">我的作品 <span class="muted small">(${myWorks.length})</span></h3>${myWorks.length?myWorks.map(w=>`<div class="small">· ${esc(w.text)} <span class="muted">${esc(w.date)}</span></div>`).join(''):'<p class="small muted">在演示里点“存为我的发现”，就会出现在这里。不想存也可以。</p>'}</div>
+   <div class="tile"><h3 class="disp">我的兴趣</h3>${interestTile(c)}</div>
+   <div class="tile"><h3 class="disp">我的问题</h3>${myQ.map(q=>`<div class="small">· ${esc(q.text)}</div>`).join('')}
+     <div class="row"><input id="qIn" aria-label="写下一个问题" placeholder="比如：为什么正方形最省围栏？" style="flex:1;min-width:0;border:1px solid var(--line);border-radius:7px;padding:5px 8px;background:var(--surface-2)"><button class="btn sm" id="qAdd">存下</button></div>
+     <p class="small muted">存下的问题不会直接开新课，爸爸妈妈可以据此安排。<span class="fr">FR43</span></p></div>
+   <div class="tile"><h3 class="disp">以前的课</h3>${past.length?past.map(p=>{const pl=lessonByKey(p.lesson),g=activeGrant(c,p.lesson),req=S.requests.find(r=>r.child===c&&r.lesson===p.lesson&&r.status==='待处理');
+      return `<div class="lockrow"><span>${md(p.day)} · ${esc(pl.title)}</span>${g?`<button class="btn sm primary" data-open="${p.lesson}">已授权 · 打开</button>`:req?'<span class="chip warn">已请父母开启</span>':`<button class="btn sm" data-req="${p.lesson}">🔒 请父母开启</button>`}</div>`}).join(''):'<p class="small muted">还没有以前的课。</p>'}
+     <p class="small muted">作品可以随时看；重新学以前的课需要父母同意。<span class="fr">BL13</span></p></div>
+  </div>`;
+  const st=document.getElementById('startL'); if(st) st.onclick=()=>{S.curKey=a.lesson;const ss=sess();ss.started=true;if(ss.step>=4)ss.step=0;S.kidScreen='lesson';render()};
+  document.getElementById('qAdd').onclick=()=>{const v=document.getElementById('qIn').value.trim();if(!v)return;S.questions.push({child:c,text:v,day:S.day});toast('问题已存下');render()};
+  body.querySelectorAll('[data-likes]').forEach(b=>b.onclick=()=>{const [id,v]=b.dataset.likes.split('|');const io=S.interests.find(x=>x.id===id);
+    if(v==='no'){io.state='孩子说不喜欢了';io.src='孩子自述';io.when=md(S.day);toast('记下了。下次换别的题材，数学目标不变。')}else{io.state='孩子确认喜欢';io.src='孩子自述';io.when=md(S.day);toast('记下了')}render()});
+  body.querySelectorAll('[data-pickint]').forEach(b=>b.onclick=()=>{const t=b.dataset.pickint;S.interests.push({id:'IO-'+String(S.interests.length+4).padStart(4,'0'),child:c,topic:t,src:'孩子自述',when:md(S.day),state:'今天选的'});toast('记下了，爸爸妈妈安排课时会参考');render()});
+  body.querySelectorAll('[data-req]').forEach(b=>b.onclick=()=>{S.requests.push({id:'GR-'+(S.requests.length+1),child:c,lesson:b.dataset.req,day:S.day,status:'待处理'});toast('已发送请求。父母同意前，这节课还不能打开。');render()});
+  body.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>{S.curKey=b.dataset.open;const ss=sessFor(c,'grant:'+b.dataset.open);S.curKey='grant:'+b.dataset.open;ss.lessonKey=b.dataset.open;ss.started=true;ss.viaGrant=true;S.kidScreen='lesson';render()});
+}
+
+function dislikedFor(c,L){return S.interests.some(x=>x.child===c&&L.interest&&L.interest.startsWith(x.topic)&&x.state==='孩子说不喜欢了')}
+function interestTile(c){const mine=S.interests.filter(x=>x.child===c);
+  if(c==='meimei'){const opts=['海洋动物','小虫子','花和植物','做手工','画画','音乐','都不是'];
+    return `${mine.length?mine.map(x=>`<div class="small">· ${esc(x.topic)} <span class="muted">${esc(x.src)} · ${esc(x.when)}</span></div>`).join(''):'<p class="small muted">你喜欢什么，自己来选。不用和哥哥一样。<span class="fr">BL05</span></p>'}
+    <div class="opt">${opts.map(o=>`<button data-pickint="${o}" style="padding:4px 10px;font-size:12px">${o}</button>`).join('')}</div>`}
+  return mine.map(x=>`<div class="small" style="display:flex;justify-content:space-between;gap:6px;flex-wrap:wrap"><span>${esc(x.topic)} <span class="muted">${esc(x.src)} · ${esc(x.state)}</span></span>${x.topic==='枪械'?'':`<span><button class="btn sm" data-likes="${x.id}|yes">还喜欢</button> <button class="btn sm" data-likes="${x.id}|no">不喜欢了</button></span>`}</div>`).join('')+`<p class="small muted">家长说的和你自己说的分开记。你可以随时改。<span class="fr">FR27</span></p>`}
+
+/* ---- lesson ---- */
+const hsFor=L=>L.theme==='reef'?HOTSPOTS.Reef:HOTSPOTS[L.component];
+const STEP_NAMES=['说明','互动演示','挑战','聊聊（可跳过）'];
+function renderLesson(body){
+  const s=sess(), L=lessonByKey(s.lessonKey), c=S.child;
+  if(L.component==='—'){body.innerHTML=`<div class="panel"><h3>${esc(L.title)}</h3><p class="muted small">原型只实现了两节示例课的互动组件。授权流程本身已经走通：这节历史课由父母授权打开。</p><button class="btn" id="back">返回</button></div>`;document.getElementById('back').onclick=()=>{S.kidScreen='home';render()};return}
+  body.innerHTML=`<div class="lesson-head"><div><h2 style="font-size:20px">${esc(L.title)}</h2><span class="small muted">v${L.ver} · ${esc(L.concept)} ${s.viaGrant?'<span class="chip warn">父母授权的历史课</span>':''}</span></div>
+    <div class="row"><div class="steps">${STEP_NAMES.map((n,i)=>`<span class="${i===s.step?'on':i<s.step?'done':''}">${i<s.step?'✓ ':''}${n}</span>`).join('')}</div><button class="btn sm" id="exitL">暂停 · 回首页</button></div></div><div id="stepBody" class="stack"></div>`;
+  document.getElementById('exitL').onclick=()=>{s.log.push(`${now()} 暂停，回到首页（进度已保存）`);S.kidScreen='home';disposeScene();render()};
+  const sb=document.getElementById('stepBody');
+  [stepIntro,stepDemo,stepChallenge,stepEnd,stepDone][s.step](sb,L,s,c);
+}
+function go(step){const s=sess();s.step=step;s.log.push(`${now()} 进入：${STEP_NAMES[step]||'完成'}`);render()}
+
+function stepIntro(sb,L,s,c){
+  const pa=L.component==='PerimeterArea';
+  sb.innerHTML=`<div class="panel" style="font-size:16px;line-height:1.8">
+   ${pa&&L.theme==='reef'?`<p class="disp" style="font-size:22px">潜到珊瑚礁海底，去找螳螂虾的洞。</p>
+   <p>孔雀螳螂虾住在珊瑚礁附近沙石里的洞中。海洋生物学家想知道一块海底上有多少它们的洞，会先用卷尺把调查区围一圈，再把 1 米 × 1 米的白色样方框一格一格铺满整块区域，逐格去数。</p>
+   <p style="margin-top:6px">卷尺用了多少米？要铺几个样方？这两个数听起来很像，其实不一样。今天你来当调查员。</p>
+   <p class="small muted" style="margin-top:8px">这里只观察和测量，不养螳螂虾。<span class="fr">BL12</span> 海底和工具按真实比例渲染。螳螂虾本身要等有授权的写实扫描模型到位才出现，在那之前不用卡通或简化模型代替。<span class="fr">BL03</span> <span class="fr">BL14</span></p>`
+   :pa?`<p class="disp" style="font-size:22px">要给一块长方形花园围一圈围栏，再在里面铺满地砖。</p>
+   <p>围栏要买多少米？地砖要买多少块？这两个问题听起来很像，答案却不一样。今天推着测距轮沿围栏走一圈（它的轮子周长正好 1 米，转一圈就是 1 米），再把石砖一块块铺满，看看区别在哪里。</p>`
+   :`<p class="disp" style="font-size:22px">木托盘上摆着一排一排的木头积木。</p><p>每一排都一样多。一个一个数很慢，有没有更快的办法？今天你可以加一排、减一排，还可以把整盘积木转个方向，看看总数会不会变。</p>`}
+   ${L.theme==='reef'?'':'<p class="small muted" style="margin-top:8px">画面用实拍环境光和真实材质渲染，尺寸按真实比例。<span class="fr">FR05</span></p>'}</div>
+   <div class="row"><button class="btn primary" id="toDemo" style="font-size:15px">开始动手</button></div>`;
+  document.getElementById('toDemo').onclick=()=>go(1);
+}
+
+/* ---- 3D scene: photoreal engine lives in the module script below ---- */
+let SC=null;
+function disposeScene(){if(SC){SC.dispose();SC=null}}
+function makeScene(stageEl,kind,params,onPick,hooks){
+  disposeScene();
+  const go=()=>{if(!stageEl.isConnected)return;stageEl.querySelector('.loading3d')?.remove();SC=window.Real3D.create(stageEl,kind,params,onPick,hooks)};
+  if(window.Real3D)go();else{stageEl.insertAdjacentHTML('beforeend','<div class="loading3d">正在加载写实材质和环境光…</div>');window.addEventListener('real3d-ready',go,{once:true})}
+}
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+/* ---- language state machine (FR12) ---- */
+let speaking=null;
+function lkey(h){const s=sess(),L=lessonByKey(s.lessonKey);return `${S.child}|${L.id}@${L.ver}|${h.id}|rev1`}
+function playHotspot(h,override){
+  const L=S.lang[S.child],key=lkey(h);
+  if(speaking&&speaking.key===key&&!override){toast('正在播放，重复点击不计数');return}
+  let lang='zh',idx=0,advance=false,p=S.pointers[key]||0;
+  if(override)lang=override;
+  else if(L.mode==='cycle'){const pos=p%4;lang=pos===0?'zh':'en';idx=pos-1;advance=true}
+  else lang=L.mode==='en'?'en':L.mode==='bi'?'bi':'zh';
+  let text=lang==='zh'?h.zh:lang==='en'?(h.en[idx]||null):h.zh+' / '+h.en[0];
+  let note='';
+  if(lang==='en'&&!text){text=h.zh;lang='zh';note='这条暂时没有英文，先用中文。'}
+  const sess_=sess();
+  const show=()=>{const st=document.getElementById('stage');if(!st)return;let sub=st.querySelector('.sub');if(!sub){sub=document.createElement('div');sub.className='sub';st.appendChild(sub)}
+    sub.innerHTML=`<span class="tag">${lang==='zh'?'中':lang==='en'?'EN':'中/EN'}</span>${esc(text)}${note?` <span style="opacity:.7">(${note})</span>`:''}`};
+  const started=()=>{if(advance){S.pointers[key]=p+1}sess_.log.push(`${now()} 热点 ${h.id} 播放 ${lang}${advance?` · 循环第 ${p+1} 次`:override?' · 手动覆盖，不推进':''}`);show();updateLangPanel()};
+  if(S.failAudio){sess_.log.push(`${now()} 热点 ${h.id} 音频加载失败，未计数`);toast('音频没加载出来，这次不计数。可以看字幕或再点一次。');updateLangPanel();return}
+  speaking={key};
+  if(L.muted||!('speechSynthesis' in window)){started();setTimeout(()=>{if(speaking&&speaking.key===key)speaking=null},1500);return}
+  try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang=lang==='en'?'en-US':'zh-CN';u.rate=L.rate;let fired=false;
+    u.onstart=()=>{fired=true;started()};u.onend=()=>{speaking=null};u.onerror=()=>{speaking=null;if(!fired){sess_.log.push(`${now()} 语音引擎不可用，以字幕播放`);started()}};
+    speechSynthesis.speak(u);setTimeout(()=>{if(!fired&&speaking&&speaking.key===key){fired=true;started();setTimeout(()=>{speaking=null},1200)}},900)}catch(e){started();speaking=null}
+}
+function dotsFor(h){const p=S.pointers[lkey(h)]||0,pos=p%4;return `<span class="dots">${['中','英','英','英'].map((t,i)=>`<i class="${i===0?'zh':'en'} ${i===pos?'next':''}">${t}</i>`).join('')}</span>`}
+function updateLangPanel(){const el=document.getElementById('langPanel');if(!el)return;const s=sess(),L=lessonByKey(s.lessonKey),hs=hsFor(L);
+  el.innerHTML=`<h3>讲解语言状态 <span class="fr">FR12</span></h3><p class="small muted">当前模式：${({zh:'中文',en:'英文',bi:'双语辅助',cycle:'1 中 3 英循环'})[S.lang[S.child].mode]}。每个热点分别计数，黑色格是下一次点击。</p>
+  <table class="small"><tr><th>热点</th><th>已计数</th><th>下一次</th></tr>${hs.map(h=>`<tr><td>${h.label}</td><td class="tnum">${S.pointers[lkey(h)]||0}</td><td>${dotsFor(h)}</td></tr>`).join('')}</table>
+  <div class="row" style="margin-top:6px">${hs.map(h=>`<button class="btn sm" data-ov="${h.id}">现在听「${h.label}」中文</button>`).join('')}</div>
+  <label class="row small" style="margin-top:6px"><input type="checkbox" id="failA" ${S.failAudio?'checked':''}> 开发测试：模拟音频加载失败</label>`;
+  el.querySelectorAll('[data-ov]').forEach(b=>b.onclick=()=>playHotspot(hs.find(h=>h.id===b.dataset.ov),'zh'));
+  document.getElementById('failA').onchange=e=>{S.failAudio=e.target.checked};
+}
+
+function stepDemo(sb,L,s,c){
+  const pa=L.component==='PerimeterArea';
+  const reefT=L.theme==='reef';
+  if(!s.params)s.params=pa?{a:6,b:4,theme:L.theme||'garden'}:{r:3,c:4,rot:false,reveal:null};
+  const p=s.params;
+  sb.innerHTML=`<div class="demo-grid"><div class="stack">
+    <div class="stage" id="stage"><div class="stage-tools"><button title="放大" aria-label="放大" id="zIn">＋</button><button title="缩小" aria-label="缩小" id="zOut">－</button><button title="复位视角" aria-label="复位视角" id="zReset">⟲</button><button title="隐藏标签" aria-label="隐藏标签" id="hideL">🏷</button></div>
+    <span class="badge-sim">写实渲染 · 计算为模拟</span></div>
+    <div class="row small"><span class="muted">热点列表（点不准时用这里）：</span><span class="alt">${hsFor(L).map(h=>`<button class="btn sm" data-hl="${h.id}">${h.label}</button>`).join('')}</span><span class="fr">FR07</span></div>
+    <p class="small muted">拖动旋转 · 双指或滚轮缩放 · 轻点方块或热点听讲解。拖动时不会播放声音。</p></div>
+    <div class="ctrl">${pa?`
+      <div class="slider"><div><label for="sa">长</label><b class="tnum" id="va">${p.a} 米</b></div><input type="range" id="sa" min="1" max="10" value="${p.a}"></div>
+      <div class="slider"><div><label for="sb2">宽</label><b class="tnum" id="vb">${p.b} 米</b></div><input type="range" id="sb2" min="1" max="10" value="${p.b}"></div>
+      <div class="row"><button class="btn mark" id="walkBtn">${reefT?'拉卷尺围一圈':'测距轮走一圈'}</button><button class="btn primary" id="tileBtn">${reefT?'放样方':'铺地砖'}</button>${reefT?'<button class="btn" id="shrimpBtn">看看螳螂虾</button>':''}</div>
+      <div class="formula" id="fx"></div>`
+     :`<div class="slider"><div><label for="sr">几行</label><b class="tnum" id="vr">${p.r}</b></div><input type="range" id="sr" min="1" max="${c==='meimei'?6:9}" value="${p.r}"></div>
+      <div class="slider"><div><label for="sc">每行几个</label><b class="tnum" id="vc">${p.c}</b></div><input type="range" id="sc" min="1" max="${c==='meimei'?6:9}" value="${p.c}"></div>
+      <div class="row"><button class="btn mark" id="revealBtn">一行一行摆</button><button class="btn primary" id="rotBtn">转个方向</button></div>
+      <div class="formula" id="fx"></div>`}
+      <button class="btn" id="saveFind">存为我的发现</button>
+      <button class="btn primary" id="toCh">我准备好了，去挑战</button>
+    </div></div>`;
+  const stage=document.getElementById('stage');
+  makeScene(stage,L.component,p,ud=>{
+    if(ud.kind==='cube'){toast(`第 ${ud.row} 行，第 ${ud.col} 个`);s.log.push(`${now()} 点积木 行${ud.row} 列${ud.col}`)}
+    else{const h=hsFor(L).find(x=>x.id===(ud.kind==='fence'?'fence':ud.kind==='shrimp'?'shrimp':'tile'));if(h)playHotspot(h)}},
+   {hotspots:hsFor(L),onHotspot:h=>playHotspot(h),
+    onWalk:d=>{const el=document.getElementById('walkCount');if(el)el.textContent=Math.floor(d+1e-6)},onWalkDone,
+    onFill:n=>{const el=document.getElementById('tileCount');if(el)el.textContent=n},onFillDone,
+    onReveal:n=>{p.reveal=n;updateArrayFormula()},onRevealDone:()=>{p.reveal=null;updateArrayFormula()}});
+  document.getElementById('zIn').onclick=()=>SC&&SC.zoom(0.85);document.getElementById('zOut').onclick=()=>SC&&SC.zoom(1.18);document.getElementById('zReset').onclick=()=>SC&&SC.reset();
+  document.getElementById('hideL').onclick=()=>SC&&SC.toggleLabels();
+  sb.querySelectorAll('[data-hl]').forEach(b=>b.onclick=()=>playHotspot(hsFor(L).find(h=>h.id===b.dataset.hl)));
+  const logState=()=>s.log.push(`${now()} [模拟 ${pa?'perim-area@1.0.0':'array-mul@1.0.0'}] ${pa?`a=${p.a} b=${p.b} → P=${2*(p.a+p.b)}m S=${p.a*p.b}m²`:`r=${p.r} c=${p.c} rot=${p.rot} → N=${p.r*p.c}`}`);
+  if(pa){
+    const upd=()=>{document.getElementById('va').textContent=p.a+' 米';document.getElementById('vb').textContent=p.b+' 米';SC&&SC.setParams(p);updatePAFormula()};
+    document.getElementById('sa').oninput=e=>{p.a=+e.target.value;upd()};document.getElementById('sb2').oninput=e=>{p.b=+e.target.value;upd()};
+    document.getElementById('sa').onchange=logState;document.getElementById('sb2').onchange=logState;
+    document.getElementById('walkBtn').onclick=()=>{if(!SC)return;SC.walk();s.log.push(`${now()} ${reefT?'拉卷尺':'测距轮'}围一圈`);updatePAFormula('walk')};
+    const sb3=document.getElementById('shrimpBtn');if(sb3)sb3.onclick=()=>{const st=document.getElementById('stage');if(st&&!st.querySelector('.pending-card')){const d=document.createElement('div');d.className='pending-card';d.innerHTML='螳螂虾写实扫描模型采购中，到位后会出现在洞口<br><span style="opacity:.75">写实底线：不用卡通或简化模型代替 · BL14</span>';st.appendChild(d)}SC&&SC.focusShrimp();s.log.push(`${now()} 靠近看螳螂虾`);playHotspot(hsFor(L).find(h=>h.id==='shrimp'))};
+    document.getElementById('tileBtn').onclick=()=>{if(!SC)return;SC.fill();s.log.push(`${now()} 开始${reefT?'放样方':'铺地砖'}`);updatePAFormula('tile')};
+    updatePAFormula();
+  }else{
+    const upd=()=>{document.getElementById('vr').textContent=p.r;document.getElementById('vc').textContent=p.c;p.reveal=null;SC&&SC.setParams(p);updateArrayFormula()};
+    document.getElementById('sr').oninput=e=>{p.r=+e.target.value;upd()};document.getElementById('sc').oninput=e=>{p.c=+e.target.value;upd()};
+    document.getElementById('sr').onchange=logState;document.getElementById('sc').onchange=logState;
+    document.getElementById('revealBtn').onclick=()=>{if(!SC)return;p.reveal=0;SC.reveal();updateArrayFormula();s.modesSeen.reveal=true;s.log.push(`${now()} 一行一行摆`)};
+    document.getElementById('rotBtn').onclick=()=>{p.rot=!p.rot;s.modesSeen.rot=true;SC&&SC.setRot(p.rot);updateArrayFormula();s.log.push(`${now()} 转向 rot=${p.rot}`)};
+    updateArrayFormula();
+  }
+  document.getElementById('saveFind').onclick=()=>{const t=pa?`长 ${p.a} 米、宽 ${p.b} 米的花园：围栏 ${2*(p.a+p.b)} 米，地砖 ${p.a*p.b} 块`:`${p.r} 行、每行 ${p.c} 个，一共 ${p.r*p.c} 个；转个方向还是 ${p.r*p.c} 个`;
+    S.works.push({child:c,text:t,date:md(S.day),lesson:s.lessonKey,help:s.helps});s.log.push(`${now()} 存为作品`);toast('已存进“我的作品”')};
+  document.getElementById('toCh').onclick=()=>go(2);
+}
+function updatePAFormula(mode){const s=sess(),p=s.params,el=document.getElementById('fx');if(!el)return;const R=p.theme==='reef';
+  const showW=s.modesSeen.walk, showT=s.modesSeen.tile;
+  el.innerHTML=`<div class="small muted">${R?'卷尺拉了':'测距轮走了'} <b class="tnum" id="walkCount">${mode==='walk'?0:(showW?2*(p.a+p.b):'–')}</b> 米 · ${R?'样方':'地砖'} <b class="tnum" id="tileCount">${mode==='tile'?0:(showT?p.a*p.b:'–')}</b> ${R?'个':'块'}</div>
+  ${showW?`<div class="big">周长 = ${p.a}+${p.b}+${p.a}+${p.b} = ${2*(p.a+p.b)} 米</div>`:`<div class="small muted">${R?'先把卷尺围一圈。':'先推测距轮走一圈。'}</div>`}
+  ${showT?`<div class="big">面积 = ${p.b} 行 × ${p.a} ${R?'个':'块'} = ${p.a*p.b} 平方米</div>`:`<div class="small muted">${R?'再把样方铺满。':'再把地砖铺满。'}</div>`}
+  ${showW&&showT?`<p class="small" style="margin-top:4px">${2*(p.a+p.b)===p.a*p.b?'这次两个数字刚好一样，但单位不同：一个是米，一个是平方米。':'两个数字不一样，单位也不一样。'}</p>`:''}`}
+function onWalkDone(){const s=sess();s.modesSeen.walk=true;s.log.push(`${now()} 走完一圈：${2*(s.params.a+s.params.b)} 米`);updatePAFormula()}
+function onFillDone(){const s=sess();s.modesSeen.tile=true;s.log.push(`${now()} 铺满：${s.params.a*s.params.b} 块`);updatePAFormula()}
+function updateArrayFormula(){const s=sess(),p=s.params,el=document.getElementById('fx');if(!el)return;
+  const R=p.rot?p.c:p.r,C=p.rot?p.r:p.c,shown=p.reveal==null?R:p.reveal;
+  const adds=Array.from({length:Math.max(0,p.reveal==null?R:p.reveal)},()=>p.reveal==null?C:p.c);
+  el.innerHTML=`<div class="small muted">${p.rot?'转过来以后看：':''}${R} 行，每行 ${C} 个</div>
+   <div class="big">${adds.length?adds.join(' + ')+' = '+adds.reduce((x,y)=>x+y,0):'0'}</div>
+   ${p.reveal==null?`<div class="big">${R} × ${C} = ${R*C}</div><p class="small">${p.rot?`和刚才的 ${p.r} × ${p.c} 一样多。`:'可以一行一行摆，也可以直接用乘法。'}</p>`:''}`}
+
+function stepChallenge(sb,L,s,c){
+  const pa=L.component==='PerimeterArea';
+  const qs=pa?[
+    {id:'c1',text:'新的调查区长 5 米、宽 3 米。拉一圈卷尺要多少？铺满要几个 1 平方米的样方？',type:'pa',ans:{P:16,S:15,uP:'米',uS:'平方米'},units:['米','平方米'],labels:['卷尺','样方'],hint:['卷尺沿着边走：5+3+5+3。','样方是 3 行，每行 5 个。','卷尺量长度用“米”，样方数面积用“平方米”。']},
+    {id:'c2',text:'卷尺只有 16 米长。调查区的长和宽是多少时，能铺下的样方最多？',type:'max',hint:['长 + 宽 = 8。','试试 7 和 1、6 和 2、5 和 3、4 和 4。','比一比每种能放几个样方。']},
+    {id:'c3',text:'（没有海底了）一个长方形长 7 厘米、宽 2 厘米。周长是多少？面积是多少？',type:'pa',ans:{P:18,S:14,uP:'厘米',uS:'平方厘米'},units:['厘米','平方厘米'],labels:['周长','面积'],hint:['7+2+7+2。','2 行，每行 7 个 1 平方厘米。','注意单位换成了厘米。']}
+  ]:[
+    {id:'c1',text:'4 行，每行 3 个，一共几个？写成乘法。',type:'mul',ans:[4,3,12],hint:['一行一行摆：3+3+3+3。','有 4 个 3。','4 × 3 = ?']},
+    {id:'c2',text:'3 × 4 和 4 × 3 一样多吗？',type:'choice',opts:['一样多','不一样'],ans:'一样多',hint:['把方块转个方向试试。']}
+  ];
+  sb.innerHTML=`<p class="muted">${pa?'前两题还在海底，最后一题换成普通的长方形，':'这里的题没有画面了，'}看看你能不能自己想清楚。可以随时点“给我一点提示”。<span class="fr">FR25</span></p>
+   ${qs.map(q=>{const r=s.ch[q.id]||{hints:0};return `<div class="q" id="q-${q.id}"><b>${esc(q.text)}</b>${qInput(q,r)}
+     <div class="row"><button class="btn sm primary" data-chk="${q.id}">提交</button><button class="btn sm" data-hint="${q.id}" ${r.hints>=q.hint.length?'disabled':''}>给我一点提示</button>
+     ${r.status?`<span class="chip ${r.status==='对'?'good':'warn'}">${r.status==='对'?'对了':'再想想'}</span>`:''}</div>
+     ${r.hints?`<div class="small muted">${q.hint.slice(0,r.hints).map((h,i)=>`提示 ${i+1}：${esc(h)}`).join('<br>')}</div>`:''}
+     ${r.fb?`<div class="small">${esc(r.fb)}</div>`:''}</div>`}).join('')}
+   ${pa?'':`<div class="q"><b>用你自己的话说一说：为什么可以用乘法？（可以不写）</b><textarea id="explain" rows="2" style="border:1px solid var(--line);border-radius:8px;padding:6px;background:var(--surface-2)">${esc(s.explain||'')}</textarea></div>`}
+   <div class="row"><button class="btn primary" id="toEnd">完成挑战</button></div>`;
+  sb.querySelectorAll('[data-hint]').forEach(b=>b.onclick=()=>{const r=s.ch[b.dataset.hint]=s.ch[b.dataset.hint]||{hints:0};r.hints++;s.helps++;s.log.push(`${now()} ${b.dataset.hint} 提示 ${r.hints}`);render()});
+  sb.querySelectorAll('[data-chk]').forEach(b=>b.onclick=()=>{const q=qs.find(x=>x.id===b.dataset.chk),r=s.ch[q.id]=s.ch[q.id]||{hints:0};const box=document.getElementById('q-'+q.id);
+    let ok=false,fb='';
+    if(q.type==='pa'){const P=+box.querySelector('[data-f=P]').value,Sv=+box.querySelector('[data-f=S]').value,uP=box.querySelector('[data-f=uP]').value,uS=box.querySelector('[data-f=uS]').value;r.v={P,S:Sv,uP,uS};const A=q.ans;
+      ok=P===A.P&&Sv===A.S&&uP===A.uP&&uS===A.uS;if(!ok){if(P===A.S&&Sv===A.P)fb='两个答案好像对调了：哪一个是围一圈，哪一个是铺满？';else if(P===A.P&&Sv===A.S)fb='数字对了，再看看单位：长度和面积用的单位一样吗？';else fb=q.id==='c1'?'可以回到演示里，把长调成 5、宽调成 3 试一试。':'先算一圈的长度，再算铺满要几个小方格。'}}
+    if(q.type==='max'){const a=+box.querySelector('[data-f=a]').value,bb=+box.querySelector('[data-f=b]').value;r.v={a,b:bb};ok=a+bb===8&&a===4&&bb===4;fb=ok?'':(a+bb!==8?'围栏一圈是 2 ×（长 + 宽），所以长 + 宽应该是 8。':`${a} × ${bb} = ${a*bb} 块。还有没有更多的？`)}
+    if(q.type==='mul'){const v=[...box.querySelectorAll('[data-f]')].map(i=>+i.value);r.v=v;ok=(v[0]===4&&v[1]===3||v[0]===3&&v[1]===4)&&v[2]===12;fb=ok?'':'可以先一行一行摆：3+3+3+3。'}
+    if(q.type==='choice'){ok=r.pick===q.ans;fb=ok?'':'回到演示里点“转个方向”，数一数。'}
+    r.status=ok?'对':'再想';r.fb=fb;r.tries=(r.tries||0)+1;s.log.push(`${now()} ${q.id} 提交 ${ok?'对':'未对'} · 提示 ${r.hints} · 第 ${r.tries} 次`);render()});
+  sb.querySelectorAll('[data-pick]').forEach(b=>b.onclick=()=>{const [id,v]=b.dataset.pick.split('|');(s.ch[id]=s.ch[id]||{hints:0}).pick=v;render()});
+  const ex=document.getElementById('explain');if(ex)ex.oninput=e=>s.explain=e.target.value;
+  document.getElementById('toEnd').onclick=()=>go(3);
+}
+function qInput(q,r){const v=r.v||{};
+  if(q.type==='pa'){const U=q.units,Lb=q.labels;return `<div class="row">${Lb[0]} <input class="ans" data-f="P" inputmode="numeric" value="${v.P??''}" aria-label="${Lb[0]}"><select data-f="uP" aria-label="${Lb[0]}单位">${U.map(u=>`<option${v.uP===u?' selected':''}>${u}</option>`).join('')}</select>
+    ${Lb[1]} <input class="ans" data-f="S" inputmode="numeric" value="${v.S??''}" aria-label="${Lb[1]}"><select data-f="uS" aria-label="${Lb[1]}单位">${U.map(u=>`<option${v.uS===u?' selected':''}>${u}</option>`).join('')}</select></div>`}
+  if(q.type==='max')return `<div class="row">长 <input class="ans" data-f="a" inputmode="numeric" value="${v.a??''}" aria-label="长"> 米 宽 <input class="ans" data-f="b" inputmode="numeric" value="${v.b??''}" aria-label="宽"> 米</div>`;
+  if(q.type==='mul')return `<div class="row"><input class="ans" data-f="x" value="${v[0]??''}" aria-label="因数一"> × <input class="ans" data-f="y" value="${v[1]??''}" aria-label="因数二"> = <input class="ans" data-f="z" value="${v[2]??''}" aria-label="积"></div>`;
+  if(q.type==='choice')return `<div class="opt">${q.opts.map(o=>`<button data-pick="${q.id}|${o}" aria-pressed="${r.pick===o}">${o}</button>`).join('')}</div>`;
+}
+function stepEnd(sb,L,s,c){
+  const pa=L.component==='PerimeterArea';
+  const Q=pa?{q:'今天两种方法，你更想用哪一种去研究一个新问题？',o:['拉卷尺围一圈','一格格铺样方','都想试','还没想好'],q2:'下一次课，你最想在哪里学数学？',o2:['还是螳螂虾和海底','昆虫','高楼','大桥和隧道','机器人','我自己说一个']}:{q:'今天你最喜欢哪一个时刻？',o:['一行一行摆','把整盘积木转个方向','自己写乘法','都不太喜欢'],q2:'下一次课，你最想在哪里学数学？',o2:['海洋动物','小虫子','花和植物','做手工','画画','音乐','我自己说一个']};
+  sb.innerHTML=`<div class="panel"><h3 class="disp" style="font-size:20px">聊两句？不想聊可以直接跳过。</h3>
+    <p class="small muted">我是学习助手，是电脑程序。你选的答案会给爸爸妈妈看，帮他们安排下一次的内容。现在只用点选，不录音。<span class="fr">FR29</span> <span class="fr">FR36</span></p>
+    <p style="font-size:16px;margin:10px 0">${Q.q}</p><div class="opt">${Q.o.map(o=>`<button data-end="${o}" aria-pressed="${s.end===o}">${o}</button>`).join('')}</div>
+    ${Q.q2?`<p style="margin:12px 0 6px">${Q.q2}</p><div class="opt">${Q.o2.map(o=>`<button data-end2="${o}" aria-pressed="${s.end2===o}">${o}</button>`).join('')}</div>
+      ${s.end2==='我自己说一个'?`<input id="ownWish" value="${esc(s.ownWish||'')}" placeholder="比如：地铁、火山、恐龙" aria-label="自己想学的题材" style="margin-top:6px;border:1px solid var(--line);border-radius:8px;padding:6px;background:var(--surface-2);max-width:280px">`:''}
+      <p class="small muted" style="margin-top:4px">爸爸妈妈会看到你的选择，用来安排下一次的题材。数学内容按你学到哪里来定。<span class="fr">FR27</span> <span class="fr">FR43</span></p>`:''}
+    <p style="margin:12px 0 6px">现在心情怎么样？（可以不选）</p><div class="opt">${['😀','🙂','😐','😕','😴'].map(e=>`<button data-mood="${e}" aria-pressed="${s.mood===e}" aria-label="心情 ${e}">${e}</button>`).join('')}</div></div>
+    <div class="row"><button class="btn primary" id="endDone">${s.end||s.mood?'好了':'完成'}</button><button class="btn" id="endSkip">跳过</button></div>`;
+  sb.querySelectorAll('[data-end]').forEach(b=>b.onclick=()=>{s.end=b.dataset.end;render()});
+  sb.querySelectorAll('[data-end2]').forEach(b=>b.onclick=()=>{s.end2=b.dataset.end2;render()});
+  const own=document.getElementById('ownWish');if(own)own.oninput=e=>{s.ownWish=e.target.value};
+  sb.querySelectorAll('[data-mood]').forEach(b=>b.onclick=()=>{s.mood=b.dataset.mood;render()});
+  document.getElementById('endDone').onclick=()=>{const w=s.end2==='我自己说一个'?(s.ownWish||'').trim():s.end2;
+    if(w){S.interests.push({id:'IO-'+String(S.interests.length+10).padStart(4,'0'),child:c,topic:w.replace('还是',''),src:'孩子自述',when:md(S.day),state:'下一课心愿'})}
+    s.log.push(`${now()} 聊聊：${s.end||'未选'} · 下一课心愿：${w||'未选'} ${s.mood||''}`);go(4)};
+  document.getElementById('endSkip').onclick=()=>{s.end='skipped';s.log.push(`${now()} 聊聊：skipped（不计分、不阻塞）`);go(4)};
+}
+function masteryOf(s){const rs=Object.values(s.ch);if(!rs.length)return '未观察';if(rs.every(r=>r.status==='对'&&!r.hints&&r.tries===1))return '有独立应用证据（待作业复核）';if(rs.some(r=>r.status==='对'))return '待确认';return '需再支持'}
+function stepDone(sb,L,s,c){
+  const pa=L.component==='PerimeterArea';
+  sb.innerHTML=`<div class="panel"><h3 class="disp" style="font-size:22px">今天的探索结束了。</h3>
+   <p>${pa?`你用卷尺把调查区围了一圈，也用样方把海底铺满了。${s.ch.c1&&s.ch.c1.status==='对'?'第一道题你分清了“米”和“平方米”。':'卷尺和样方的单位，下次可以再比一比。'}`:`你用乘法数了方块。${s.ch.c2&&s.ch.c2.status==='对'?'你发现转个方向总数不变。':''}`}</p>
+   <p class="small muted" style="margin-top:6px">这里只说看到的事情，不打分，不排名。<span class="fr">FR30</span></p></div>
+   <div class="panel"><h3>可以不做的家里小任务 <span class="fr">FR11</span></h3>
+   <p>${pa?'请爸爸或妈妈陪你，在纸上按 1:1 画一只 15 厘米长的螳螂虾，再用尺子量一量；或者用卷尺量一张地垫的长和宽，算一圈有多长、能铺几个 10 厘米 × 10 厘米的方格。':'用纽扣或积木摆 3 行、每行 4 个，再把整盘转个方向数一数。'}</p>
+   <p class="small muted">需要大人陪同 · 材料：${pa?'卷尺、纸笔':'纽扣或积木'} · 没材料就跳过，不影响学习记录。</p></div>
+   <div class="row"><button class="btn primary" id="home">回首页</button><button class="btn" id="again">再玩一次演示</button></div>`;
+  document.getElementById('home').onclick=()=>{S.kidScreen='home';render()};
+  document.getElementById('again').onclick=()=>go(1);
+}
+function renderKidSide(){
+  const el=document.getElementById('kidSide');if(!el)return;
+  if(!S.child){el.innerHTML=`<div class="panel"><h3>原型说明</h3><p class="small">右侧面板是给开发看的，孩子看不到。选择一个孩子后，这里会实时显示状态机、实验记录和掌握状态。</p>
+   <p class="small" style="margin-top:6px">建议顺序：哥哥做完一课 → 去“家长端”上传作业 → 用判断结果在“Skill 制作台”生成重教课 → 发布后回家长端安排。</p></div>`;return}
+  const s=S.kidScreen==='lesson'&&S.curKey?S.sess[S.child+'|'+S.curKey]:todaySess(S.child);
+  el.innerHTML=`<div class="panel" id="langPanel"></div>
+   <div class="panel"><h3>本次学习记录 <span class="fr">FR09–10</span></h3>${s?`<p class="small muted">提示次数 ${s.helps} · 掌握状态：<b>${masteryOf(s)}</b> <span class="fr">FR25</span></p><div class="log" id="kidLog">${s.log.slice().reverse().map(l=>`<div>${esc(l)}</div>`).join('')||'<div>还没有记录</div>'}</div>`:'<p class="small muted">还没开始。</p>'}</div>`;
+  if(S.kidScreen==='lesson'&&s&&lessonByKey(s.lessonKey).component!=='—')updateLangPanel();else document.getElementById('langPanel').innerHTML=`<h3>讲解语言 <span class="fr">FR12</span></h3><p class="small muted">进入演示后显示每个热点的循环指针。</p>`;
+}
+
+/* ============ PARENT ============ */
+function renderParent(){
+  const tabs=[['today','今日安排'],['grant','历史授权'],['hw','作业反馈'],['card','家长卡'],['fb','多源反馈'],['consent','同意与隐私']];
+  const pend=S.requests.filter(r=>r.status==='待处理').length;
+  app.innerHTML=`<div class="view-head"><h2>家长端</h2><p>家长的操作保持简单：选孩子、看今天的内容、拍作业、写一句反馈、授权历史课、看下一课建议。<span class="fr">4.1</span></p></div>
+  <div class="subtabs" role="tablist">${tabs.map(([k,n])=>`<button role="tab" data-pt="${k}" aria-selected="${S.subtab.parent===k}">${n}${k==='grant'&&pend?` <span class="chip warn">${pend}</span>`:''}</button>`).join('')}</div><div id="pbody"></div>`;
+  app.querySelectorAll('[data-pt]').forEach(b=>b.onclick=()=>{S.subtab.parent=b.dataset.pt;render()});
+  const pb=document.getElementById('pbody');
+  ({today:pToday,grant:pGrant,hw:pHw,card:pCard,fb:pFb,consent:pConsent})[S.subtab.parent](pb);
+}
+function pToday(pb){
+  const pub=S.library.filter(l=>l.status==='已发布');
+  pb.innerHTML=`<div class="grid2">${Object.values(CHILDREN).map(k=>{const a=todayAssign(k.id),L=a&&lessonByKey(a.lesson),s=todaySess(k.id);
+    return `<div class="panel"><h3>${k.name} · ${k.grade}</h3>
+    ${L?`<p><b>${esc(L.title)}</b> <span class="small muted">v${L.ver}</span></p><p class="small muted">数学目标：${esc(L.concept)} · <span class="chip ${L.mapping==='先修补强'?'mk':''}">${esc(L.mapping)}</span></p>${L.mapNote?`<p class="small muted">${esc(L.mapNote)}</p>`:''}`:'<p class="muted">今天没有安排。</p>'}
+    <p class="small" style="margin-top:6px">今日进度：${s?`${['说明','演示','挑战','聊聊','已完成'][s.step]} · 提示 ${s.helps} 次 · ${masteryOf(s)}`:'未开始'}</p>
+    <div class="row" style="margin-top:8px"><label class="f" style="flex:1;min-width:180px">安排今天的课（只能选已发布版本）<select id="as-${k.id}">${pub.map(l=>`<option value="${l.id}@${l.ver}" ${a&&a.lesson===l.id+'@'+l.ver?'selected':''}>${esc(l.title)} v${l.ver}</option>`).join('')}</select></label><button class="btn primary" data-assign="${k.id}" style="align-self:end">安排</button></div>
+    <p class="small muted" style="margin-top:6px">${esc(k.scaffold)}</p>
+    <div style="margin-top:8px"><b class="small">兴趣与下一课心愿</b> <span class="fr">FR27</span>${S.interests.filter(x=>x.child===k.id).map(x=>`<div class="small">· ${esc(x.topic)} <span class="muted">${esc(x.src)} · ${esc(x.state)} · ${esc(x.when)}</span></div>`).join('')||'<p class="small muted">还没有记录。等孩子自己在课末选。</p>'}
+    <p class="small muted">题材可以轮换，不固定一种。家长报告和孩子自述分开记。</p></div></div>`}).join('')}</div>
+    <div class="panel" style="margin-top:14px"><h3>课程库 <span class="fr">FR46</span> <span class="fr">FR48</span></h3><div class="tablewrap"><table><tr><th>课程</th><th>版本</th><th>数学目标</th><th>教材映射</th><th>状态</th><th>包哈希</th></tr>
+    ${S.library.map(l=>`<tr><td>${esc(l.title)}</td><td class="tnum">${l.ver}</td><td>${esc(l.concept)}</td><td>${esc(l.mapping)}</td><td><span class="chip ${l.status==='已发布'?'good':'warn'}">${l.status}</span></td><td class="mono">${l.hash}</td></tr>`).join('')}</table></div>
+    <p class="small muted" style="margin-top:6px">已发布版本不能修改，改动会生成新版本。孩子的学习记录挂在当时的版本上。</p></div>`;
+  pb.querySelectorAll('[data-assign]').forEach(b=>b.onclick=()=>{const k=b.dataset.assign,v=document.getElementById('as-'+k).value;S.assign=S.assign.filter(a=>!(a.child===k&&a.day===S.day));S.assign.push({child:k,day:S.day,lesson:v});toast(`已为${CHILDREN[k].name}安排今天的课`);render()});
+}
+function pGrant(pb){
+  const pend=S.requests.filter(r=>r.status==='待处理');
+  const allPast=S.assign.filter(a=>a.day<S.day);
+  pb.innerHTML=`<div class="grid2"><div class="panel"><h3>孩子发来的请求 <span class="fr">J06</span></h3>
+   ${pend.length?pend.map(r=>grantForm(r.child,r.lesson,r.id)).join(''):'<p class="small muted">没有待处理的请求。可以去儿童端点“请父母开启”试一试。请求不会自动通过。</p>'}
+   <h3 style="margin-top:14px">主动开放一节历史课</h3>${allPast.length?grantForm(allPast[0].child,allPast[0].lesson,null,allPast):'<p class="small muted">没有历史课。</p>'}</div>
+   <div class="panel"><h3>已授权 <span class="fr">FR56</span></h3>${S.grants.length?`<div class="tablewrap"><table><tr><th>孩子</th><th>课程</th><th>有效至</th><th>可用操作</th><th></th></tr>${S.grants.map((g,i)=>`<tr><td>${CHILDREN[g.child].name}</td><td>${esc(lessonByKey(g.lesson).title)}</td><td>${g.revoked?'<span class="chip bad">已撤销</span>':g.untilDay<S.day?'<span class="chip">已过期</span>':md(g.untilDay)+' 20:00'}</td><td class="small">${g.ops.join('、')}</td><td>${!g.revoked&&g.untilDay>=S.day?`<button class="btn sm" data-rev="${i}">撤销</button>`:''}</td></tr>`).join('')}</table></div>`:'<p class="small muted">还没有授权。</p>'}
+   <p class="small muted" style="margin-top:8px">授权只对指定的孩子、课程版本和期限有效。旧链接、改系统日期、老师建议都不能打开历史课。拒绝或过期不会删除学习记录。<span class="fr">AC28–29</span></p></div></div>`;
+  pb.querySelectorAll('[data-rev]').forEach(b=>b.onclick=()=>{S.grants[+b.dataset.rev].revoked=true;toast('已撤销');render()});
+  pb.querySelectorAll('[data-grant]').forEach(b=>b.onclick=()=>{const f=b.closest('.gform'),pin=f.querySelector('.pin').value;
+    if(pin!=='1234'){toast('家长验证没通过。原型的演示密码是 1234。');return}
+    const sel=f.querySelector('.glesson');const [child,lesson]=sel?sel.value.split('|'):[b.dataset.child,b.dataset.lesson];
+    const win=+f.querySelector('.gwin').value;const ops=[...f.querySelectorAll('.gop:checked')].map(x=>x.value);
+    S.grants.push({child,lesson,untilDay:S.day+win,ops,revoked:false});
+    const r=S.requests.find(x=>x.id===b.dataset.req);if(r)r.status='已批准';toast('已授权。孩子的 Pad 刷新后可以打开。');render()});
+  pb.querySelectorAll('[data-deny]').forEach(b=>b.onclick=()=>{const r=S.requests.find(x=>x.id===b.dataset.deny);r.status='已拒绝';toast('已拒绝，学习记录保留');render()});
+}
+function grantForm(child,lesson,reqId,list){const L=lessonByKey(lesson);
+  return `<div class="gform stack" style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:10px">
+   ${list?`<label class="f">孩子与课程<select class="glesson">${list.map(a=>`<option value="${a.child}|${a.lesson}">${CHILDREN[a.child].name} · ${md(a.day)} · ${esc(lessonByKey(a.lesson).title)}</option>`).join('')}</select></label>`:`<div><b>${CHILDREN[child].name}</b> 想重新学：${esc(L.title)} <span class="mono">v${L.ver}</span></div>`}
+   <div class="row"><label class="f">有效期<select class="gwin"><option value="0">今天 20:00 前</option><option value="1">到明天 20:00</option></select></label>
+   <span class="small">可用操作：<label><input type="checkbox" class="gop" value="重看演示" checked> 重看演示</label> <label><input type="checkbox" class="gop" value="再做挑战" checked> 再做挑战</label></span></div>
+   <div class="row"><label class="f">家长验证（演示密码 1234）<input class="pin" type="password" inputmode="numeric" style="width:120px"></label>
+   <button class="btn primary" data-grant data-child="${child}" data-lesson="${lesson}" data-req="${reqId||''}" style="align-self:end">验证并授权</button>${reqId?`<button class="btn" data-deny="${reqId}" style="align-self:end">拒绝</button>`:''}</div></div>`}
+
+/* ---- homework ---- */
+const HW_ITEMS=[
+  {n:1,stem:'长方形长 6 cm、宽 4 cm，周长是多少？',ans:'(6+4)×2 = 20 cm',mark:'✓',conf:'高',flag:null},
+  {n:2,stem:'这个长方形的面积是多少？',ans:'6×4 = 24 cm',mark:'✗',conf:'高',flag:null},
+  {n:3,stem:'正方形边长 5 m，面积是多少？',ans:'5×4 = 20 平方米',mark:'✗',conf:'中',flag:'“5×4”中的 4 可能是 9，需核对'},
+  {n:4,stem:'38 × 4 =',ans:'1?2',mark:'✗',conf:'低',flag:'十位数字模糊：可能是 4 或 5'}
+];
+function pHw(pb){
+  const H=S.hw;
+  const needFix=HW_ITEMS.filter(i=>i.flag&&!H.fixed[i.n]);
+  pb.innerHTML=`<div class="hw"><div class="stack">
+   <div class="panel"><h3>1. 选孩子和材料 <span class="fr">FR18</span></h3>
+    <div class="row"><label class="f">孩子<select id="hwKid"><option>哥哥</option><option>妹妹</option></select></label><label class="f">学科<select><option>数学</option></select></label>
+    <label class="f">材料<select id="hwType"><option value="full"${H.mode==='full'?' selected':''}>作业（有题目和作答）</option><option value="score"${H.mode==='score'?' selected':''}>成绩单（只有总分）</option></select></label><label class="f">日期<input type="date" value="2026-10-23"></label></div>
+    <p class="small muted" style="margin-top:6px">上传前请遮住姓名、学校和学号。系统不会自己猜是哪个孩子。</p></div>
+   <div class="photo">${H.mode==='full'?hwSvg():scoreSvg()}</div>
+   <div class="row"><button class="btn primary" id="hwRun">${H.stage==='idle'?'上传并识别':'重新识别'}</button><span class="small muted">示例照片，非真实作业</span></div></div>
+   <div class="stack" id="hwRight"></div></div>`;
+  document.getElementById('hwType').onchange=e=>{H.mode=e.target.value;H.stage='idle';H.fixed={};render()};
+  document.getElementById('hwRun').onclick=()=>{H.stage='review';H.fixed={};render()};
+  const R=document.getElementById('hwRight');
+  if(H.stage==='idle'){R.innerHTML=`<div class="panel"><h3>识别结果会出现在这里</h3><p class="small muted">状态：上传中 → 处理中 → 待核对 → 可诊断。关键数字和单位核对之前，不会给出判断。<span class="fr">FR19</span></p></div>`;return}
+  if(H.mode==='score'){R.innerHTML=`<div class="panel"><h3>只有总分时能说什么 <span class="fr">FR20</span></h3><p><b>10 月单元测：82 / 100</b></p>
+   <p class="small" style="margin-top:6px">只能描述这次数学测验的整体表现。没有题目和作答，无法判断具体哪个知识点没掌握，也不能和满分、范围不同的其他测验直接比较。</p>
+   <p class="small" style="margin-top:6px"><b>建议：</b>如果方便，请补拍试卷的题目页，或者老师的分项评语。</p></div>`;return}
+  R.innerHTML=`<div class="panel"><h3>2. 核对识别结果 <span class="chip ${needFix.length?'warn':'good'}">${needFix.length?`待核对 ${needFix.length} 处`:'可诊断'}</span></h3>
+   <div class="tablewrap"><table><tr><th>题</th><th>题干</th><th>孩子作答</th><th>批改</th><th>识别把握</th></tr>
+   ${HW_ITEMS.map(i=>`<tr><td>${i.n}</td><td>${esc(i.stem)}</td><td class="mono">${esc(H.fixed[i.n]?.ans||i.ans)}</td><td>${i.mark}</td><td>${i.flag&&!H.fixed[i.n]?`<span class="chip warn">${i.conf}</span><div class="small">${esc(i.flag)}</div><div class="row" style="margin-top:4px">${fixBtns(i)}</div>`:`<span class="chip ${i.conf==='高'?'good':''}">${H.fixed[i.n]?'已核对':i.conf}</span>`}</td></tr>`).join('')}</table></div>
+   <p class="small muted" style="margin-top:6px">题干、作答和批改分开保存。改动生成新的修订，原图和原识别不变。</p></div>
+   <div class="panel" id="judg"></div>`;
+  R.querySelectorAll('[data-fix]').forEach(b=>b.onclick=()=>{const [n,val]=b.dataset.fix.split('|');H.fixed[n]={ans:val};render()});
+  const J=document.getElementById('judg');
+  if(needFix.length){J.innerHTML=`<h3>3. 学习判断</h3><p class="small muted">还有 ${needFix.length} 处没核对。核对完才会生成判断。</p>`;return}
+  const q4=H.fixed[4].ans, q3=H.fixed[3].ans;
+  J.innerHTML=`<h3>3. 学习判断 <span class="fr">FR21</span> <span class="chip">待验证，可被后续作业推翻</span></h3>
+   <div class="judg">
+    <div class="cell"><h4>看到了什么</h4><p class="small">第 1 题周长算对了，过程完整。第 2 题算出 24，但单位写成 cm。第 3 题${q3.includes('5×4')?'用 5×4 算正方形面积，得到的是周长':'作答已改为“无法确认”，不纳入判断'}。第 4 题 38×4 的作答是 ${esc(q4)}。</p></div>
+    <div class="cell"><h4>可能卡在哪里</h4><p class="small">① 长度单位和面积单位可能没分清（第 2 题）。${q3.includes('5×4')?'② 可能把周长和面积的算法混在一起（第 3 题）。':''}</p></div>
+    <div class="cell"><h4>也可能是别的原因</h4><p class="small">第 2 题也可能只是抄单位时漏了“²”。${q4==='142'?'第 4 题 142 更像是进位时少加了 1，是计算问题，不是概念问题。':q4==='152'?'第 4 题其实是对的，可能是老师批改有误或识别问题。':''}</p></div>
+    <div class="cell"><h4>还不能判断</h4><p class="small">只有 4 道题，看不出是否理解“面积就是铺满的格子数”。不能据此说哥哥上课不专心。</p></div>
+   </div>
+   <div class="note" style="margin-top:10px"><b>下一课建议：</b>保持“周长与面积的区别”这个目标，换一种教法：在螳螂虾海底场景里让卷尺围一圈和样方铺满<b>同屏对比</b>，并把“米”和“平方米”放在同一画面对照。<span class="fr">FR24</span><br>
+   <b>先做一个小验证：</b>“一个 3 米 × 3 米的地面，围栏几米？地砖几块？各用什么单位？”如果做对，就取消重教，直接练进位乘法。</div>
+   <div class="row" style="margin-top:10px"><button class="btn primary" id="toStudio">用这个判断生成下一课 → Skill 制作台</button><button class="btn" id="toCard">生成家长卡</button></div>`;
+  document.getElementById('toStudio').onclick=()=>{S.studio={stage:0,results:{},fixApplied:false,review:{},published:false,source:'homework'};S.subtab.studio='pipe';setView('studio')};
+  document.getElementById('toCard').onclick=()=>{S.subtab.parent='card';render()};
+}
+function fixBtns(i){if(i.n===3)return `<button class="btn sm" data-fix="3|5×4 = 20 平方米">确认是 4</button><button class="btn sm" data-fix="3|无法确认">无法确认</button>`;
+  if(i.n===4)return `<button class="btn sm" data-fix="4|142">是 142</button><button class="btn sm" data-fix="4|152">是 152</button><button class="btn sm" data-fix="4|无法确认">无法确认</button>`;return ''}
+function hwSvg(){return `<svg viewBox="0 0 340 300" role="img" aria-label="示例作业照片"><rect width="340" height="300" fill="#fbfaf4"/>
+ ${Array.from({length:14},(_,i)=>`<line x1="0" x2="340" y1="${22+i*20}" y2="${22+i*20}" stroke="#d9e3f0"/>`).join('')}
+ <g font-family="Noto Sans SC, sans-serif" font-size="12" fill="#333"><text x="14" y="38">1. 长方形长6cm、宽4cm，周长是多少？</text><text x="14" y="98">2. 这个长方形的面积是多少？</text><text x="14" y="158">3. 正方形边长5m，面积是多少？</text><text x="14" y="218">4. 38×4=</text></g>
+ <g font-family="cursive, 'Ma Shan Zheng', sans-serif" font-size="15" fill="#2b3f8f"><text x="34" y="64">(6+4)×2=20cm</text><text x="34" y="124">6×4=24cm</text><text x="34" y="184">5×4=20平方米</text><text x="76" y="219">1</text><text x="86" y="219" opacity=".55">4</text><text x="96" y="219">2</text></g>
+ <g stroke="#d33" stroke-width="2.5" fill="none"><path d="M260 50 l8 10 l16 -20"/><path d="M262 108 l18 18 M280 108 l-18 18"/><path d="M262 168 l18 18 M280 168 l-18 18"/><path d="M262 205 l18 18 M280 205 l-18 18"/></g>
+ <rect x="0" y="262" width="340" height="38" fill="#1b2233" opacity=".85"/><text x="14" y="285" font-size="11" fill="#fff" font-family="Noto Sans SC, sans-serif">姓名、学校已遮盖 · 示例图片</text></svg>`}
+function scoreSvg(){return `<svg viewBox="0 0 340 200" role="img" aria-label="示例成绩单"><rect width="340" height="200" fill="#fbfaf4"/><g font-family="Noto Sans SC, sans-serif" fill="#333"><text x="20" y="40" font-size="15">10 月数学单元测验</text><text x="20" y="80" font-size="13">姓名：████</text><text x="20" y="120" font-size="13">总分：</text><text x="70" y="122" font-size="26" fill="#d33">82</text><text x="110" y="120" font-size="13">/ 100</text></g></svg>`}
+
+function pCard(pb){
+  const g=todaySess('gege'), ev=[];
+  if(g){if(g.modesSeen.walk)ev.push('拉卷尺把调查区围了一圈，看到周长 = '+2*(g.params.a+g.params.b)+' 米');if(g.modesSeen.tile)ev.push('用样方铺满调查区，数出面积 = '+g.params.a*g.params.b+' 平方米');
+    if(g.ch.c1)ev.push(`挑战 1（卷尺和样方的单位）${g.ch.c1.status==='对'?'做对了':'还没做对'}，用了 ${g.ch.c1.hints} 次提示`);if(g.ch.c2)ev.push(`挑战 2（16 米卷尺围出最多样方）${g.ch.c2.status==='对'?'找到了 4 × 4':'还在尝试'}`)}
+  const said=g&&g.end&&g.end!=='skipped'?`今天更想用“${g.end}”研究新问题`:null;
+  const txt=ev.length?`【本次事实】\n${ev.map(e=>'· '+e).join('\n')}\n\n【孩子愿意分享的】\n${said?'· '+said:'· 这次没有选择分享'}\n\n【还没验证的解释】\n· 作业里“米/平方米”混用，可能是单位没分清，也可能是抄漏了。\n\n【可以这样夸】\n· “你先拉卷尺围一圈，再一格格放样方，两个数分得很清楚。”\n\n【可以这样问】\n· “卷尺和样方，哪一个是‘一圈’，哪一个是‘铺满’？螳螂虾的洞要用哪一个来数？”\n\n【可选一起做】\n· 一起量一张桌子，比一比“围一圈”和“铺满”。做不做都可以。`
+   :`【本次事实】\n· 哥哥今天还没有学习记录。\n\n没有依据时，这张卡不会生成表扬或进步描述。可以先让孩子在儿童端完成一课。`;
+  pb.innerHTML=`<div class="grid2"><div class="panel"><h3>哥哥 · 家长沟通卡 <span class="fr">FR31</span></h3>
+   <textarea class="card" id="cardTxt" aria-label="家长卡内容">${esc(txt)}</textarea>
+   <div class="row" style="margin-top:8px"><button class="btn primary" id="copyCard">复制</button><span class="small muted">不会自动发给孩子、老师或其他家长。</span></div></div>
+   <div class="panel"><h3>每一句都能追到证据 <span class="fr">AC17</span></h3>${ev.length?`<div class="log">${g.log.slice().reverse().map(l=>`<div>${esc(l)}</div>`).join('')}</div>`:'<p class="small muted">暂无记录。</p>'}</div></div>`;
+  document.getElementById('copyCard').onclick=()=>{const t=document.getElementById('cardTxt');navigator.clipboard.writeText(t.value).then(()=>toast('已复制')).catch(()=>{t.select();toast('请手动复制选中的文字')})};
+}
+function pFb(pb){
+  const kinds={观察:'chip acc',观察者解释:'chip mk',自述:'chip good',待验证推测:'chip warn'};
+  pb.innerHTML=`<div class="panel"><h3>关于哥哥“上课不听讲”的多方说法 <span class="fr">FR33</span></h3>
+   <p class="small muted">每条保留来源、原话和情境。说法不一致时并列显示，不按人数或身份判断谁对。</p>
+   <div class="srcgrid" style="margin-top:10px">${S.feedback.map(f=>`<div class="src"><span class="row"><b>${esc(f.label)}</b><span class="${kinds[f.kind]||'chip'}">${f.kind}</span></span><p>“${esc(f.text)}”</p><span class="small muted">${esc(f.ctx)}</span></div>`).join('')}</div>
+   <div class="note" style="margin-top:12px"><b>能区分这些说法的小任务：</b>请哥哥做 2 道三年级周长面积题和 2 道四年级新题。如果三年级题也吃力，更支持“先修不足”；如果都能做，离座可能另有原因，需要和老师再聊。</div></div>
+   <div class="panel" style="margin-top:14px"><h3>记一条新反馈（约 30 秒）<span class="fr">FR32</span></h3>
+   <div class="row"><label class="f">来源<select id="fbWho"><option value="parent">家长观察</option><option value="teacher_via_parent">家长转述老师</option><option value="child">孩子自述</option></select></label>
+   <label class="f">类型<select id="fbKind"><option>观察</option><option>观察者解释</option><option>自述</option></select></label>
+   <label class="f" style="flex:1;min-width:200px">原话或具体行为<input id="fbText" placeholder="比如：今天主动说想再算一次"></label><label class="f">情境<input id="fbCtx" placeholder="时间、地点"></label>
+   <button class="btn primary" id="fbAdd" style="align-self:end">保存</button></div></div>`;
+  document.getElementById('fbAdd').onclick=()=>{const w=document.getElementById('fbWho');const t=document.getElementById('fbText').value.trim();if(!t){toast('请写下原话或具体行为');return}
+    S.feedback.push({who:w.value,label:w.options[w.selectedIndex].text,text:t,ctx:document.getElementById('fbCtx').value||md(S.day),kind:document.getElementById('fbKind').value});render()};
+}
+function pConsent(pb){
+  const C=S.consent;const items=[
+    ['core','核心学习','打开当天课程、保存操作记录和作品。不开启就无法使用。',true],
+    ['homework','作业识别','识别你上传的作业照片，用来判断下一课教什么。原图默认保存 30 天。'],
+    ['interest','兴趣更新','根据孩子的选择和自述调整题材推荐。孩子可以随时说“不喜欢了”。'],
+    ['endq','课末聊聊','每课结尾的选择题，孩子可以跳过。阶段 A 只用点选，不收集开放文字。'],
+    ['voice','语音回答','允许孩子用说话回答。原始音频不保存。'],
+    ['external','外部 AI 模型处理','把去掉姓名的片段发给外部模型。供应商、处理地点和保留期待确认（Q08）。'],
+    ['share','分享给老师','只分享你勾选的学习摘要，不含聊天和原始作业。']];
+  pb.innerHTML=`<div class="panel"><h3>分用途同意 <span class="fr">FR50</span> <span class="fr">FR52</span></h3><p class="small muted">每一项单独开关。关掉任何一项，孩子仍然能学当天的已审核课程。</p>
+   ${items.map(([k,n,d,lock])=>`<div class="consent"><input type="checkbox" id="cs-${k}" ${C[k]?'checked':''} ${lock?'disabled':''} aria-label="${n}"><div><b>${n}</b>${k==='external'?' <span class="chip warn">待确认</span>':''}<div class="small muted">${d}</div></div><span class="small">${C[k]?'已开启':'已关闭'}</span></div>`).join('')}
+   <div class="row" style="margin-top:12px"><button class="btn" id="expBtn">导出孩子的全部资料</button><button class="btn" id="delBtn">删除某个孩子的资料</button><span class="small muted">删除覆盖数据库、文件、索引和缓存，7 天内完成，备份 30 天内滚动清除。</span></div></div>
+   <div class="panel" style="margin-top:14px"><h3>孩子看到的说明</h3><p>“我是学习助手，是电脑程序，不是真人。你点的选项和做的题会保存下来，给爸爸妈妈看。你可以不回答，也可以随时停下。如果你说的事情让我觉得你可能有危险，我会请大人来帮忙。”</p></div>`;
+  document.getElementById('expBtn').onclick=()=>toast('原型：正式版会生成一份导出包，家长验证后下载');
+  document.getElementById('delBtn').onclick=()=>toast('原型：正式版需要再次验证身份，并显示删除范围和完成时间');
+  items.forEach(([k])=>{const el=document.getElementById('cs-'+k);if(el&&!el.disabled)el.onchange=()=>{C[k]=el.checked;render()}});
+}
+
+/* ============ STUDIO ============ */
+const STAGES=[
+  {k:'target',n:'目标锁定',st:'来源与目标就绪'},
+  {k:'director',n:'导演设计',st:'导演设计'},
+  {k:'assets',n:'素材检索核验',st:'资产匹配'},
+  {k:'assemble',n:'组装 LessonSpec',st:'互动制作'},
+  {k:'validate',n:'自动校验',st:'自动校验'},
+  {k:'review',n:'审核与发布',st:'审核 → 已发布'}];
+const PROD_STATES=['需求登记','来源与目标就绪','导演设计','资产匹配','互动制作','自动校验','审核','设备验收','待发布','已发布'];
+function lessonSpec(){const fixed=S.studio.fixApplied;return {
+  schema_version:'lessonspec/0.2',lesson_id:'L-PA',version:'1.1',
+  theme:{id:'reef_quadrat_survey',interest_refs:['IO-0003'],why:'孩子自述近期最喜欢螳螂虾',no_husbandry:true},
+  primary_concept:{id:'M3.MEAS.perimeter_vs_area',name:'周长与面积的区别',target_misconceptions:['MC.unit_len_vs_area','MC.perim_area_swap']},
+  prerequisites:['M2.MEAS.length_metre','M2.MUL.table'],
+  curriculum_mapping:{region:'上海',system:'五四制',grade:4,term:'2026 秋',source:'沪学习 App 参考目录',publisher:'待核对',unit:'待核对',status:'先修补强',verified_by:null,checked_on:'2026-10-24'},
+  learner_profile:{grade:4,scaffold:['challenge_first','short_hints'],language:{default:'zh',cycle_enabled:false},recent_judgment_ref:'LJ-0001'},
+  child_path:{param_ranges:{a:[1,10],b:[1,10]},hint_levels:3,est_minutes:[10,15]},
+  pending_assets:[{asset_id:'M-peacock-mantis-shrimp-scan',kind:'organism',realism_required:'scan',status:'待采购（需商用授权的真实标本扫描 + 实拍颜色）',until_ready:'不展示该生物，只显示洞口和文字讲解'}],
+  object_asset_versions:[{asset_id:'A-garden-ground',kind:'object',realism:'pbr',ver:'1.0',license:'CC0',commercial_ok:true,source:'程序化生成',depiction:'示意'},{asset_id:'A-measuring-wheel',kind:'object',realism:'pbr_measured',ver:'1.0',license:'CC0',commercial_ok:true,source:'按实物参数建模，轮周长 1 m',depiction:'写实简化'},{asset_id:'T-sand-ripples',kind:'texture',realism:'pbr',ver:'1.0',license:'CC0',commercial_ok:true,source:'程序生成',depiction:'PBR 贴图'},{asset_id:'M-pvc-quadrat',kind:'object',realism:'pbr_measured',ver:'1.0',license:'CC0',commercial_ok:true,source:'按 1 m × 1 m 实物建模',depiction:'写实'},{asset_id:'T-grass',kind:'texture',realism:'pbr',ver:'1.0',license:'待核验',commercial_ok:false,source:'three.js 示例贴图库',depiction:'PBR 贴图'},{asset_id:'T-wood',kind:'texture',realism:'pbr',ver:'1.0',license:'待核验',commercial_ok:false,source:'three.js 示例贴图库',depiction:'PBR 贴图'},{asset_id:'T-granite-paver',kind:'texture',realism:'pbr',ver:'1.0',license:'CC0',commercial_ok:true,source:'程序生成',depiction:'PBR 贴图'}],
+  distribution:{scope:'family',tenant_id:'family-001'},
+  scene_component_ids:['PerimeterArea@1.2'],
+  experiment_model_version:{id:'perim-area',ver:'1.0.0',deterministic:true,
+    vars:{a:{unit:'m',min:1,max:10,step:1},b:{unit:'m',min:1,max:10,step:1}},
+    outputs:{P:{expr:'2*(a+b)',unit:'m'},S:{expr:'a*b',unit:'m²'}},
+    reference_cases:[{in:{a:6,b:4},out:{P:20,S:24}},{in:{a:4,b:4},out:{P:16,S:16}},{in:{a:10,b:10},out:{P:40,S:100}},{in:{a:0,b:4},expect:'reject_out_of_range'}]},
+  activity_graph:[
+    {id:'n1',type:'explain',teaches:'MC.perim_area_swap',exit:'tap_continue'},
+    {id:'n2',type:'contrast',action:'tape_walk + quadrat_fill 同屏',state:['a','b'],teaches:'MC.perim_area_swap',hints:['看卷尺围一圈','数铺满的样方'],complete:'both_modes_viewed'},
+    {id:'n3',type:'predict',prompt:'围栏 16 米时，地砖一定一样多吗？',teaches:'MC.perim_area_swap',complete:'answered'},
+    {id:'n4',type:'transfer',no_theme:true,items:['c1','c2'],teaches:'MC.unit_len_vs_area',complete:'submitted_or_skipped'}],
+  hotspots:[
+    {id:'fence',teaches:'MC.perim_area_swap',language_pack:{zh:'围栏沿着边界围一圈……',en:['The fence goes all the way around…','perimeter — 周长','Roll the measuring wheel along the fence.']}},
+    {id:'tile',teaches:'MC.perim_area_swap',language_pack:{zh:'把里面铺满……',en:['Cover the inside with tiles…','area — 面积','Tap “铺地砖”.']}},
+    {id:'shrimp',teaches:'M.MEAS.length_cm_m',facts:[{text:'成年体长常见约 10–18 厘米',ref:'待科学审核'},{text:'捕肢挥击速度最高约 23 米/秒',ref:'Patek 等 2004, Nature 428:819'}],language_pack:{zh:'这是孔雀螳螂虾……',en:['This is a peacock mantis shrimp…','mantis shrimp — 螳螂虾','Compare its body with one metre.']}},
+    {id:'unit',teaches:fixed?'MC.unit_len_vs_area':null,language_pack:{zh:'一段围栏长一米；一块地砖是一平方米……',en:['One fence piece is one metre…','metre, square metre',fixed?'Point to one metre, then one square metre.':null]}}],
+  assessment_plan:{in_lesson:['c1','c2'],followup:'下一次真实作业中的周长/面积题',states:['未观察','待确认','有独立应用证据','需再支持']},
+  offscreen:{task:'量桌面的长和宽',adult:true,materials:['卷尺'],optional:true},
+  parent_tip:'问“哪个是一圈、哪个是铺满”，不要问“你懂了吗”。',
+  source_refs:[{id:'E01',for:'课标范围'},{id:'MATH-DEF',for:'周长、面积定义'}],
+  safety_review:{age_ok:true,hazards:[]},
+  review_records:[]}}
+const RULES=[
+  {id:'V01',n:'LessonSpec 符合 Schema（必填字段、类型）',fr:'FR45',test:sp=>true},
+  {id:'V02',n:'参考算例全部通过（含零值与越界）',fr:'FR09 / AC05',test:sp=>runCases(sp).every(r=>r.ok)},
+  {id:'V03',n:'每个活动节点和热点都写了 teaches（服务哪个知识）',fr:'BL02',test:sp=>sp.activity_graph.every(n=>n.teaches)&&sp.hotspots.every(h=>h.teaches)},
+  {id:'V04',n:'每个热点都有中文讲解',fr:'FR13',test:sp=>sp.hotspots.every(h=>h.language_pack.zh)},
+  {id:'V05',n:'英文 3 条齐全（缺失只警告，回落中文）',fr:'FR13',warn:true,test:sp=>sp.hotspots.every(h=>h.language_pack.en.every(Boolean))},
+  {id:'V06',n:'只引用已审核组件，无可执行代码',fr:'FR44',test:sp=>sp.scene_component_ids.every(id=>/^(PerimeterArea|ArrayMultiplier|ModelViewer|ScaleMixer)@/.test(id))},
+  {id:'V07',n:'每个素材有许可证和来源，示意已标注',fr:'FR04 / FR05',test:sp=>sp.object_asset_versions.every(a=>a.license&&a.source&&a.depiction)},
+  {id:'V08',n:'教材映射未核对时不标“同步”',fr:'R01',test:sp=>sp.curriculum_mapping.status!=='已核对本年级'||sp.curriculum_mapping.verified_by},
+  {id:'V09',n:'有迁移题且不带原题材',fr:'FR24 / R11',test:sp=>sp.activity_graph.some(n=>n.type==='transfer'&&n.no_theme)},
+  {id:'V10',n:'与上一版相比主表征有实质变化',fr:'FR24',test:sp=>sp.activity_graph.some(n=>n.type==='contrast')},
+  {id:'V11',n:'发布范围与素材许可匹配（商用发布不得含仅家用素材）',fr:'FR04',test:sp=>sp.distribution.scope==='family'||sp.object_asset_versions.every(a=>a.commercial_ok)},
+  {id:'V12',n:'含仅家用素材时提示：商用前需替换',fr:'FR04',warn:true,test:sp=>sp.object_asset_versions.every(a=>a.commercial_ok)},
+  {id:'V13',n:'写实底线：真实生物只用扫描或实拍素材，任何素材不得为卡通、风格化或程序简化生物',fr:'BL14 / R04',test:sp=>sp.object_asset_versions.every(a=>a.realism&&a.realism!=='stylized'&&(a.kind!=='organism'||['scan','photo'].includes(a.realism)))&&(sp.pending_assets||[]).every(p=>/不展示/.test(p.until_ready))}
+];
+function runCases(sp){const m=sp.experiment_model_version;return m.reference_cases.map(c=>{const {a,b}=c.in;const inR=Object.entries(m.vars).every(([k,v])=>c.in[k]>=v.min&&c.in[k]<=v.max);
+  if(c.expect==='reject_out_of_range')return {c,got:inR?'接受':'拒绝',ok:!inR};const P=2*(a+b),Sv=a*b;return {c,got:`P=${P} S=${Sv}`,ok:inR&&P===c.out.P&&Sv===c.out.S}})}
+function renderStudio(){
+  const tabs=[['pipe','制作管线'],['comp','组件库'],['schema','LessonSpec Schema'],['hwskill','作业分析 Skill']];
+  app.innerHTML=`<div class="view-head"><h2>Skill 制作台 · discovery-learning-studio</h2><p>核心 Skill 的建议形态：一个入口、六个阶段，每个阶段都有能检查的产物。Skill 只输出配置，孩子的 Pad 用审核过的组件渲染。<span class="fr">FR44–47</span> <span class="fr">FR57</span></p></div>
+   <div class="subtabs" role="tablist">${tabs.map(([k,n])=>`<button role="tab" data-st="${k}" aria-selected="${S.subtab.studio===k}">${n}</button>`).join('')}</div><div id="stbody"></div>`;
+  app.querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>{S.subtab.studio=b.dataset.st;render()});
+  const el=document.getElementById('stbody');
+  ({pipe:stPipe,comp:stComp,schema:stSchema,hwskill:stHw})[S.subtab.studio](el);
+}
+function stageStatus(i){const r=S.studio.results[i];return r?(r.fail?'fail':'ok'):(i===S.studio.stage?'run':'')}
+function stPipe(el){
+  const T=S.studio, cur=T.stage;
+  const doneN=Object.keys(T.results).filter(k=>!T.results[k].fail).length;
+  const psi=T.published?9:[1,2,3,4,5,6][Math.min(cur,5)];
+  el.innerHTML=`<div class="statebar" aria-label="生产状态">${PROD_STATES.map((s,i)=>`<span class="${i===psi?'on':i<psi?'past':''}">${s}</span>`).join('')}</div>
+   ${T.source==='homework'?`<div class="note" style="margin-bottom:12px">本次需求来自家长端的作业判断 LJ-0001：哥哥可能混淆长度与面积单位。目标保持不变，教法要换。</div>`:''}
+   <div class="studio"><div class="pipe" role="tablist">${STAGES.map((s,i)=>`<button role="tab" data-sg="${i}" aria-selected="${i===cur}" class="${stageStatus(i)}"><span class="n">${T.results[i]?(T.results[i].fail?'!':'✓'):i+1}</span><span>${s.n}</span><span class="small muted">${s.st.split(' ')[0]}</span></button>`).join('')}</div>
+   <div class="panel" id="sgBody"></div></div>`;
+  el.querySelectorAll('[data-sg]').forEach(b=>b.onclick=()=>{T.stage=+b.dataset.sg;render()});
+  const B=document.getElementById('sgBody');
+  [sgTarget,sgDirector,sgAssets,sgAssemble,sgValidate,sgReview][cur](B,T);
+}
+function nextBtn(T,i,label='运行此阶段'){return `<div class="row" style="margin-top:12px"><button class="btn primary" id="runSg">${T.results[i]?'重新运行':label}</button>${T.results[i]&&!T.results[i].fail&&i<5?`<button class="btn" id="nextSg">下一阶段 →</button>`:''}</div>`}
+function bindNext(T,i,fn){document.getElementById('runSg').onclick=()=>{fn&&fn();T.results[i]=T.results[i]||{};T.results[i].fail=false;render()};const n=document.getElementById('nextSg');if(n)n.onclick=()=>{T.stage=i+1;render()}}
+function sgTarget(B,T){
+  B.innerHTML=`<h3>1. 目标锁定 <span class="fr">BL01</span> <span class="fr">FR01</span></h3><p class="small muted">先定数学目标和要针对的误区，再选题材。输入不带孩子姓名、学校或原始作业。</p>
+   <div class="grid2" style="margin-top:10px"><div class="stack"><b class="small">输入 learner_profile（已去标识）</b><pre class="json">${esc(JSON.stringify({grade:4,scaffold:['challenge_first','short_hints'],language:{default:'zh',cycle_enabled:false},interests:S.interests.filter(x=>x.child==='gege'&&x.topic!=='枪械').map(x=>({id:x.id,topic:x.topic,source:x.src==='孩子自述'?'child_self_report':'parent_report',state:x.state})),recent_judgment:T.source==='homework'?{id:'LJ-0001',hypotheses:['MC.unit_len_vs_area','MC.perim_area_swap'],status:'待验证'}:null},null,2))}</pre></div>
+   <div class="stack"><b class="small">输出</b>${T.results[0]?`<table class="small"><tr><th>主概念</th><td>周长与面积的区别（M3.MEAS.perimeter_vs_area）</td></tr><tr><th>针对误区</th><td>MC.unit_len_vs_area 长度与面积单位混用<br>MC.perim_area_swap 周长与面积算法混用</td></tr><tr><th>教材映射</th><td><span class="chip mk">先修补强</span> 沪学习参考 · 学校册次待核对</td></tr><tr><th>先修</th><td>长度单位（米）· 表内乘法</td></tr><tr><th>重教约束</th><td>目标和验收尺度不变，主表征必须换 <span class="fr">FR24</span></td></tr></table>`:'<p class="small muted">点“运行”后生成。</p>'}</div></div>${nextBtn(T,0)}`;
+  bindNext(T,0);
+}
+function themeChoice(){const wish=[...S.interests].reverse().find(x=>x.child==='gege'&&x.state==='下一课心愿');
+  const pick=wish?wish.topic:'螳螂虾';
+  const map={'螳螂虾和海底':'珊瑚礁海底样方调查（卷尺围调查区、样方数螳螂虾洞）','螳螂虾':'珊瑚礁海底样方调查（卷尺围调查区、样方数螳螂虾洞）','昆虫':'草地昆虫样方调查（1 米样方数蚂蚁洞和甲虫）','高楼':'高楼地基和楼层平面（围护栏、铺楼板）','大桥和隧道':'隧道检修通道（沿边布线、铺检修板）','机器人':'扫地机器人（沿墙走一圈、清扫覆盖面积）'};
+  return `按${wish?`孩子自己选的下一课心愿“${esc(pick)}”（${esc(wish.id)}，孩子自述）`:'孩子自述的近期兴趣“螳螂虾”（IO-0003）'}，选用 <b>${esc(map[pick]||pick+'（需新建场景，开资产工单）')}</b>。不选：螳螂虾水族箱养殖（BL12 不做养殖）；螳螂虾打架游戏（与周长面积无关，BL02）。同一题材连续 3 课后主动提供别的兴趣。`}
+function sgAssets(B,T){
+  const rows=[['孔雀螳螂虾 3D 模型','程序建模（参照实物外形）','CC0','可商用','约 16 cm','看起来像动画片，不是写实','拒绝：不满足写实底线 BL14'],['孔雀螳螂虾写实扫描模型','商用模型库或博物馆标本扫描','需商用授权','待确认','约 16 cm','须真实标本扫描 + 实拍颜色，专家核对结构','待采购：到位前不展示'],['某网站“螳螂虾”扫描模型','模型分享站','许可不明','—','—','不能确认能否修改','拒绝：许可不清'],['海底沙纹贴图 + 法线','程序生成','CC0','可商用','约 3 m/张','—','采用'],['PVC 样方框','按实物建模','CC0','可商用','1 m × 1 m','—','采用'],['公园实拍 HDRI 环境光','Poly Haven（经 pmndrs/assets）','CC0','可商用','—','实拍光照和远景','采用'],['草地 PBR 贴图','three.js 示例贴图库','待核验','仅家用','约 4 m/张','家用先用，商用前核验或替换','采用（标记）'],['木纹 PBR 贴图（围栏、积木、桌面）','three.js 示例贴图库','待核验','仅家用','—','同上','采用（标记）'],['花岗岩铺砖贴图 + 法线','程序生成','CC0','可商用','1 块 = 1 m²','颜色质感为写实，非某一真实石种','采用'],['测距轮模型','按实物参数建模','CC0','可商用','轮周长 1 m','外形简化','采用'],['某写实花园扫描模型','模型分享站','许可不明','—','未知','无法确认能否修改','拒绝：许可不清'],['屋顶花园照片（作开场）','博物馆开放图库','CC BY 4.0','可商用（需署名）','—','只作开场图','备选'],['“螳螂虾围栏”合成模型','AI 生成','—','—','—','结构无依据，混合物种','拒绝：冒充真实结构']];
+  B.innerHTML=`<h3>3. 素材检索核验 <span class="fr">FR57</span> <span class="fr">FR04</span></h3><p class="small muted">先查已审核资产库，再全网搜索。每个候选登记来源、许可、是否可商用、尺度和科学边界；许可不清或结构无依据的直接拒绝。家用阶段允许非商用许可素材，但必须标记，商用发布前替换。</p>
+   ${T.results[1]?`<div class="tablewrap" style="margin-top:8px"><table><tr><th>候选</th><th>来源</th><th>许可</th><th>商用</th><th>尺度</th><th>边界说明</th><th>结论</th></tr>${rows.map(r=>`<tr>${r.slice(0,6).map((x,i)=>`<td>${i===3&&x==='仅家用'?'<span class="chip warn">仅家用</span>':esc(x)}</td>`).join('')}<td><span class="chip ${r[6].startsWith('采用')?'good':r[6]==='备选'?'':'bad'}">${esc(r[6])}</span></td></tr>`).join('')}</table></div>`:'<p class="small muted" style="margin-top:8px">点“运行”开始检索。</p>'}${nextBtn(T,2)}`;
+  bindNext(T,2);
+}
+function sgDirector(B,T){
+  const recent=[['10-18','L-MS','称量对比','厨房'],['10-20','L-PA v1.0','先量后铺（分开两步）','庭院'],['10-22','L-MS','称量对比','厨房'],['10-23','L-PA v1.0','先量后铺（分开两步）','庭院'],['10-24','L-PA v1.0','先量后铺（分开两步）','庭院']];
+  B.innerHTML=`<h3>2. 导演设计 <span class="fr">FR42</span> <span class="fr">FR24</span></h3><p class="small muted">按误区选机制。检查最近 5 课：同一主机制连续 3 次，就必须说明理由或换机制。</p>
+   <div class="tablewrap" style="margin-top:8px"><table><tr><th>日期</th><th>课程</th><th>主机制</th><th>题材</th></tr>${recent.map(r=>`<tr>${r.map(x=>`<td>${x}</td>`).join('')}</tr>`).join('')}</table></div>
+   ${T.results[2]?`<div class="note" style="margin-top:10px"><b>检查结果：</b>“先量后铺”已连续 3 次，且作业显示混淆仍在，换机制。<br><b>新机制：</b>同屏对比。左半屏测距轮走一圈并逐米亮起，样方同步一格格落到海底计数；单位标签“米”“平方米”贴在对应物体上。<br><b>题材选择：</b>${themeChoice()}<br><b>为什么能帮上：</b>原来两步分开看，孩子容易把两个数当成同一种量；同时出现更能看出“一圈”和“铺满”的区别。<br><b>迁移：</b>去掉庭院，用纯方格图和作业原题型验证。<br><b>素材需求：</b>海底沙地、礁石、卷尺、PVC 样方、螳螂虾模型（交给下一阶段检索核验）。</div>`:''}${nextBtn(T,1)}`;
+  bindNext(T,1);
+}
+function sgAssemble(B,T){
+  B.innerHTML=`<h3>4. 组装 LessonSpec <span class="fr">FR45</span></h3><p class="small muted">只引用组件库里已审核的组件和已核验的素材。产物是一份 JSON 配置，不是代码。</p>
+   ${T.results[3]?`<pre class="json" style="margin-top:8px">${esc(JSON.stringify(lessonSpec(),null,2))}</pre>`:'<p class="small muted" style="margin-top:8px">点“运行”生成。</p>'}${nextBtn(T,3)}`;
+  bindNext(T,3);
+}
+function sgValidate(B,T){
+  const sp=lessonSpec(), res=RULES.map(r=>({r,ok:r.test(sp)}));
+  const hardFail=res.some(x=>!x.ok&&!x.r.warn);
+  const ran=!!T.results[4];
+  B.innerHTML=`<h3>5. 自动校验 <span class="fr">FR46</span></h3><p class="small muted">这些规则每次发布前自动跑。失败就退回对应阶段，不能进入审核。</p>
+   ${ran?`<div style="margin-top:8px">${res.map(x=>`<div class="rule"><span class="ic" style="color:var(${x.ok?'--good':x.r.warn?'--warn':'--bad'})">${x.ok?'✓':x.r.warn?'!':'✗'}</span><span>${x.r.n} <span class="fr">${x.r.fr}</span>${!x.ok&&x.r.id==='V03'?'<div class="small" style="color:var(--bad)">热点 unit 缺少 teaches 字段 → 退回“组装”</div>':''}${!x.ok&&x.r.id==='V12'?'<div class="small" style="color:var(--warn)">草地和木纹贴图许可待核验，家用可发布；切换到商用范围时会被 V11 拦下</div>':''}${!x.ok&&x.r.id==='V05'?'<div class="small" style="color:var(--warn)">热点 unit 的第 3 条英文缺失，播放时会回落中文</div>':''}</span></div>`).join('')}</div>
+   <h3 style="margin-top:12px">参考算例（真实运行）</h3><table class="small"><tr><th>输入</th><th>期望</th><th>实际</th><th></th></tr>${runCases(sp).map(r=>`<tr><td class="mono">a=${r.c.in.a} b=${r.c.in.b}</td><td class="mono">${r.c.expect||`P=${r.c.out.P} S=${r.c.out.S}`}</td><td class="mono">${r.got}</td><td>${r.ok?'✓':'✗'}</td></tr>`).join('')}</table>
+   ${hardFail?`<div class="row" style="margin-top:10px"><button class="btn mark" id="fixIt">退回组装：补上 teaches 和英文第 3 条</button></div>`:''}`:'<p class="small muted" style="margin-top:8px">点“运行”开始校验。</p>'}
+   <div class="row" style="margin-top:12px"><button class="btn primary" id="runV">${ran?'重新校验':'运行校验'}</button>${ran&&!hardFail?'<button class="btn" id="nextSg">下一阶段 →</button>':''}</div>`;
+  document.getElementById('runV').onclick=()=>{T.results[4]={fail:RULES.some(r=>!r.test(lessonSpec())&&!r.warn)};render()};
+  const f=document.getElementById('fixIt');if(f)f.onclick=()=>{T.fixApplied=true;T.results[4]=null;delete T.results[4];toast('已在组装阶段补齐，重新校验');render()};
+  const n=document.getElementById('nextSg');if(n)n.onclick=()=>{T.stage=5;render()};
+}
+function sgReview(B,T){
+  const sections={科学:['定义和单位正确','示意已标注、无虚构结构','画面写实，无卡通或简化生物（BL14）'],教研:['教材映射状态正确（先修补强）','迁移题不带原题材'],语言:['中文讲解适龄、准确','英文 3 条准确，不增加门槛'],安全:['离屏任务需成人陪同、无危险','无开放聊天、无外链']};
+  const all=Object.values(sections).flat(), checked=all.filter(x=>T.review[x]).length;
+  const ok5=T.results[4]&&!T.results[4].fail;
+  B.innerHTML=`<h3>6. 审核与发布 <span class="fr">FR46</span> <span class="fr">FR48</span></h3>
+   ${!ok5?'<p class="small" style="color:var(--bad)">自动校验还没通过，不能进入审核。</p>':''}
+   <p class="small muted">建议由家长做最终审核人，四类审核合并成一张清单。AI 交叉核对只做辅助，不能代替人工勾选。</p>
+   <div class="grid2" style="margin-top:8px">${Object.entries(sections).map(([k,v])=>`<div><b>${k}</b>${v.map(x=>`<label class="row small" style="padding:3px 0"><input type="checkbox" data-rv="${esc(x)}" ${T.review[x]?'checked':''} ${!ok5||T.published?'disabled':''}> ${esc(x)}</label>`).join('')}</div>`).join('')}</div>
+   <div class="row" style="margin-top:12px"><button class="btn primary" id="pub" ${checked<all.length||!ok5||T.published?'disabled':''}>发布 L-PA v1.1</button><span class="small muted">${T.published?'已发布。版本已冻结，去家长端安排给哥哥。':`已勾选 ${checked} / ${all.length}`}</span>
+   ${T.published?'<button class="btn" id="goParent">去家长端安排 →</button>':''}</div>`;
+  B.querySelectorAll('[data-rv]').forEach(c=>c.onchange=()=>{T.review[c.dataset.rv]=c.checked;render()});
+  const p=document.getElementById('pub');if(p)p.onclick=()=>{const json=JSON.stringify(lessonSpec());let h=0;for(let i=0;i<json.length;i++)h=(h*31+json.charCodeAt(i))>>>0;
+    S.library.push({id:'L-PA',ver:'1.1',title:'海底调查：卷尺和样方同屏比一比（重教）',concept:'周长与面积的区别',component:'PerimeterArea',theme:'reef',interest:'螳螂虾（孩子自述）',for:'gege',mapping:'先修补强',mapNote:'由作业判断 LJ-0001 触发的重教版本',themeName:'珊瑚礁样方调查',hash:'sha256:'+h.toString(16).padStart(8,'0')+'…',status:'已发布'});
+    T.published=true;T.results[5]={fail:false};toast('已发布 v1.1，版本已冻结');render()};
+  const g=document.getElementById('goParent');if(g)g.onclick=()=>{S.subtab.parent='today';setView('parent')};
+}
+function stComp(el){
+  const comps=[
+    ['ModelViewer@1.0','写实 3D 对象查看：旋转、缩放、复位、热点、替代列表','model_asset, hotspots[], labels_visible','任何需要看真实物体结构的课','FR06–08'],
+    ['PerimeterArea@1.3','长方形区域的“围一圈 / 铺满”对比。题材可换：珊瑚礁样方调查（螳螂虾）、花园围栏铺砖；后续可加昆虫草地、高楼楼板、隧道检修板、扫地机器人','a, b (1–10 m), mode, show_units','周长、面积、单位区分','FR37'],
+    ['ArrayMultiplier@1.0','方块阵列：加减行列、逐行累加、整体转向','rows, cols (1–9), reveal, rotate','乘法意义、交换律、分组','FR39'],
+    ['ScaleMixer@0.9','电子秤 + 量杯：总量与部分、倍数配比','parts[{name,mass_g}], target_ratio','总量与部分、倍数、配比（百分数仅拓展）','FR38']];
+  el.innerHTML=`<div class="panel"><h3>阶段 A 的组件库 <span class="fr">S2</span></h3><p class="small muted">每个组件由工程实现、人工审核后入库。Skill 只能在这里挑组件并填参数；需要新的互动形式时开开发工单，不能让 Skill 当场写代码。</p>
+   <div class="tablewrap" style="margin-top:8px"><table><tr><th>组件</th><th>做什么</th><th>参数</th><th>适合的知识</th><th>需求</th></tr>${comps.map(c=>`<tr><td class="mono">${c[0]}</td><td>${c[1]}</td><td class="mono">${c[2]}</td><td>${c[3]}</td><td><span class="fr">${c[4]}</span></td></tr>`).join('')}</table></div>
+   <p class="small muted" style="margin-top:8px">原型里能直接操作的是 PerimeterArea 和 ArrayMultiplier（儿童端）。</p></div>`;
+}
+function stSchema(el){
+  const schema={$schema:'https://json-schema.org/draft/2020-12/schema',title:'LessonSpec',type:'object',
+    required:['schema_version','lesson_id','version','primary_concept','prerequisites','curriculum_mapping','learner_profile','child_path','object_asset_versions','scene_component_ids','experiment_model_version','activity_graph','hotspots','assessment_plan','source_refs','safety_review','review_records'],
+    properties:{
+      primary_concept:{type:'object',required:['id','name','target_misconceptions'],properties:{id:{type:'string'},target_misconceptions:{type:'array',minItems:1,items:{type:'string',pattern:'^MC\\.'}}}},
+      curriculum_mapping:{type:'object',required:['region','system','grade','source','status'],properties:{status:{enum:['已核对本年级','先修补强','兴趣拓展','待核对']},verified_by:{type:['string','null']}}},
+      object_asset_versions:{type:'array',items:{type:'object',required:['asset_id','ver','license','commercial_ok','source','depiction'],properties:{commercial_ok:{type:'boolean'}}}},
+      distribution:{type:'object',required:['scope','tenant_id'],properties:{scope:{enum:['family','commercial']},tenant_id:{type:'string',description:'为未来多家庭预留，家用阶段只有一个'}}},
+      learner_profile:{type:'object',description:'去标识：不得包含姓名、学校、原图',additionalProperties:false,properties:{grade:{type:'integer'},scaffold:{type:'array'},language:{type:'object'},recent_judgment_ref:{type:['string','null']}}},
+      scene_component_ids:{type:'array',items:{type:'string',pattern:'^[A-Za-z]+@\\d+\\.\\d+$'},description:'只能引用组件库中已审核的组件'},
+      experiment_model_version:{type:'object',required:['id','ver','deterministic','vars','outputs','reference_cases'],properties:{deterministic:{const:true},reference_cases:{type:'array',minItems:3}}},
+      activity_graph:{type:'array',items:{type:'object',required:['id','type','teaches'],properties:{type:{enum:['explain','contrast','build','simulate','predict','transfer']},teaches:{type:'string',minLength:1},hints:{type:'array'},complete:{type:'string'}}}},
+      hotspots:{type:'array',items:{type:'object',required:['id','teaches','language_pack'],properties:{teaches:{type:'string',minLength:1},language_pack:{type:'object',required:['zh','en'],properties:{zh:{type:'string',minLength:1},en:{type:'array',maxItems:3,description:'解释 / 关键词 / 操作任务；缺失时回落中文'}}}}}},
+      assessment_plan:{type:'object',properties:{states:{const:['未观察','待确认','有独立应用证据','需再支持']}}}}};
+  el.innerHTML=`<div class="grid2"><div class="panel"><h3>LessonSpec JSON Schema（节选）<span class="fr">S3</span></h3><pre class="json">${esc(JSON.stringify(schema,null,2))}</pre></div>
+   <div class="panel"><h3>相对 PRD V1.1 的补充</h3><ul class="small" style="padding-left:18px;margin:0;display:flex;flex-direction:column;gap:6px">
+    <li><b>learner_profile</b> 替代“孩子”输入，去标识。<span class="fr">S8</span></li>
+    <li><b>target_misconceptions</b> 必填，引用误区库。<span class="fr">S5</span></li>
+    <li><b>teaches</b> 在每个节点和热点上必填，落实 BL02。<span class="fr">S6</span></li>
+    <li><b>experiment_model_version</b> 定义变量、单位、公式和至少 3 个参考算例。<span class="fr">S4</span></li>
+    <li><b>hotspots[].language_pack</b> 固定为 1 条中文 + 最多 3 条英文。<span class="fr">S9</span></li>
+    <li><b>commercial_ok</b> 和 <b>distribution.scope</b>：家用先行、预留商用。商用发布时自动拦截仅家用素材。</li>
+    <li><b>tenant_id</b>：所有记录预留家庭标识，以后扩成多家庭时不用迁移数据结构。</li>
+    <li><b>LessonVersion</b> = 已发布的 LessonSpec + 包哈希 + 审核记录，统一用 version 一个版本字段。</li></ul></div></div>`;
+}
+function stHw(el){
+  const contract={name:'homework-evidence-analyzer',input:{child_ref:'不透明 ID，不含姓名',subject:'数学',material_type:['作业','试卷','成绩单','错题'],images:'已遮盖的私有链接，短期签名',curriculum_ref:'可选'},
+    output:{items:[{n:1,stem:'…',answer:'…',mark:'✓|✗|?',bbox:[0,0,0,0],confidence:'高|中|低',needs_confirm:true}],
+      judgment:{observed:['…'],hypotheses:[{misconception:'MC.…',evidence_items:[2],status:'待验证'}],alternatives:['…'],unknowns:['…'],next_lesson:{keep_concept:true,change_representation:'…'},probe_task:'…'}},
+    rules:['关键字段未核对 → 不输出 judgment','只有总分 → 只给整体描述，不给题级弱项','不输出能力百分比、心理或人格推断','家长修正生成新修订，不覆盖原图']};
+  el.innerHTML=`<div class="grid2"><div class="panel"><h3>第二个 Skill：作业证据分析 <span class="fr">FR18–22</span> <span class="fr">S7</span></h3><p class="small muted">建议和制作 Skill 分开。它的输出 judgment 会作为制作 Skill 第 1 阶段的输入，两者共用误区库。</p><pre class="json" style="margin-top:8px">${esc(JSON.stringify(contract,null,2))}</pre></div>
+   <div class="panel"><h3>闭环</h3><ol class="small" style="padding-left:18px;margin:0;display:flex;flex-direction:column;gap:6px">
+   <li>家长在家长端拍作业 → 作业分析 Skill 识别</li><li>家长核对关键字段 → 生成 LearningJudgment（待验证）</li><li>制作 Skill 以 judgment 为输入 → 目标不变、换表征</li><li>自动校验 + 家长审核 → 发布新版本</li><li>家长安排 → 孩子在 Pad 上学 → 下一次作业验证</li></ol>
+   <p class="small muted" style="margin-top:10px">在原型里可以完整走一遍：家长端 → 作业反馈 → “用这个判断生成下一课”。</p></div></div>`;
+}
+
+/* ============ SPEC ============ */
+function renderSpec(){
+  const rows=[
+    ['儿童端 · 选人与换人','BL05、FR51','换人需确认并清缓存；兄妹不互见、不排名'],
+    ['儿童端 · 今日学习 / 历史锁定','BL13、FR55–56、AC27–29','只开当天；历史课发请求，父母验证后限时限课开放'],
+    ['儿童端 · 3D 演示','FR06–09、R05–06','拖动旋转、双指/滚轮缩放、复位、热点替代列表；参数进入确定性计算'],
+    ['儿童端 · 语言状态机','FR12–13、R07、AC06','每热点独立计数；成功开播才前进；失败、重复点击、手动中文不推进'],
+    ['儿童端 · 挑战与掌握状态','FR25、R08','无原题材的新题；记录提示次数；四种状态，不打分'],
+    ['儿童端 · 聊聊（可跳过）','FR29、FR36、AC16','阶段 A 只用点选；跳过记 skipped，不阻塞'],
+    ['家长端 · 作业反馈','FR18–22、R09–10、AC09–12','先核对再判断；只有总分时不给题级结论；列替代解释'],
+    ['家长端 · 家长卡','FR30–31、AC17','没有事实就不生成表扬；可编辑，不自动发送'],
+    ['家长端 · 多源反馈','FR32–33、R12','来源和原话并列，不投票'],
+    ['家长端 · 同意与隐私','FR50–53、R19','分用途开关；外部模型处理标为待确认'],
+    ['Skill 制作台 · 六阶段管线','FR44–47、FR57、R17、R23','配置驱动；素材许可核验；自动校验；家长审核后发布'],
+    ['Skill 制作台 · 版本冻结','FR48、R18','发布后生成哈希，改动只能出新版本'],
+    ['顶栏 · 模拟跨日','FR55、NFR13','按服务器日期；跨日先保存再锁定']];
+  const notDone=[['FR14–17 英语界面词、汉字、作文','阶段 C 能力，原型未做'],['FR15 语音控制','P1，默认关闭'],['FR28 枪械兴趣安全转化','需要内容审核策略，原型未展示'],['FR36 危机人工介入','Q10 未定，原型只做了不收集开放文字的预设'],['FR40–41 电视、建筑题材','P1 候选题材'],['真实服务器与 Pad 通道（FR58）','原型在浏览器内模拟']];
+  app.innerHTML=`<div class="view-head"><h2>规格对照</h2><p>原型中每个界面对应的 PRD 条目，以及审计报告中采纳的修正。所有数据都是示例，不是两个孩子的真实记录。</p></div>
+   <div class="panel"><h3>界面 ↔ 需求</h3><div class="tablewrap"><table><tr><th>界面</th><th>需求编号</th><th>原型里体现的规则</th></tr>${rows.map(r=>`<tr><td>${r[0]}</td><td class="mono">${r[1]}</td><td>${r[2]}</td></tr>`).join('')}</table></div></div>
+   <div class="grid2" style="margin-top:14px"><div class="panel"><h3>原型采纳的审计修正（待你确认）</h3><ul class="small" style="padding-left:18px;margin:0;display:flex;flex-direction:column;gap:5px">
+    <li>Skill 配置驱动 + 预审组件库（S1、S2）</li><li>LessonSpec Schema、teaches 必填、实验模型格式（S3、S4、S6）</li><li>误区库在制作和作业分析之间共用（S5）</li><li>作业分析拆成第二个 Skill（S7）</li><li>去标识的 learner_profile（S8）</li><li>家长为最终审核人（商用阶段需补独立科学审核）</li><li>家用先行、预留商用：素材登记是否可商用，记录预留 tenant_id</li><li>阶段 A 课末聊聊只用点选</li><li>首课：妹妹做阵列乘法，哥哥做周长面积先修补强；百分数不进入首课</li></ul></div>
+   <div class="panel"><h3>原型没有覆盖的部分</h3><table class="small">${notDone.map(r=>`<tr><td>${r[0]}</td><td class="muted">${r[1]}</td></tr>`).join('')}</table></div></div>`;
+}
+
+/* live refresh of the developer log while the child works */
+setInterval(()=>{const el=document.getElementById('kidLog');if(!el||!S.child)return;const s=S.kidScreen==='lesson'&&S.curKey?S.sess[S.child+'|'+S.curKey]:todaySess(S.child);
+  if(!s||el.dataset.n==String(s.log.length))return;el.dataset.n=s.log.length;el.innerHTML=s.log.slice().reverse().map(l=>`<div>${esc(l)}</div>`).join('');},700);
+/* ============ boot ============ */
+(function(){const h=(location.hash||'').slice(1);if(['child','parent','studio','spec'].includes(h))S.view=h;render()})();
+window.addEventListener('hashchange',()=>{const h=location.hash.slice(1);if(['child','parent','studio','spec'].includes(h)&&h!==S.view){S.view=h;render()}});
+</script>

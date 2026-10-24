@@ -1,0 +1,35 @@
+{
+  "PerimeterArea": {
+    "versions": ["1.2"],
+    "status": "已审",
+    "teaches": ["M3.MEAS.perimeter_vs_area"],
+    "themes": ["reef", "garden"],
+    "hotspotAnchors": ["fence", "tile", "unit", "shrimp"],
+    "actions": ["walk", "fill", "focus"],
+    "paramsSchema": {
+      "type": "object", "additionalProperties": false, "required": ["a", "b", "theme"],
+      "properties": {
+        "a": { "type": "integer", "minimum": 1, "maximum": 10 },
+        "b": { "type": "integer", "minimum": 1, "maximum": 10 },
+        "theme": { "enum": ["reef", "garden"] },
+        "showUnits": { "type": "boolean" }
+      }
+    }
+  },
+  "ArrayMultiplier": {
+    "versions": ["1.0"],
+    "status": "已审",
+    "teaches": ["M2.MUL.meaning_groups"],
+    "themes": ["blocks"],
+    "hotspotAnchors": ["row", "col", "total"],
+    "actions": ["reveal", "rotate"],
+    "paramsSchema": {
+      "type": "object", "additionalProperties": false, "required": ["rows", "cols", "theme"],
+      "properties": {
+        "rows": { "type": "integer", "minimum": 1, "maximum": 9 },
+        "cols": { "type": "integer", "minimum": 1, "maximum": 9 },
+        "theme": { "enum": ["blocks"] }
+      }
+    }
+  }
+}

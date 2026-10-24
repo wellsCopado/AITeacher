@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-discovery-world/schemas/interest-1.0.json",
+  "title": "InterestObservation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "tenant_id", "child", "topic", "source", "observed_on", "state"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^IO-\\d{4,}$" },
+    "tenant_id": { "type": "string" },
+    "child": { "type": "string" },
+    "topic": { "type": "string" },
+    "source": { "enum": ["孩子自述", "家长报告", "老师反馈"] },
+    "said": { "type": ["string", "null"] },
+    "observed_on": { "type": "string" },
+    "state": { "enum": ["近期最喜欢", "喜欢", "曾经喜欢", "下一课心愿", "只用于安全工程题材"] },
+    "lesson_ref": { "type": ["string", "null"] }
+  }
+}

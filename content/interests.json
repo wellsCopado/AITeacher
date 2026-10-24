@@ -1,0 +1,7 @@
+[
+  { "id": "IO-0002", "tenant_id": "family-001", "child": "gege", "topic": "昆虫", "source": "家长报告", "said": null, "observed_on": "2026-09", "state": "喜欢", "lesson_ref": null },
+  { "id": "IO-0003", "tenant_id": "family-001", "child": "gege", "topic": "螳螂虾", "source": "孩子自述", "said": null, "observed_on": "2026-10", "state": "近期最喜欢", "lesson_ref": null },
+  { "id": "IO-0004", "tenant_id": "family-001", "child": "gege", "topic": "高楼", "source": "家长报告", "said": null, "observed_on": "2026-10", "state": "喜欢", "lesson_ref": null },
+  { "id": "IO-0005", "tenant_id": "family-001", "child": "gege", "topic": "大桥和隧道", "source": "家长报告", "said": null, "observed_on": "2026-10", "state": "喜欢", "lesson_ref": null },
+  { "id": "IO-0006", "tenant_id": "family-001", "child": "gege", "topic": "机器人", "source": "家长报告", "said": null, "observed_on": "2026-10", "state": "喜欢", "lesson_ref": null }
+]
