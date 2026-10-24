@@ -29,6 +29,8 @@ create table if not exists judgments (id text primary key, tenant_id text not nu
   status text not null, created_at text not null, confirmed_at text, card text, card_used integer not null default 0);
 create table if not exists tickets (id text primary key, tenant_id text not null, child text not null, concept_id text not null, judgment_ref text not null,
   attempt integer not null, status text not null, lesson_ref text, mechanism text, created_at text not null, updated_at text not null);
+create table if not exists drafts (key text not null, tenant_id text not null, for_child text not null, title text not null, spec text not null,
+  status text not null, note text, submitted_by text not null, submitted_at text not null, primary key (tenant_id, key));
 create table if not exists feedback (id text primary key, tenant_id text not null, child text not null, source text not null, said text not null,
   context text, kind text not null, ref text, created_at text not null);
 `;
@@ -239,4 +241,23 @@ export class Store {
     });
     return hw;
   }
+
+  // lessons waiting for the parent's review (stage 6 in the parent app)
+  upsertDraft(sp: LessonSpec, by: string, now: string) {
+    const key = `${sp.lesson_id}@${sp.version}`;
+    this.run(`insert into drafts (key, tenant_id, for_child, title, spec, status, note, submitted_by, submitted_at) values (?,?,?,?,?,'待审核',null,?,?)
+      on conflict(tenant_id, key) do update set for_child=excluded.for_child, title=excluded.title, spec=excluded.spec, status='待审核', note=null, submitted_by=excluded.submitted_by, submitted_at=excluded.submitted_at`,
+      key, this.tenant, sp.for_child, sp.title, JSON.stringify(sp), by, now);
+    return key;
+  }
+  drafts() {
+    return this.all<{ key: string; for_child: string; title: string; status: '待审核' | '已退回'; note: string | null; submitted_by: string; submitted_at: string }>(
+      'select key, for_child, title, status, note, submitted_by, submitted_at from drafts where tenant_id=? order by submitted_at', this.tenant);
+  }
+  draft(key: string): LessonSpec | undefined {
+    const r = this.get<{ spec: string }>('select spec from drafts where tenant_id=? and key=?', this.tenant, key);
+    return r ? JSON.parse(r.spec) : undefined;
+  }
+  rejectDraft(key: string, note: string) { this.run("update drafts set status='已退回', note=? where tenant_id=? and key=?", note, this.tenant, key); }
+  deleteDraft(key: string) { this.run('delete from drafts where tenant_id=? and key=?', this.tenant, key); }
 }

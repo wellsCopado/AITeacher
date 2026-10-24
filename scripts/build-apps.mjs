@@ -16,6 +16,10 @@ for (const name of ['pad', 'parent']) {
     bundle: true, format: 'esm', target: 'es2020', minify: true, external: ['three', 'three/addons/*'], logLevel: 'warning',
   });
   if (name === 'pad') {
+    await build({
+      entryPoints: [join(dir, 'src', 'preview.ts')], outfile: join(dist, 'preview.js'),
+      bundle: true, format: 'esm', target: 'es2020', minify: true, external: ['three', 'three/addons/*'], logLevel: 'warning',
+    });
     cpSync(join(root, 'packages', 'player', 'src', 'player.css'), join(dist, 'player.css'));
     cpSync(join(root, 'packages', 'components', 'assets', 'assets.js'), join(dist, 'assets.js'));
     const sw = join(dist, 'sw.js');

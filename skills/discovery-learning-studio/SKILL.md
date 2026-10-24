@@ -80,20 +80,25 @@ pnpm -s dls preview content/lessons/L-XXX/1.0
 
 生成 `preview.html`，浏览器直接打开就能完整走一遍课（写实 3D 场景、热点讲解、挑战判题、课末心愿）。把它发给家长审核时一起看。
 
-### 6. 审核与发布 → `06-review.json` + 冻结包
+### 6. 家长审核与发布
+
+有家里的服务器时（推荐）：
+
+```
+pnpm -s dls submit content/lessons/L-XXX/1.0 --server http://<服务器地址>:8787
+```
+
+课程进入家长端「课程库」的“等你审核”。家长在那里预览、逐项勾选科学 / 教研 / 语言 / 安全四类审核，点“审核通过并发布”；服务器冻结内容哈希后发布。告诉家长：这节课教什么、主题依据（引用孩子的原话或兴趣记录）、挑战题和答案、还没到位的素材、校验警告。不要贴 JSON 原文。家长退回时，`dls sync` 会显示退回意见；按意见改阶段文件，从阶段 4 重跑，再 `dls submit`。发布后运行 `dls sync`，把已发布的课拉回 `content/published/`。
+
+没有服务器时：
 
 ```
 pnpm -s dls review content/lessons/L-XXX/1.0 --init
-```
-
-把 [reference/review-checklist.md](reference/review-checklist.md) 的四类清单发给家长，附上课程要点（标题、主题和依据、知识点、挑战题与答案、素材及待采购项、警告）。家长逐类确认后：
-
-```
 pnpm -s dls review content/lessons/L-XXX/1.0 --approve 科学 --by 家长
-pnpm -s dls publish content/lessons/L-XXX/1.0 --server http://<服务器地址>:8787
+pnpm -s dls publish content/lessons/L-XXX/1.0
 ```
 
-发布后文件在 `content/published/<id>@<ver>.lesson.json`，内容哈希固定、只读。要改就升版本号重走流程。带 `--server` 时同时上传到家里的服务器（需要环境变量 `ADW_PIN`），服务器会再校验一遍；没有服务器就去掉 `--server`。上传后提醒家长在家长端排课，孩子当天才看得到。
+`--approve` 只在家长在对话里明确确认对应类别后运行。发布后文件在 `content/published/<id>@<ver>.lesson.json`，内容哈希固定、只读。要改就升版本号重走流程。
 
 ## 课后：记录孩子的心愿
 

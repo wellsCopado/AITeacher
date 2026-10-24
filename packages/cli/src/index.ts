@@ -270,6 +270,18 @@ const commands: Record<string, (pos: string[], flags: Flags) => number | Promise
     return server ? upload(server, frozen) : 0;
   },
 
+  /** Stage 6 with a server: send the validated lesson to the parent app, where the parent reviews and publishes it. */
+  async submit(pos, flags) {
+    const dir = lessonDir(need(pos[0], '课程目录'));
+    const server = serverUrl(flags) ?? need(undefined, '--server <地址>（或环境变量 ADW_SERVER）');
+    const { sp, report } = runValidate(dir, flags);
+    if (canonical(assembleSpec(dir)) !== canonical(sp)) { console.log('阶段文件在组装之后改过，先重新运行 dls assemble 和 dls validate'); return 1; }
+    if (!report.ok) { printReport(report); console.log('\n校验未通过，不能提交审核'); return 1; }
+    const r = await serverCall<{ key: string; warnings: number }>(server, '/v1/drafts', { method: 'POST', body: sp });
+    console.log(`已提交审核：${r.key}${r.warnings ? `（警告 ${r.warnings} 条）` : ''}。请家长在家长端「课程库」看课、勾选四类审核并发布。`);
+    return 0;
+  },
+
   /** Pull interest records (including the children's next-lesson wishes) from the server into content/interests.json. */
   async sync(_pos, flags) {
     const server = serverUrl(flags) ?? need(undefined, '--server <地址>（或环境变量 ADW_SERVER）');
@@ -282,6 +294,18 @@ const commands: Record<string, (pos: string[], flags: Flags) => number | Promise
     console.log(`已从服务器同步 ${remote.length} 条兴趣记录（新增 ${added.length}）`);
     for (const x of added) console.log(`  + ${x.id} ${x.child} ${x.topic} · ${x.source} · ${x.state}`);
     if (onlyLocal.length) console.log(`注意：本地有 ${onlyLocal.length} 条服务器上没有的记录已被替换（${onlyLocal.map(x => x.id).join('、')}），请在家长端重新记一下`);
+    // Lessons the parent published in the parent app, so later reteach versions can compare with them (V10).
+    const pubDir = join(root, 'content', 'published');
+    let pulled = 0;
+    for (const l of await serverCall<{ key: string }[]>(server, '/v1/lessons')) {
+      const f = join(pubDir, `${l.key}.lesson.json`);
+      if (existsSync(f)) continue;
+      writeJson(f, await serverCall(server, `/v1/lessons/${encodeURIComponent(l.key)}`));
+      pulled++;
+    }
+    if (pulled) console.log(`已拉回 ${pulled} 节已发布的课到 content/published`);
+    const drafts = await serverCall<{ key: string; status: string; note: string | null }[]>(server, '/v1/drafts');
+    for (const d of drafts.filter(d => d.status === '已退回')) console.log(`家长退回了 ${d.key}：${d.note}`);
     const hist = await serverCall<unknown[]>(server, '/v1/reteach-history');
     writeJson(join(root, 'content', 'reteach.json'), hist);
     console.log(`已同步 ${hist.length} 条重教历史（V15 用）`);
@@ -444,6 +468,7 @@ const HELP = `dls — discovery-learning-studio 命令行
   dls validate <目录|文件> [--previous <文件>] [--json]   阶段 5：V01–V15
   dls preview <目录|文件> [--out <文件>]         生成可直接打开的课程预览
   dls review <目录> [--init] [--approve <类别,…|all> --by <审核人>]   阶段 6：审核清单
+  dls submit <目录> --server <地址>       阶段 6：交给家长端审核并发布（推荐）
   dls publish <目录> [--server <地址>]     阶段 6：校验 + 审核齐全后发布并冻结；带 --server 时上传（需 ADW_PIN）
   dls sync --server <地址>                从服务器拉回兴趣、孩子的下一课心愿和重教历史
   dls homework list|pull|recognize|draft|check|submit [<作业编号>] --server <地址>   作业判断（homework-analysis Skill）

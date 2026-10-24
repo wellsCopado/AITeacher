@@ -2,14 +2,12 @@
 // the child plays it (with a Wi-Fi drop in the middle), the parent reads the record and the child's wish.
 // Usage: pnpm e2e:apps [outDir]
 import { createRequire } from 'node:module';
-import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { buildApp } from '../apps/server/src/app.js';
-import { contentHash, REVIEW_CHECKLIST } from '../packages/cli/src/lib.js';
-import type { LessonSpec } from '../packages/schema/src/index.js';
 
 const { chromium } = createRequire(import.meta.url)('playwright');
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -25,10 +23,6 @@ const app = await buildApp({ root, dbPath: join(mkdtempSync(join(tmpdir(), 'adw-
 await app.listen({ host: '127.0.0.1', port: 0 });
 const base = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
 
-// What `dls publish --server` sends: a frozen lesson with all four reviews.
-const sp = JSON.parse(readFileSync(join(root, 'content/lessons/L-PA/1.0/lessonspec.json'), 'utf8')) as LessonSpec;
-const frozen: LessonSpec = { ...sp, review_records: Object.entries(REVIEW_CHECKLIST).map(([category, checked]) => ({ category: category as '科学', reviewer: '家长', checked, at: new Date().toISOString() })), published_at: new Date().toISOString() };
-frozen.content_hash = contentHash(frozen);
 
 const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'] });
 try {
@@ -65,10 +59,24 @@ try {
   await pad.waitForSelector('.lead');
   check((await pad.textContent('#list'))?.includes('今天没有安排课'), '没排课时孩子看不到课');
 
-  // Publish (as dls publish --server would) and schedule today.
+  // The sample lessons wait in 课程库; the parent previews, ticks all four reviews and publishes with one click.
   const tok = await parent.evaluate(() => sessionStorage.getItem('adw.parent'));
-  const pub = await fetch(`${base}/v1/lessons`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${tok}` }, body: JSON.stringify(frozen) });
-  check(pub.status === 201, '课程上传后服务器复核通过');
+  await parent.click('[data-t="课程库"]');
+  await parent.waitForSelector('.draft[data-k="L-PA@1.0"]');
+  check(await parent.locator('.draft').count() === 2, '两节样课在课程库等审核');
+  const card = parent.locator('.draft[data-k="L-PA@1.0"]');
+  const [pv] = await Promise.all([parentCtx.waitForEvent('page'), card.locator('a.btn').click()]);
+  await pv.waitForSelector('#next', { timeout: 20000 });
+  check((await pv.textContent('h1'))?.includes('螳螂虾'), '家长端能预览待审核的课');
+  await pv.close();
+  await card.locator('input[type=checkbox]').first().check();
+  await card.locator('.approve').click();
+  await parent.waitForFunction(() => /还有没勾的/.test(document.getElementById('toast')?.textContent ?? ''));
+  ok('没勾完四类审核不能发布');
+  for (const c of await card.locator('input[type=checkbox]').all()) await c.check();
+  await card.locator('.approve').click();
+  await parent.waitForFunction(() => document.getElementById('toast')?.textContent?.includes('已发布'));
+  check(await parent.locator('.draft').count() === 1, '审核通过后发布，课程库里只剩妹妹那节等审核');
   await parent.click('[data-t="排课"]');
   await parent.waitForSelector('.day');
   await parent.locator('.day').first().locator('.kidcol[data-c="gege"] input[value="L-PA@1.0"]').check();

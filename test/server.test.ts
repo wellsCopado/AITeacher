@@ -153,6 +153,34 @@ describe('family server', () => {
   });
 });
 
+describe('lesson review in the parent app', () => {
+  it('lists unpublished lessons for review, publishes only with all four reviews ticked, and takes rejections', async () => {
+    const t = await login();
+    const drafts = (await req('GET', '/v1/drafts', t)).body;
+    expect(drafts.map((d: { key: string }) => d.key).sort()).toEqual(['L-ARR@1.0', 'L-PA@1.0']);
+    const arr = drafts.find((d: { key: string }) => d.key === 'L-ARR@1.0');
+    expect(arr.ok).toBe(true);
+    expect(arr.issues.some((i: { rule: string; level: string }) => i.rule === 'V12' && i.level === 'warn')).toBe(true);
+    expect((await req('GET', '/v1/drafts/L-PA@1.0', t)).body.title).toMatch(/螳螂虾/);
+    const list = (await req('GET', '/v1/review-checklist', t)).body as Record<string, string[]>;
+    const partial = { ...list, 安全: list['安全'].slice(0, 1) };
+    expect((await req('POST', '/v1/drafts/L-PA@1.0/approve', t, { checked: partial })).body.error).toMatch(/安全/);
+    const ok = await req('POST', '/v1/drafts/L-PA@1.0/approve', t, { checked: list });
+    expect(ok.status).toBe(201);
+    const sp = (await req('GET', '/v1/lessons/L-PA@1.0', t)).body;
+    expect(sp.review_records).toHaveLength(4);
+    expect(contentHash(sp)).toBe(sp.content_hash);
+    expect((await req('GET', '/v1/drafts', t)).body.map((d: { key: string }) => d.key)).toEqual(['L-ARR@1.0']);
+    expect((await req('POST', '/v1/drafts/L-ARR@1.0/reject', t, { note: '' })).status).toBe(400);
+    await req('POST', '/v1/drafts/L-ARR@1.0/reject', t, { note: '题目再简单一点' });
+    expect((await req('GET', '/v1/drafts', t)).body[0]).toMatchObject({ status: '已退回', note: '题目再简单一点' });
+    // The Skill resubmits after changes; it goes back to 待审核.
+    expect((await req('POST', '/v1/drafts', t, spec('L-ARR'))).status).toBe(201);
+    expect((await req('GET', '/v1/drafts', t)).body[0]).toMatchObject({ status: '待审核', note: null });
+    expect((await req('POST', '/v1/drafts', t, spec('L-PA'))).status).toBe(409); // already published
+  });
+});
+
 describe('Pad offline queue', () => {
   const mem = () => { const m = new Map<string, string>(); return { get: (k: string) => m.get(k) ?? null, set: (k: string, v: string) => void m.set(k, v) }; };
   it('keeps events while the server is unreachable and sends each once it is back', async () => {

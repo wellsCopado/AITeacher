@@ -23,3 +23,5 @@ table{width:100%;border-collapse:collapse;background:var(--surface);border-radiu
 .state{padding:1px 8px;border-radius:6px}.state.s1{background:color-mix(in srgb,#3a7bd5 16%,transparent)}.state.s2{background:color-mix(in srgb,#2f6b57 22%,transparent)}.state.s3{background:color-mix(in srgb,#c0503a 20%,transparent)}
 .cardpart{display:block;margin:6px 0}.cardpart textarea{display:block;width:100%;font:inherit;padding:6px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:inherit}
 .btn.danger{border-color:var(--bad);color:var(--bad)}
+.checks{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;margin:10px 0}.checks fieldset{border:1px solid var(--line);border-radius:10px;padding:6px 10px}.checks legend{font-weight:600}.checks label{display:block;margin:4px 0}
+.btn[disabled]{opacity:.5;cursor:not-allowed}a.btn{text-decoration:none;display:inline-block}

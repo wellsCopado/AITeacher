@@ -6,6 +6,11 @@ import { dataSection, homeworkView, masteryView, type Ctx } from './homework.js'
 interface Child { id: string; name: string; grade: number }
 interface Lesson { key: string; for_child: string; title: string; content_hash: string; published_at: string }
 interface Session { key: string; child: string; lesson_key: string; started_on: string; updated_at: string; finished: number; events: number }
+interface Draft {
+  key: string; title: string; child: string; status: string; note: string | null; concept: string; theme: { name: string; why: string };
+  challenges: { prompt: string; with_theme: boolean; answers: string[] }[]; pending_assets: string[]; offscreen: string | null;
+  ok: boolean; issues: { rule: string; level: string; msg: string }[];
+}
 interface Interest { id: string; child: string; topic: string; source: string; said: string | null; observed_on: string; state: string; lesson_ref: string | null }
 
 const app = document.getElementById('app')!;
@@ -67,7 +72,7 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
     view().innerHTML = `<p class="muted">孩子只能看到当天排的课和临时授权的课（BL13）。勾选后点保存。</p>
       <div class="grid">${days.map(d => `<div class="card day"><h3>${d === today ? '今天 ' : ''}${d}</h3>${kids.map(k => {
         const mine = lessons.filter(l => l.for_child === k.id);
-        return `<div class="kidcol" data-d="${d}" data-c="${esc(k.id)}"><b>${esc(k.name)}</b>${mine.length ? mine.map(l => `<label><input type="checkbox" value="${esc(l.key)}" ${sched.some(s => s.date === d && s.child === k.id && s.lesson_key === l.key) ? 'checked' : ''}> ${esc(l.title)}</label>`).join('') : '<span class="muted small">还没有发布的课</span>'}</div>`;
+        return `<div class="kidcol" data-d="${d}" data-c="${esc(k.id)}"><b>${esc(k.name)}</b>${mine.length ? mine.map(l => `<label><input type="checkbox" value="${esc(l.key)}" ${sched.some(s => s.date === d && s.child === k.id && s.lesson_key === l.key) ? 'checked' : ''}> ${esc(l.title)}</label>`).join('') : '<span class="muted small">还没有发布的课，先到「课程库」审核</span>'}</div>`;
       }).join('')}<button class="btn save" data-d="${d}">保存这天</button></div>`).join('')}</div>`;
     view().querySelectorAll<HTMLButtonElement>('.save').forEach(b => b.onclick = guard(async () => {
       for (const col of view().querySelectorAll<HTMLElement>(`.kidcol[data-d="${b.dataset.d}"]`)) {
@@ -79,11 +84,45 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
   },
 
   async 课程库() {
-    const grants = await api<{ child: string; lesson_key: string; expires_on: string; granted_by: string }[]>('/v1/grants');
-    view().innerHTML = `<p class="muted">课程由 Skill 制作、你审核后发布（dls publish --server）。发布后内容冻结，改动要升版本号。</p>
-      <table><tr><th>课程</th><th>给谁</th><th>发布时间</th><th>临时授权</th></tr>${lessons.map(l => `<tr><td>${esc(l.title)}<div class="muted small">${esc(l.key)}</div></td><td>${esc(name(l.for_child))}</td><td>${esc(l.published_at.slice(0, 16).replace('T', ' '))}</td>
+    const [grants, drafts, checklist] = await Promise.all([
+      api<{ child: string; lesson_key: string; expires_on: string; granted_by: string }[]>('/v1/grants'),
+      api<Draft[]>('/v1/drafts'),
+      api<Record<string, string[]>>('/v1/review-checklist'),
+    ]);
+    const preview = (key: string) => `/pad/preview.html#key=${encodeURIComponent(key)}&t=${encodeURIComponent(token ?? '')}`;
+    view().innerHTML = `
+      ${drafts.length ? `<h3>等你审核（${drafts.length}）</h3><p class="muted">先点“预览”把课走一遍，再逐项勾选四类审核。全部勾上才能发布；发布后内容冻结，孩子在排课当天才看得到。</p>` : ''}
+      ${drafts.map(d => `<div class="card draft" data-k="${esc(d.key)}"><h3>${esc(d.title)} <span class="badge">${esc(d.status)}</span></h3>
+        <p class="muted small">${esc(name(d.child))} · ${esc(d.concept)} · ${esc(d.key)} · 主题「${esc(d.theme.name)}」：${esc(d.theme.why)}</p>
+        ${d.note ? `<p class="toast bad">你退回时写的：${esc(d.note)}</p>` : ''}
+        <ol>${d.challenges.map(c => `<li>${esc(c.prompt)} <span class="muted small">答案：${c.answers.map(esc).join('，')}${c.with_theme ? '' : ' · 不带主题的迁移题'}</span></li>`).join('')}</ol>
+        ${d.pending_assets.length ? `<p class="small">还没到位、不展示的素材：${d.pending_assets.map(esc).join('、')}</p>` : ''}
+        ${d.offscreen ? `<p class="small">家里的小任务：${esc(d.offscreen)}</p>` : ''}
+        ${d.issues.length ? `<ul class="small">${d.issues.map(i => `<li class="${i.level === 'error' ? 'toast bad' : ''}">${esc(i.rule)} ${i.level === 'warn' ? '提示' : '错误'}：${esc(i.msg)}</li>`).join('')}</ul>` : ''}
+        <p><a class="btn" href="${preview(d.key)}" target="_blank" rel="noopener">预览这节课</a></p>
+        <div class="checks">${Object.entries(checklist).map(([cat, items]) => `<fieldset><legend>${esc(cat)}</legend>${items.map(i => `<label><input type="checkbox" data-cat="${esc(cat)}" value="${esc(i)}"> ${esc(i)}</label>`).join('')}</fieldset>`).join('')}</div>
+        <div class="row"><button class="btn primary approve" ${d.ok ? '' : 'disabled'}>审核通过并发布</button>
+          <input class="note" placeholder="要改的地方（退回时必填）" maxlength="500"><button class="btn reject">退回修改</button></div></div>`).join('')}
+      <h3>已发布</h3><p class="muted">发布后内容冻结，改动要升版本号重新审核。</p>
+      <table><tr><th>课程</th><th>给谁</th><th>发布时间</th><th>临时授权</th></tr>${lessons.map(l => `<tr><td>${esc(l.title)}<div class="muted small">${esc(l.key)} · <a href="${preview(l.key)}" target="_blank" rel="noopener">预览</a></div></td><td>${esc(name(l.for_child))}</td><td>${esc(l.published_at.slice(0, 16).replace('T', ' '))}</td>
         <td><select data-k="${esc(l.key)}"><option value="1">今天</option><option value="3">3 天</option><option value="7">7 天</option></select> <button class="btn grant" data-k="${esc(l.key)}" data-c="${esc(l.for_child)}">授权</button></td></tr>`).join('') || '<tr><td colspan="4" class="muted">还没有发布的课</td></tr>'}</table>
       <h3>授权记录</h3><ul>${grants.map(g => `<li>${esc(name(g.child))} · ${esc(title(g.lesson_key))} · 到 ${esc(g.expires_on)}${g.expires_on < today ? '（已过期）' : ''}</li>`).join('') || '<li class="muted">没有</li>'}</ul>`;
+    view().querySelectorAll<HTMLElement>('.draft').forEach(card => {
+      const key = card.dataset.k!;
+      card.querySelector<HTMLButtonElement>('.approve')!.onclick = guard(async () => {
+        const checked: Record<string, string[]> = {};
+        card.querySelectorAll<HTMLInputElement>('input[type=checkbox]:checked').forEach(c => (checked[c.dataset.cat!] ??= []).push(c.value));
+        await api(`/v1/drafts/${encodeURIComponent(key)}/approve`, { method: 'POST', body: JSON.stringify({ checked }) });
+        lessons = await api<Lesson[]>('/v1/lessons');
+        await VIEWS.课程库();
+        toast('已发布。去「排课」页勾选日期，孩子当天就能看到。');
+      });
+      card.querySelector<HTMLButtonElement>('.reject')!.onclick = guard(async () => {
+        await api(`/v1/drafts/${encodeURIComponent(key)}/reject`, { method: 'POST', body: JSON.stringify({ note: card.querySelector<HTMLInputElement>('.note')!.value }) });
+        await VIEWS.课程库();
+        toast('已退回。在 Claude Code 里说“看看家长退回的课”，Skill 会按你的意见修改。');
+      });
+    });
     view().querySelectorAll<HTMLButtonElement>('.grant').forEach(b => b.onclick = guard(async () => {
       const days = Number(view().querySelector<HTMLSelectElement>(`select[data-k="${b.dataset.k}"]`)!.value);
       const r = await api<{ expires_on: string }>('/v1/grants', { method: 'POST', body: JSON.stringify({ child: b.dataset.c, lesson: b.dataset.k, days }) });

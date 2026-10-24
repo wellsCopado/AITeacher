@@ -3,7 +3,7 @@
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { ChildProfile, InterestObservation, LessonSpec, ReteachTicket } from '../../../packages/schema/src/index.js';
 import { loadContext, mechanism, validate } from '../../../packages/validator/src/index.js';
@@ -175,18 +175,11 @@ export async function buildApp(o: AppOptions) {
 
   // ---- parent ----
   app.get('/v1/lessons', parent, async () => store.lessons());
-  /** Publish a frozen lesson. The server re-runs every check with its own interest records. */
-  app.post('/v1/lessons', parent, async (req, reply) => {
-    const sp = req.body as LessonSpec;
+  /** Everything a lesson must pass before children can see it; the server re-runs V01–V15 with its own records. */
+  const vet = (sp: LessonSpec) => {
     if (!sp || typeof sp !== 'object' || !isKey(`${sp.lesson_id}@${sp.version}`)) fail(400, '不是一份课程文件');
-    if (!sp.content_hash || !sp.published_at) fail(400, '课程还没有冻结（先运行 dls publish）');
-    if (contentHash(sp) !== sp.content_hash) fail(400, '内容哈希对不上，文件在发布后被改过');
-    const missing = Object.keys(REVIEW_CHECKLIST).filter(c => !(sp.review_records ?? []).some(r => r.category === c));
-    if (missing.length) fail(400, `审核未完成：${missing.join('、')}`);
     if (!store.hasChild(sp.for_child)) fail(400, '没有这个孩子');
     const key = `${sp.lesson_id}@${sp.version}`;
-    const prev = store.lesson(key);
-    if (prev) { if (prev.content_hash === sp.content_hash) return reply.code(200).send({ key, status: '已存在' }); fail(409, `${key} 已发布且已冻结；修改请升版本号`); }
     const previous = sp.previous_version ? store.lesson(`${sp.lesson_id}@${sp.previous_version}`) ?? null : null;
     let ticket: ReteachTicket | undefined;
     if (sp.trigger_judgment_ref) {
@@ -196,14 +189,79 @@ export async function buildApp(o: AppOptions) {
       ticket = store.tickets(sp.for_child).find(t => t.judgment_ref === sp.trigger_judgment_ref && t.concept_id === sp.primary_concept.id && t.status === '需求登记');
       if (!ticket) fail(400, `判断 ${sp.trigger_judgment_ref} 没有对「${sp.primary_concept.name}」的待做重教需求`);
     }
-    const ctx = { ...loadContext(o.root, previous), interests: store.interests(), reteach: reteachHistory(store) };
-    const report = validate(sp, ctx);
+    const report = validate(sp, { ...loadContext(o.root, previous), interests: store.interests(), reteach: reteachHistory(store) });
+    return { key, ticket, report };
+  };
+  const publish = (sp: LessonSpec, ticket?: ReteachTicket) => store.tx(() => {
+    const key = `${sp.lesson_id}@${sp.version}`;
+    store.addLesson(sp);
+    store.deleteDraft(key);
+    if (ticket) store.updateTicket(ticket.id, { status: '已发布', lesson_ref: key, mechanism: mechanism(sp) }, iso());
+  });
+
+  /** Publish a lesson frozen and reviewed elsewhere (dls publish --server, no parent app). */
+  app.post('/v1/lessons', parent, async (req, reply) => {
+    const sp = req.body as LessonSpec;
+    if (!sp?.content_hash || !sp.published_at) fail(400, '课程还没有冻结（先运行 dls publish，或用 dls submit 交给家长端审核）');
+    if (contentHash(sp) !== sp.content_hash) fail(400, '内容哈希对不上，文件在发布后被改过');
+    const missing = Object.keys(REVIEW_CHECKLIST).filter(c => !(sp.review_records ?? []).some(r => r.category === c));
+    if (missing.length) fail(400, `审核未完成：${missing.join('、')}`);
+    const key = `${sp.lesson_id}@${sp.version}`;
+    const prev = store.lesson(key);
+    if (prev) { if (prev.content_hash === sp.content_hash) return reply.code(200).send({ key, status: '已存在' }); fail(409, `${key} 已发布且已冻结；修改请升版本号`); }
+    const { ticket, report } = vet(sp);
     if (!report.ok) return reply.code(422).send({ error: '服务器校验未通过', report });
-    store.tx(() => {
-      store.addLesson(sp);
-      if (ticket) store.updateTicket(ticket.id, { status: '已发布', lesson_ref: key, mechanism: mechanism(sp) }, iso());
-    });
+    publish(sp, ticket);
     return reply.code(201).send({ key, status: '已发布', warnings: report.warnings });
+  });
+
+  // ---- stage 6 in the parent app: the Skill submits, the parent reviews and publishes with one click ----
+  app.get('/v1/review-checklist', parent, async () => REVIEW_CHECKLIST);
+  app.post('/v1/drafts', parent, async (req, reply) => {
+    const { review_records: _r, content_hash: _h, published_at: _p, ...sp } = req.body as LessonSpec;
+    const { key, report } = vet(sp as LessonSpec);
+    if (store.lesson(key)) fail(409, `${key} 已发布且已冻结；修改请升版本号`);
+    if (!report.ok) return reply.code(422).send({ error: '服务器校验未通过', report });
+    store.upsertDraft(sp as LessonSpec, req.who ?? '家长', iso());
+    return reply.code(201).send({ key, status: '待审核', warnings: report.warnings });
+  });
+  app.get('/v1/drafts', parent, async () => store.drafts().map(d => {
+    const sp = store.draft(d.key)!;
+    const { report } = vet(sp);
+    return {
+      ...d, child: sp.for_child, concept: sp.primary_concept.name, theme: { name: sp.theme.name, why: sp.theme.why },
+      challenges: sp.challenges.map(c => ({ prompt: c.prompt, with_theme: c.with_theme, answers: c.answers.map(a => `${a.label ? a.label + ' ' : ''}${a.value}${a.unit ? ' ' + a.unit : ''}`) })),
+      pending_assets: (sp.pending_assets ?? []).map(p => p.asset_id),
+      offscreen: sp.offscreen?.task ?? null,
+      ok: report.ok,
+      issues: report.results.filter(r => !r.ok).flatMap(r => r.issues.map(i => ({ rule: r.id, level: r.level, msg: i.msg }))),
+    };
+  }));
+  app.get('/v1/drafts/:key', parent, async (req) => store.draft((req.params as { key: string }).key) ?? fail(404, '没有这节待审核的课'));
+  app.post('/v1/drafts/:key/approve', parent, async (req, reply) => {
+    const key = (req.params as { key: string }).key;
+    const draft = store.draft(key) ?? fail(404, '没有这节待审核的课');
+    const checked = ((req.body ?? {}) as { checked?: Record<string, string[]> }).checked ?? {};
+    for (const [cat, items] of Object.entries(REVIEW_CHECKLIST)) {
+      const missing = items.filter(i => !(checked[cat] ?? []).includes(i));
+      if (missing.length) fail(400, `「${cat}」还有没勾的：${missing.join('；')}`);
+    }
+    if (store.lesson(key)) fail(409, `${key} 已经发布过了`);
+    const { ticket, report } = vet(draft);
+    if (!report.ok) return reply.code(422).send({ error: '服务器校验未通过', report });
+    const at = iso();
+    const sp: LessonSpec = { ...draft, review_records: Object.entries(REVIEW_CHECKLIST).map(([category, items]) => ({ category: category as '科学', reviewer: req.who ?? '家长', checked: items, at })), published_at: at };
+    sp.content_hash = contentHash(sp);
+    publish(sp, ticket);
+    return reply.code(201).send({ key, status: '已发布', content_hash: sp.content_hash });
+  });
+  app.post('/v1/drafts/:key/reject', parent, async (req) => {
+    const key = (req.params as { key: string }).key;
+    if (!store.draft(key)) fail(404, '没有这节待审核的课');
+    const note = String(((req.body ?? {}) as { note?: unknown }).note ?? '').trim().slice(0, 1000);
+    if (!note) fail(400, '写一句要改什么');
+    store.rejectDraft(key, note);
+    return { ok: true };
   });
 
   app.get('/v1/schedule', parent, async (req) => {
@@ -260,6 +318,14 @@ export async function buildApp(o: AppOptions) {
     return store.addInterest({ child, topic, source, said: b.said ? String(b.said).slice(0, 200) : null, observed_on: today().slice(0, 7), state, lesson_ref: null }, iso());
   });
 
+  // Lessons assembled in content/lessons but not yet published wait for review in the parent app.
+  for (const f of lessonFiles(o.root)) {
+    const sp = readJson<LessonSpec>(f);
+    const key = `${sp.lesson_id}@${sp.version}`;
+    if (sp.tenant_id !== tenant || store.lesson(key) || store.draft(key)) continue;
+    try { if (vet(sp).report.ok) store.upsertDraft(sp, 'content/lessons', iso()); } catch { /* not ready: the Skill will submit it */ }
+  }
+
   homeworkRoutes(app, { store, root: o.root, dataDir: o.dataDir ?? join(dirname(o.dbPath), 'homework'), today, iso, parent, childParam, pin: o.pin });
 
   // ---- static apps ----
@@ -288,5 +354,12 @@ function seed(store: Store, root: string, tenant: string, children: Record<strin
     store.addLesson(sp);
   }
 }
+
+const lessonFiles = (root: string) => {
+  const dir = join(root, 'content', 'lessons');
+  if (!existsSync(dir)) return [];
+  const sub = (d: string) => readdirSync(d).filter(n => statSync(join(d, n)).isDirectory());
+  return sub(dir).flatMap(id => sub(join(dir, id)).map(v => join(dir, id, v, 'lessonspec.json'))).filter(f => existsSync(f));
+};
 
 declare module 'fastify' { interface FastifyInstance { store: Store } }
