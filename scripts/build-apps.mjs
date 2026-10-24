@@ -14,6 +14,7 @@ for (const name of ['pad', 'parent']) {
   await build({
     entryPoints: [join(dir, 'src', 'main.ts')], outfile: join(dist, 'app.js'),
     bundle: true, format: 'esm', target: 'es2020', minify: true, external: ['three', 'three/addons/*'], logLevel: 'warning',
+    define: { __BUILD__: JSON.stringify(stamp) },
   });
   if (name === 'pad') {
     await build({

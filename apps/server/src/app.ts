@@ -3,7 +3,7 @@
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { ChildProfile, InterestObservation, LessonSpec, ReteachTicket } from '../../../packages/schema/src/index.js';
 import { loadContext, mechanism, validate } from '../../../packages/validator/src/index.js';
@@ -12,6 +12,7 @@ import { Store, type EventIn, type Role } from './db.js';
 import { HttpError, TZ, addDays, fail, isDate, isKey, sha, shanghaiDate } from './http.js';
 import { homeworkRoutes, reteachHistory } from './homework.js';
 import { mediaRoutes } from './media.js';
+import { macSay, type Synth } from './tts.js';
 
 export { shanghaiDate, TZ } from './http.js';
 
@@ -28,6 +29,8 @@ export interface AppOptions {
   /** Serve the built Pad and parent apps from apps/{pad,parent}/dist. */
   serveApps?: boolean;
   logger?: boolean;
+  /** Narration voice; default: the Mac's `say` when running on a Mac, none elsewhere. */
+  tts?: Synth | null;
 }
 
 const PAIR_TTL_MS = 10 * 60_000;
@@ -328,6 +331,28 @@ export async function buildApp(o: AppOptions) {
   }
 
   homeworkRoutes(app, { store, root: o.root, dataDir: o.dataDir ?? join(dirname(o.dbPath), 'homework'), today, iso, parent, childParam, pin: o.pin });
+  // ---- narration audio (Spec: sound on the Pad) ----
+  const tts = o.tts === undefined ? macSay() : o.tts;
+  app.decorate('ttsVoices', tts?.voices ?? null);
+  const ttsDir = join(dirname(o.dbPath), 'tts');
+  const making = new Map<string, Promise<Buffer>>();
+  app.get('/v1/tts/info', anyone, async () => ({ available: !!tts, voices: tts?.voices ?? null }));
+  app.get('/v1/tts', anyone, async (req, reply) => {
+    const q = req.query as { lang?: string; text?: string };
+    const lang = q.lang === 'en' ? 'en' : q.lang === 'zh' ? 'zh' : fail(400, '语言只能是 zh 或 en');
+    const text = String(q.text ?? '').trim();
+    if (!text || text.length > 600) fail(400, '朗读的文字要在 600 字以内');
+    if (!tts) fail(501, '这台服务器不能生成语音（需要在 Mac 上运行）');
+    const key = sha(`${tts!.voices[lang as 'zh']}|${lang}|${text}`).slice(0, 32), file = join(ttsDir, `${key}.wav`);
+    let buf: Buffer;
+    if (existsSync(file)) buf = readFileSync(file);
+    else {
+      if (!making.has(key)) making.set(key, tts!.make(text, lang as 'zh').then(b => { mkdirSync(ttsDir, { recursive: true }); writeFileSync(file, b); return b; }).finally(() => making.delete(key)));
+      buf = await making.get(key)!;
+    }
+    return reply.header('cache-control', 'private, max-age=2592000').type('audio/wav').send(buf);
+  });
+
   mediaRoutes(app, { store, root: o.root, mediaDir: join(dirname(o.dbPath), 'media'), iso, parent, anyone });
 
   // ---- static apps ----

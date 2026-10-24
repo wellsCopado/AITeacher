@@ -24,6 +24,18 @@ export const readingTime = (text: string) => {
   return Math.max(1.5, zh * 0.28 + en * 0.42);
 };
 
+/** Fetches narration audio (a WAV file) made by the family server's voice. */
+export type FetchAudio = (text: string, lang: Lang) => Promise<ArrayBuffer>;
+
+/** A short silent WAV, played inside the first tap so iPad lets the same audio element play later. */
+function silentWav() {
+  const n = 2205, b = new ArrayBuffer(44 + n * 2), d = new DataView(b);
+  const str = (o: number, t: string) => [...t].forEach((c, i) => d.setUint8(o + i, c.charCodeAt(0)));
+  str(0, 'RIFF'); d.setUint32(4, 36 + n * 2, true); str(8, 'WAVEfmt '); d.setUint32(16, 16, true); d.setUint16(20, 1, true); d.setUint16(22, 1, true);
+  d.setUint32(24, 22050, true); d.setUint32(28, 44100, true); d.setUint16(32, 2, true); d.setUint16(34, 16, true); str(36, 'data'); d.setUint32(40, n * 2, true);
+  return b;
+}
+
 export interface Voice {
   /** Resolves when the line has been read out (or, without sound, after the time it takes to read it). */
   speak(text: string, lang: Lang): Promise<void>;
@@ -35,9 +47,33 @@ export interface Voice {
   tick(): void;
   muted: boolean;
   readonly available: boolean;
+  /** 'server' when lines are played from the family server's voice, 'device' when the browser speaks them. */
+  readonly source: 'server' | 'device' | 'none';
 }
 
-export function createVoice(scale = 1): Voice {
+export function createVoice(scale = 1, fetchAudio?: FetchAudio): Voice {
+  // Server voice first: it plays through an <audio> element, which iPad treats as media (it plays even with
+  // the mute switch on). The browser's own speech engine is the fallback.
+  const el = typeof Audio !== 'undefined' ? new Audio() : null;
+  el?.setAttribute('playsinline', '');
+  let elReady = false, serverOk = !!fetchAudio, gen = 0;
+  let endCurrent: (() => void) | null = null;
+  const clips = new Map<string, Promise<ArrayBuffer>>();
+  const clip = (text: string, lang: Lang) => {
+    const k = lang + '|' + text;
+    if (!clips.has(k)) { const p = fetchAudio!(text, lang); clips.set(k, p); p.catch(() => clips.delete(k)); }
+    return clips.get(k)!;
+  };
+  const playClip = (buf: ArrayBuffer, my: number) => new Promise<void>((res, rej) => {
+    if (!el || my !== gen) return res();
+    const url = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+    const end = (e?: unknown) => { el.onended = el.onerror = null; endCurrent = null; URL.revokeObjectURL(url); clearTimeout(t); if (e) rej(e); else res(); };
+    const t = setTimeout(() => end(), (buf.byteLength / 44100) * 1000 + 3000);
+    endCurrent = () => end();
+    el.src = url;
+    el.onended = () => end(); el.onerror = () => end(new Error('audio'));
+    el.play().catch(e => end(e));
+  });
   const cancels = new Set<() => void>();
   const wait = (ms: number) => new Promise<void>(res => { const t = setTimeout(res, ms); cancels.add(() => { clearTimeout(t); res(); }); });
   const synth = typeof window !== 'undefined' ? window.speechSynthesis : undefined;
@@ -64,9 +100,13 @@ export function createVoice(scale = 1): Voice {
         void ctx.resume();
         const src = ctx.createBufferSource(); src.buffer = ctx.createBuffer(1, 1, 22050); src.connect(ctx.destination); src.start(0);
       }
+      if (el && !elReady) {
+        el.src = URL.createObjectURL(new Blob([silentWav()], { type: 'audio/wav' }));
+        el.play().then(() => { elReady = true; }).catch(() => undefined);
+      }
       if (synth && !warmed) { warmed = true; const u = new SpeechSynthesisUtterance('。'); u.volume = 0; u.lang = 'zh-CN'; u.onend = () => { warmOnly = false; }; warmOnly = true; synth.speak(u); }
     } catch { /* no audio on this device */ }
-    if (ctx?.state === 'running' && warmed) for (const t of ['touchend', 'click']) window.removeEventListener(t, unlock, true);
+    if (ctx?.state === 'running' && warmed && (elReady || !el)) for (const t of ['touchend', 'click']) window.removeEventListener(t, unlock, true);
   };
   if (typeof window !== 'undefined') for (const t of ['touchend', 'click']) window.addEventListener(t, unlock, true);
   // Safari drops an utterance that is garbage-collected mid-sentence (and never fires its end), so keep them.
@@ -86,11 +126,26 @@ export function createVoice(scale = 1): Voice {
 
   const v: Voice = {
     muted: false,
-    get available() { return !!synth; },
-    speak(text, lang) {
+    get available() { return serverOk || !!synth; },
+    get source() { return serverOk ? 'server' : synth ? 'device' : 'none'; },
+    async speak(text, lang) {
       const est = readingTime(text) * 1000 / scale;
       const parts = runs(text, lang);
-      if (!synth || v.muted || !parts.length) return wait(est);
+      const my = ++gen;
+      if (v.muted || !parts.length) return wait(est);
+      if (serverOk && el) {
+        try {
+          if (synth?.speaking) synth.cancel();
+          const bufs = parts.map(r => clip(r.text, r.lang));
+          for (const b of bufs) { const buf = await b; if (my !== gen) return; await playClip(buf, my); }
+          return;
+        } catch (e) {
+          if (my !== gen) return;
+          // No server voice (not a Mac) or the Pad refused to play: use the device voice from now on.
+          if (!(e instanceof DOMException && e.name === 'NotAllowedError')) serverOk = false;
+        }
+      }
+      if (!synth) return wait(est);
       // cancel() right before speak() makes Safari drop the new line, so only cancel when something is playing
       if ((synth.speaking || synth.pending) && !warmOnly) synth.cancel();
       warmOnly = false;
@@ -114,7 +169,7 @@ export function createVoice(scale = 1): Voice {
       });
     },
     unlock() { unlock(); },
-    stop() { synth?.cancel(); cancels.forEach(f => f()); cancels.clear(); },
+    stop() { gen++; if (el && !el.paused) el.pause(); endCurrent?.(); synth?.cancel(); cancels.forEach(f => f()); cancels.clear(); },
     tap() { tone([1320], 0.05, 0.05, 'triangle'); },
     chime() { tone([660, 880, 1320], 0.22, 0.08); },
     tick() { tone([880], 0.08, 0.06); },

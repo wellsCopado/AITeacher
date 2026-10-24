@@ -19,7 +19,16 @@ const check = (cond: unknown, m: string) => (cond ? ok(m) : fail(m));
 
 execFileSync('node', [join(root, 'scripts', 'build-apps.mjs')], { stdio: 'ignore' });
 const PIN = '2468';
-const app = await buildApp({ root, dbPath: join(mkdtempSync(join(tmpdir(), 'adw-e2e-')), 'db.sqlite'), pin: PIN, serveApps: true });
+// Stand-in for the Mac's voice: a short silent WAV per line, and a list of what was asked for.
+const said: string[] = [];
+function wav(seconds: number) {
+  const n = Math.round(22050 * seconds), b = Buffer.alloc(44 + n * 2);
+  b.write('RIFF', 0); b.writeUInt32LE(36 + n * 2, 4); b.write('WAVEfmt ', 8); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22);
+  b.writeUInt32LE(22050, 24); b.writeUInt32LE(44100, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34); b.write('data', 36); b.writeUInt32LE(n * 2, 40);
+  return b;
+}
+const tts = { voices: { zh: 'Tingting', en: 'Samantha' }, make: async (text: string, lang: string) => { said.push(`${lang}:${text}`); return wav(0.3); } };
+const app = await buildApp({ root, dbPath: join(mkdtempSync(join(tmpdir(), 'adw-e2e-')), 'db.sqlite'), pin: PIN, serveApps: true, tts });
 await app.listen({ host: '127.0.0.1', port: 0 });
 const base = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
 
@@ -29,12 +38,6 @@ try {
   const parentCtx = await browser.newContext({ viewport: { width: 1100, height: 800 } });
   const parent = await parentCtx.newPage();
   const padCtx = await browser.newContext({ viewport: { width: 1180, height: 820 }, reducedMotion: 'reduce', hasTouch: true });
-  // Record what the Pad asks the device voice to say.
-  await padCtx.addInitScript(() => {
-    const w = window as any; w.__spoken = [];
-    const orig = speechSynthesis.speak.bind(speechSynthesis);
-    speechSynthesis.speak = (u: SpeechSynthesisUtterance) => { w.__spoken.push({ text: u.text, lang: u.lang, volume: u.volume }); orig(u); };
-  });
   const pad = await padCtx.newPage();
   const errors: string[] = [];
   for (const p of [parent, pad]) p.on('pageerror', (e: Error) => errors.push(e.message));
@@ -61,6 +64,9 @@ try {
   check((await parent.textContent('#view'))?.includes('哥哥的 iPad'), '家长端设备列表有这台 Pad');
 
   // Nothing scheduled yet.
+  await pad.click('#stest');
+  await pad.waitForFunction(() => /用的是/.test(document.getElementById('sres')?.textContent ?? ''), null, { timeout: 15000 });
+  check((await pad.textContent('#sres'))?.includes('服务器 Mac 的语音') && said.includes('zh:你好，声音正常。'), '首页“声音测试”用服务器语音读出“你好，声音正常”');
   await pad.click('.kidbtn[data-id="gege"]');
   await pad.waitForSelector('.lead');
   check((await pad.textContent('#list'))?.includes('今天没有安排课'), '没排课时孩子看不到课');
@@ -117,14 +123,16 @@ try {
   await pad.click('.lesson');
   await pad.waitForSelector('#start');
   check((await pad.textContent('#body'))?.includes('开始上课'), '先点一下“开始上课”，同时打开声音');
+  // Keep every subtitle line that appears, so the check doesn't depend on timing.
+  await pad.evaluate(() => { const w = window as any, cap = document.getElementById('cap')!; w.__caps = []; new MutationObserver(() => w.__caps.push(cap.textContent)).observe(cap, { childList: true, characterData: true, subtree: true }); });
   await pad.click('#start');
   await pad.waitForSelector('#next');
-  const spoken = await pad.evaluate(() => (window as any).__spoken as { text: string; lang: string; volume: number }[]);
-  check(spoken.some(u => u.lang === 'zh-CN' && u.volume !== 0 && u.text.includes('潜到珊瑚礁海底')), '点“开始上课”后，iPad 语音马上开始读说明');
+  await pad.waitForTimeout(500);
+  check(said.some(t => t.startsWith('zh:') && t.includes('潜到珊瑚礁海底')), '点“开始上课”后，用服务器 Mac 的语音朗读说明');
   check(!(await pad.$('.side')), 'Pad 上不显示家长侧栏');
   check(await pad.locator('.step').first().isDisabled(), '孩子不能点上面的步骤跳着走');
-  await pad.waitForSelector('#cap:not([hidden])');
-  check((await pad.textContent('#cap'))?.includes('潜到珊瑚礁海底'), '说明自动出字幕朗读');
+  await pad.waitForFunction(() => (window as any).__caps.length > 0);
+  check(await pad.evaluate(() => (window as any).__caps.some((t: string) => t.includes('潜到珊瑚礁海底'))), '说明自动出字幕朗读');
   await pad.waitForSelector('#next:not([disabled])', { timeout: 30000 });
   await pad.click('#next');
   await pad.waitForSelector('#stage canvas', { timeout: 30000 });
@@ -142,7 +150,8 @@ try {
   check(await pad.locator('#next').isEnabled(), '跟着引导一件件做完，「去挑战」才打开');
   await pad.locator('[data-act="focus"]').click();
   await pad.waitForSelector('.observe img');
-  check(await pad.evaluate(() => (window as any).__spoken.some((u: { lang: string; text: string }) => u.text.includes('螳螂虾') || u.lang === 'en-US')), '点螳螂虾的洞，讲解读出声');
+  await pad.waitForTimeout(500);
+  check(said.some(t => t.includes('孔雀螳螂虾的洞口') || t.startsWith('en:This is the burrow')), '点螳螂虾的洞，讲解读出声');
   const obs = (await pad.textContent('.observe'))!;
   check(obs.includes('身长约 16 厘米') && obs.includes('AI 写实图') && obs.includes('1/4'), '点螳螂虾的洞打开观察窗：自带 3 张写实图加家长传的 1 张，标明来源和身长对比');
   await pad.waitForFunction(() => (document.querySelector('.observe img') as HTMLImageElement)?.naturalWidth > 100);

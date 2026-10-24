@@ -2,6 +2,15 @@
 // sent whenever the server is reachable, so a lesson works through a Wi-Fi drop.
 import type { LessonSpec } from '../../../packages/schema/src/index.js';
 import { play, type OrganismMedia } from '../../../packages/player/src/main.js';
+import { createVoice, type FetchAudio } from '../../../packages/player/src/voice.js';
+
+declare const __BUILD__: string;
+/** Narration made by the server Mac's voice, played as ordinary audio on the Pad. */
+const audio: FetchAudio = async (text, lang) => {
+  const r = await fetch(`/v1/tts?lang=${lang}&text=${encodeURIComponent(text)}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+  if (!r.ok) throw new Error(`tts ${r.status}`);
+  return r.arrayBuffer();
+};
 import { Queue, type Store as KV } from './queue.js';
 
 interface Child { id: string; name: string; grade: number }
@@ -62,8 +71,25 @@ function installHint() {
   return `<div class="hint"><b>装成桌面 App：</b>在 Safari 里点顶部的分享按钮 <span class="ico">⬆︎</span>，选“添加到主屏幕”。以后从桌面的“探索世界”图标打开，就是全屏，没有地址栏。</div>`;
 }
 
+// One tap: a beep, then a Chinese and an English line. Shows which voice is used, so a parent can tell what's wrong.
+let testVoice: ReturnType<typeof createVoice> | null = null;
+async function soundTest() {
+  const out = document.getElementById('sres')!;
+  testVoice ??= createVoice(1, audio);
+  testVoice.unlock(); testVoice.chime();
+  out.textContent = '正在播放…';
+  const info = await fetch('/v1/tts/info', { headers: { authorization: `Bearer ${token}` } }).then(r => r.json()).catch(() => null) as { available: boolean } | null;
+  const t0 = performance.now();
+  await testVoice.speak('你好，声音正常。', 'zh');
+  await testVoice.speak('Hello, I can hear you.', 'en');
+  const standalone = matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone;
+  out.textContent = `用的是${testVoice.source === 'server' ? '服务器 Mac 的语音' : testVoice.source === 'device' ? 'iPad 自带语音' : '（没有可用的语音）'} · 服务器语音${info?.available ? '可用' : '不可用'} · ${standalone ? '桌面 App 模式' : '浏览器模式'} · 用时 ${((performance.now() - t0) / 1000).toFixed(1)} 秒 · 版本 ${__BUILD__}。听不到的话：按音量加键，关掉静音。`;
+}
+
 async function chooseChild() {
-  shell(`<h1>今天谁来学？</h1><div class="kids" id="kids">…</div>${installHint()}`);
+  shell(`<h1>今天谁来学？</h1><div class="kids" id="kids">…</div>${installHint()}
+    <div class="soundtest"><button class="btn" id="stest">🔊 声音测试</button><span id="sres" class="muted small"></span></div>`);
+  document.getElementById('stest')!.onclick = soundTest;
   try {
     const kids = await api<Child[]>('/v1/children');
     kv.set('adw.children', JSON.stringify(kids));
@@ -124,7 +150,7 @@ async function lessonScreen(child: Child, key: string) {
     flush();
   };
   el.addEventListener('adw:event', onEvent);
-  const p = play(el, sp, { childName: child.name, kid: true, media, onExit: () => { el.removeEventListener('adw:event', onEvent); p.dispose(); todayScreen(child); } });
+  const p = play(el, sp, { childName: child.name, kid: true, media, audio, onExit: () => { el.removeEventListener('adw:event', onEvent); p.dispose(); todayScreen(child); } });
   (window as unknown as { __player: unknown }).__player = p;
 }
 

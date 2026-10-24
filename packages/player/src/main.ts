@@ -4,7 +4,7 @@ import type { Challenge, LessonSpec } from '../../schema/src/index.js';
 import { mount, type Instance } from '../../components/src/index.js';
 import { pointerKey, utterance } from './language.js';
 import { checkAttempt, describe, type Attempt } from './check.js';
-import { createVoice, readingTime } from './voice.js';
+import { createVoice, readingTime, type FetchAudio } from './voice.js';
 import { budget, Countdown, fmt, STEP_KEYS } from './timing.js';
 
 export interface LessonEvent { at: string; type: string; [k: string]: unknown }
@@ -37,6 +37,8 @@ export interface PlayOptions {
   childName?: string; /** Pad mode: no parent side panel. */ kid?: boolean; onExit?: () => void;
   media?: OrganismMedia[];
   /** Speeds up every countdown (tests only). */ timeScale?: number;
+  /** Narration audio from the family server's voice; without it the device's own voice is used. */
+  audio?: FetchAudio;
 }
 
 export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) {
@@ -46,7 +48,7 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
   // Narration is always 1 Chinese then 3 English (BL06); there is no Chinese-only mode.
   const mode = 'cycle' as const;
   const scale = opts.timeScale ?? (Number(new URLSearchParams(typeof location !== 'undefined' ? location.search : '').get('adw_time')) || 1);
-  const voice = createVoice(scale);
+  const voice = createVoice(scale, opts.audio);
   const times = budget(sp);
   // The intro is read aloud in full before the child can go on, so its step must be long enough for that.
   times.explain = Math.max(times.explain, Math.ceil([sp.intro.headline, ...sp.intro.paragraphs].reduce((a, t) => a + readingTime(t), 0) * 1.4) + 20);

@@ -17,5 +17,10 @@ async function get<T = LessonSpec>(path: string): Promise<T | null> {
   if (!sp) { app.innerHTML = '<p style="padding:24px">打不开这节课：请从家长端「课程库」点“预览”进入。</p>'; return; }
   document.title = `${sp.title} · 预览`;
   const media = (await get<OrganismMedia[]>('/v1/media')) ?? [];
-  (window as unknown as { __player: unknown }).__player = play(app, sp, { media });
+  const audio = async (text: string, lang: string) => {
+    const r = await fetch(`/v1/tts?lang=${lang}&text=${encodeURIComponent(text)}`, { headers: { authorization: `Bearer ${token}` } });
+    if (!r.ok) throw new Error(`tts ${r.status}`);
+    return r.arrayBuffer();
+  };
+  (window as unknown as { __player: unknown }).__player = play(app, sp, { media, audio });
 })();

@@ -237,3 +237,34 @@ describe('organism media', () => {
     expect((await req('GET', '/v1/media', pad)).body.filter((x: { builtin?: boolean }) => !x.builtin)).toEqual([]);
   });
 });
+
+describe('narration audio', () => {
+  it('picks the Mac voices from `say -v ?`', async () => {
+    const { pickVoices } = await import('../apps/server/src/tts.js');
+    const list = 'Alex                en_US    # Most people recognize me by my voice.\nMeijia              zh_TW    # 你好，我叫美佳。\nSamantha            en_US    # Hello, my name is Samantha.\nTingting            zh_CN    # 你好，我叫婷婷。\n';
+    expect(pickVoices(list)).toEqual({ zh: 'Tingting', en: 'Samantha' });
+    expect(pickVoices('Alex                en_US    # hi\n')).toBeNull();
+  });
+  it('makes each line once on the server and hands the Pad a WAV', async () => {
+    await app.close();
+    const made: string[] = [];
+    app = await buildApp({ root, dbPath: join(mkdtempSync(join(tmpdir(), 'adw-')), 'db.sqlite'), pin: PIN, now: () => clock,
+      tts: { voices: { zh: 'Tingting', en: 'Samantha' }, make: async (t, l) => { made.push(`${l}:${t}`); return Buffer.from('RIFF....WAVE'); } } });
+    const pad = await pair(await login());
+    const get = (q: string, tok?: string) => app.inject({ method: 'GET', url: `/v1/tts?${q}`, headers: tok ? { authorization: `Bearer ${tok}` } : {} });
+    expect((await get('lang=zh&text=你好')).statusCode).toBe(401);
+    const r = await get(`lang=zh&text=${encodeURIComponent('你好')}`, pad);
+    expect(r.statusCode).toBe(200);
+    expect(r.headers['content-type']).toBe('audio/wav');
+    await get(`lang=zh&text=${encodeURIComponent('你好')}`, pad);
+    expect(made).toEqual(['zh:你好']);
+    expect((await get('lang=fr&text=x', pad)).statusCode).toBe(400);
+    expect((await req('GET', '/v1/tts/info', pad)).body).toEqual({ available: true, voices: { zh: 'Tingting', en: 'Samantha' } });
+  });
+  it('says so when the server has no voice', async () => {
+    await app.close();
+    app = await buildApp({ root, dbPath: join(mkdtempSync(join(tmpdir(), 'adw-')), 'db.sqlite'), pin: PIN, now: () => clock, tts: null });
+    const pad = await pair(await login());
+    expect((await app.inject({ method: 'GET', url: '/v1/tts?lang=zh&text=x', headers: { authorization: `Bearer ${pad}` } })).statusCode).toBe(501);
+  });
+});
