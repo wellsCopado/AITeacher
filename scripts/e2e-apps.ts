@@ -52,7 +52,7 @@ try {
   ok('家长 PIN 登录');
 
   // Pad shows a pairing code, the parent approves it.
-  await pad.goto(`${base}/pad/?adw_time=6`);
+  await pad.goto(`${base}/pad/?adw_time=1`);
   await pad.waitForFunction(() => /\d{3} \d{3}/.test(document.getElementById('code')?.textContent ?? ''));
   const code = (await pad.textContent('#code'))!.replace(/\s/g, '');
   await pad.screenshot({ path: join(shots, 'pad-pair.png') });
@@ -62,12 +62,15 @@ try {
   await pad.waitForSelector('.kidbtn', { timeout: 10000 });
   ok('Pad 配对成功，进入选人');
   check((await parent.textContent('#view'))?.includes('哥哥的 iPad'), '家长端设备列表有这台 Pad');
+  check(await parent.locator('#voices select[data-lang="zh"]').count() === 1 && await parent.locator('#voices [data-try="en"]').count() === 1, '家长端「朗读声音」可以选中文、英文声音并试听');
 
   // Nothing scheduled yet.
   await pad.click('#stest');
   await pad.waitForFunction(() => /用的是/.test(document.getElementById('sres')?.textContent ?? ''), null, { timeout: 15000 });
   check((await pad.textContent('#sres'))?.includes('服务器 Mac 的语音') && said.includes('zh:你好，声音正常。'), '首页“声音测试”用服务器语音读出“你好，声音正常”');
+  check(await pad.locator('.fsbtn').isVisible(), 'Pad 右上角有全屏开关');
   await pad.click('.kidbtn[data-id="gege"]');
+  check(await pad.evaluate(() => !!document.fullscreenElement), '在浏览器里点按钮就自动进入全屏');
   await pad.waitForSelector('.lead');
   check((await pad.textContent('#list'))?.includes('今天没有安排课'), '没排课时孩子看不到课');
 
@@ -148,7 +151,16 @@ try {
     await pad.waitForTimeout(800);
   }
   check(await pad.locator('#next').isEnabled(), '跟着引导一件件做完，「去挑战」才打开');
-  await pad.locator('[data-act="focus"]').click();
+  await pad.waitForSelector('.orgbar');
+  await pad.waitForFunction(() => (window as any).__player.scene?.organismState?.() != null, null, { timeout: 15000 });
+  check(['emerge', 'walk', 'idle'].includes((await pad.evaluate(() => (window as any).__player.scene.organismState().mode))), '点「看看螳螂虾的洞」：立体螳螂虾（照片做的可动模型）从洞里出来');
+  await pad.click('[data-org="anatomy"]', { force: true });
+  await pad.waitForFunction(() => (window as any).__player.scene.organismState().exploded && [...document.querySelectorAll('.organlab')].some(l => !(l as HTMLElement).hidden));
+  const labs = await pad.$$eval('.organlab:not([hidden])', ls => ls.map(l => l.textContent));
+  check(labs.includes('复眼') && labs.some(l => l?.includes('捕肢')) && labs.includes('尾扇'), `拆开看身体：标出 ${labs.join('、')}`);
+  await pad.screenshot({ path: join(shots, 'pad-anatomy.png') });
+  await pad.click('[data-org="anatomy"]', { force: true });
+  await pad.click('[data-org="photos"]', { force: true });
   await pad.waitForSelector('.observe img');
   await pad.waitForTimeout(500);
   check(said.some(t => t.includes('孔雀螳螂虾的洞口') || t.startsWith('en:This is the burrow')), '点螳螂虾的洞，讲解读出声');
@@ -165,12 +177,31 @@ try {
   await c1.locator('[data-f="P"]').fill('16'); await c1.locator('[data-u="P"]').selectOption('米');
   await c1.locator('[data-f="S"]').fill('15'); await c1.locator('[data-u="S"]').selectOption('平方米');
   await c1.locator('[data-chk]').click();
+  check((await c1.locator('.fb.good').textContent())?.includes('一次就做对了'), '做对了：具体地夸（一次就做对，先想清楚再写）');
   check(await pad.locator('[data-ch="c2"]').isHidden(), '一题一题来：第 1 题没做，看不到第 2 题');
   await c1.locator('[data-go]').click();
-  for (const id of ['c2', 'c3']) {
-    const c = pad.locator(`[data-ch="${id}"]`);
-    await c.locator('[data-chk]').click(); await c.locator('[data-go]').click();
-  }
+  // c2: three misses. Each one praises something real and gives a reason to go on; then the Pad shows how, and the child does a similar one alone.
+  const c2 = pad.locator('[data-ch="c2"]');
+  await c2.locator('[data-f="a"]').fill('4'); await c2.locator('[data-u="a"]').selectOption('米');
+  await c2.locator('[data-chk]').click();
+  check((await c2.locator('.fb.try').textContent())?.startsWith('长完全做对了'), '答错先夸做对的部分：“长完全做对了”');
+  check(await c2.locator('[data-go]').isHidden(), '答错了不能直接跳到下一题');
+  await c2.locator('[data-chk]').click();
+  check((await c2.locator('.fb.try').textContent())?.includes('提示：'), '第 2 次错自动给提示');
+  await c2.locator('[data-chk]').click();
+  await c2.locator('.worked li').first().waitFor();
+  await c2.locator('.twin [data-tchk]').waitFor({ timeout: 30000 });
+  const steps = await c2.locator('.worked li').allTextContents();
+  check(steps.length === 4 && steps[3].includes('16 个样方') && await c2.locator('.ans.shown').count() === 1, `错 3 次：分步演示 ${steps.length} 步，最后把答案填进框里`);
+  check((await c2.locator('.twin [data-tprompt]').textContent())?.includes('12 米'), '演示完出一道同类题（卷尺换成 12 米）让孩子自己做');
+  for (const [f, v, u] of [['a', '3', '米'], ['b', '3', '米'], ['S', '9', '平方米']]) { await c2.locator(`.twin [data-f="${f}"]`).fill(v); await c2.locator(`.twin [data-u="${f}"]`).selectOption(u); }
+  await c2.locator('.twin [data-tchk]').click();
+  check(/自己做出来了|全靠你自己/.test((await c2.locator('.twin .fb.good').textContent()) ?? ''), '同类题自己做对了：夸他马上就会用了');
+  await pad.screenshot({ path: join(shots, 'pad-worked.png') });
+  await c2.locator('[data-go]').click();
+  const c3 = pad.locator('[data-ch="c3"]');
+  for (const [f, v, u] of [['P', '18', '厘米'], ['S', '14', '平方厘米']]) { await c3.locator(`[data-f="${f}"]`).fill(v); await c3.locator(`[data-u="${f}"]`).selectOption(u); }
+  await c3.locator('[data-chk]').click(); await c3.locator('[data-go]').click();
   await pad.click('#next');
   await pad.click('[data-q="wish"] [data-a="机器人"]');
   await pad.click('#done');
@@ -188,6 +219,7 @@ try {
   await parent.waitForSelector('#detail .card');
   const detail = (await parent.textContent('#detail'))!;
   check(detail.includes('第 1 题') && detail.includes('做对了') && detail.includes('拉卷尺围一圈'), '家长看到挑战结果和动手操作');
+  check(detail.includes('看了一遍分步演示，同类题自己做对了'), '家长看到哪道题看了演示、同类题自己做对了');
   check(detail.includes('下一课想学：“机器人”'), '家长看到孩子的下一课心愿');
   await parent.screenshot({ path: join(shots, 'parent-record.png') });
   await parent.click('[data-t="兴趣与心愿"]');

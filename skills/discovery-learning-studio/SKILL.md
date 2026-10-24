@@ -16,10 +16,14 @@ description: 为 AI Discovery World 制作、校验和发布一节数学互动�
 - **写实底线**（BL14）：所有 3D 和动画写实。生物只能用扫描、实拍或依据真实照片的 AI 生成素材（须 ≥ 3 张参考照片、核对人、标注“AI 依据照片生成”）。素材没到位就写进 `pending_assets`，写明“不展示”，绝不用卡通或简化模型代替。
 - **准确可追溯**（BL03）：数值、单位、事实都写出处；不确定的写“待科学审核”，不编造。
 - **课末必问心愿**：每节课结束问“下一次课你想学什么”，选项来自这个孩子自己的兴趣或选项，允许自己说一个。
-- **不做养殖经营**（BL12），**英语不强制**（BL06），**不开放聊天、不外链**（BL11）。
+- **讲解固定“一中三英”**（V05）：每个热点中文 1 条 + 英文 3 条循环讲，没有纯中文选项。英文只用于讲解，不考英语（BL06）。
+- **上课流程固定**：四步按顺序解锁、每步每题有倒计时、到时间自动前进、文字自动出字幕并朗读。流程在播放器里，你要把说明、题目、提示写得短、适合读出来。
+- **夸奖要具体、给孩子信心**（V18）：答错时先夸真正做对的部分，再说要看哪里，再给坚持的理由。写 `encouragement.persist`，和主题相连，不写空话。
+- **错三次先演示、再做同类题**（V17）：每道题都写 `worked_example`（2–5 步，最后一步说出答案）和 `twin`（同一方法换数字或情境）。
+- **不做养殖经营**（BL12），**不开放聊天、不外链**（BL11）。
 - **人工审核不可替代**：阶段 6 的四类审核只能由家长确认。只有家长在对话里明确确认某一类后，你才能运行 `dls review --approve <类别> --by <家长称呼>`。
 
-详细原则见 [reference/principles.md](reference/principles.md)。
+详细原则见 [reference/principles.md](reference/principles.md)；孩子上课的固定流程、夸奖和演示怎么写，见 [reference/lesson-flow.md](reference/lesson-flow.md)（阶段 2 之前必读）。
 
 ## 六个阶段
 
@@ -48,7 +52,7 @@ pnpm -s dls theme content/lessons/L-XXX/1.0 --component PerimeterArea --write
 
 把建议告诉家长；家长可以改。工具提示“待开发”的主题皮肤，要转告家长需要开素材工单，这节课先用可用的主题。
 
-再补全 `02-director.json`：标题、说明页 `intro`、`scene_component_ids`、`component_params`、实验模型（变量范围 + 公式 + 参考算例，必须含越界算例）、活动图、热点（中文 1 条 + 英文 3 条）、≤ 3 道挑战（至少一道不带主题的迁移题）、课末反思问题、评估计划、可选离屏任务、家长提示、出处。每个活动节点和热点都写 `teaches`。字段说明见 [reference/lessonspec.md](reference/lessonspec.md)，组件能力见 [reference/components.md](reference/components.md)，主题映射见 [reference/themes.md](reference/themes.md)。
+再补全 `02-director.json`：标题、说明页 `intro`、`scene_component_ids`、`component_params`、实验模型（变量范围 + 公式 + 参考算例，必须含越界算例）、活动图、热点（中文 1 条 + 英文 3 条）、≤ 3 道挑战（至少一道不带主题的迁移题；**每道题都带分步演示 `worked_example` 和同类题 `twin`**）、答错时的鼓励 `encouragement.persist`、课末反思问题、评估计划、可选离屏任务、家长提示、出处。每个活动节点和热点都写 `teaches`。字段说明见 [reference/lessonspec.md](reference/lessonspec.md)，组件能力见 [reference/components.md](reference/components.md)，主题映射见 [reference/themes.md](reference/themes.md)。
 
 ### 3. 素材检索核验 → `03-assets.json`
 
@@ -70,7 +74,7 @@ pnpm -s dls assemble content/lessons/L-XXX/1.0
 pnpm -s dls validate content/lessons/L-XXX/1.0
 ```
 
-V01–V16 全部无错误才能继续；警告要告诉家长。按每条问题后面的“→”提示修改阶段文件，再从阶段 4 重跑。规则解释见 [reference/validation.md](reference/validation.md)。
+V01–V18 全部无错误才能继续；警告要告诉家长。按每条问题后面的“→”提示修改阶段文件，再从阶段 4 重跑。规则解释见 [reference/validation.md](reference/validation.md)。
 
 ### 预览（阶段 5 之后、审核之前）
 
@@ -119,3 +123,5 @@ pnpm -s dls interest add --child gege --topic 机器人 --source 孩子自述 --
 ## 交付给家长时
 
 用中文、简短：这节课教什么、为什么选这个主题（引用孩子的原话或兴趣记录）、有哪些素材还没到位、需要家长确认什么。不要把 JSON 原文贴给家长。
+
+审核和发布都在家长端「课程库」里点按钮完成，不要让家长去敲命令。

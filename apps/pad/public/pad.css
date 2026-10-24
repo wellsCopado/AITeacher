@@ -12,3 +12,9 @@
 .hint .ico{display:inline-block;border:1px solid currentColor;border-radius:5px;padding:0 5px;font-size:13px}
 body{padding-top:env(safe-area-inset-top)}
 .soundtest{margin-top:20px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+
+/* full-screen toggle in the corner, and a roomier lesson when the whole screen is ours */
+.fsbtn{position:fixed;top:max(8px,env(safe-area-inset-top));right:max(8px,env(safe-area-inset-right));z-index:50;width:38px;height:38px;border-radius:50%;border:1px solid rgba(0,0,0,.12);background:rgba(255,255,255,.85);font-size:18px;line-height:1;color:#123;box-shadow:0 2px 8px rgba(0,0,0,.12)}
+.fsbtn[hidden]{display:none}
+body.full .adw.kid .stage{height:calc(100dvh - 170px)}
+.adw.kid .pad-head{padding-right:46px}

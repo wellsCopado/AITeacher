@@ -15,12 +15,16 @@ export function summarize(evs: Ev[], lesson?: { challenges: { id: string; prompt
   const said = evs.filter(e => e.type === 'next_lesson_wish' || e.type === 'reflection');
   const lines = [
     `用了大约 ${mins} 分钟，点开讲解 ${hotspots} 次${actions.length ? `，动手做了：${[...new Set(actions)].map(esc).join('、')}` : ''}。`,
-    ...[...byCh].map(([c, list]) => {
+    ...[...byCh].map(([c, all]) => {
+      const list = all.filter(a => !a.twin), twin = all.filter(a => a.twin);
       const ok = list.find(a => a.correct);
-      const hints = Math.max(...list.map(a => Number(a.hints ?? 0)));
+      const hints = Math.max(0, ...list.map(a => Number(a.hints ?? 0)));
       const i = lesson?.challenges.findIndex(x => x.id === c) ?? -1;
       const name = i >= 0 ? `第 ${i + 1} 题（${lesson!.challenges[i].prompt.slice(0, 24)}${lesson!.challenges[i].prompt.length > 24 ? '…' : ''}）` : `挑战 ${c}`;
-      return `${esc(name)}：试了 ${list.length} 次，${ok ? '做对了' : '还没做对'}${hints ? `，用了 ${hints} 级提示` : ''}。`;
+      // After three misses the Pad showed how it's done, then the child did a similar question alone.
+      const demo = evs.some(e => e.type === 'worked_example' && e.challenge === c);
+      const after = demo ? `，看了一遍分步演示${twin.length ? `，同类题${twin.some(a => a.correct) ? '自己做对了' : '还没做对，下次再练'}` : ''}` : '';
+      return `${esc(name)}：试了 ${list.length} 次，${ok ? '做对了' : '还没做对'}${hints ? `，用了 ${hints} 级提示` : ''}${after}。`;
     }),
     ...said.map(e => `${e.type === 'next_lesson_wish' ? '下一课想学' : '孩子说'}：“${esc(e.answer)}”`),
     evs.some(e => e.type === 'chat_skipped') ? '课末聊天跳过了。' : '',

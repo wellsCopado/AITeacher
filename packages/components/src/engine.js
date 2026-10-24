@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {EXRLoader} from 'three/addons/loaders/EXRLoader.js';
 import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js';
+import {createOrganism} from './organism.js';
 
 /* Photoreal scene engine: PBR materials, real HDRI lighting, soft shadows, ACES tone mapping.
    Lesson state stays in the app; the engine only renders it and reports animation progress. */
@@ -230,55 +231,20 @@ export function create(stage, kind, params, onPick, hooks){
     const h0=holes[0]||[0,0]; st.burrow=new THREE.Vector3(h0[0],0,h0[1]);
     const hit=new THREE.Mesh(new THREE.CircleGeometry(0.2,24),new THREE.MeshBasicMaterial({visible:false})); hit.rotation.x=-Math.PI/2; hit.position.set(h0[0],0.01,h0[1]);
     hit.userData={kind:'shrimp'}; grp.add(hit); st.pickables.push(hit);
-    placeOrganism(grp, h0);
+    // the animal that lives in the burrow: a jointed photoreal relief rig (organism.js)
+    st.org?.dispose(); st.org=null;
+    if(hooks.organism){ const dir=new THREE.Vector2(-h0[0],-h0[1]); if(dir.lengthSq()<1e-6) dir.set(1,0); dir.normalize();
+      const pivot=new THREE.Group(); pivot.position.set(h0[0],0.004,h0[1]); grp.add(pivot);
+      st.org=createOrganism({parent:pivot, o:hooks.organism, outDir:dir, puff:(x,z,n,sp,up)=>puff(x,z,n,sp,up), reduced, stage}); st.orgDir=dir; }
     st.anchors.fence=()=>grp.localToWorld(new THREE.Vector3(0,0.35,b/2));
     st.anchors.tile=()=>grp.localToWorld(new THREE.Vector3(0.5,0.3,0.5));
     st.anchors.unit=()=>grp.localToWorld(new THREE.Vector3(a/2-0.5,0.3,b/2-0.5));
-    st.anchors.shrimp=()=>grp.localToWorld(new THREE.Vector3(h0[0],0.12,h0[1]));
+    st.anchors.shrimp=()=>st.org&&st.org.ready ? st.org.anchor() : grp.localToWorld(new THREE.Vector3(h0[0],0.12,h0[1]));
     st.dims=[{p:()=>grp.localToWorld(new THREE.Vector3(0,0.05,b/2+0.45)),t:`长 ${a} 米`},{p:()=>grp.localToWorld(new THREE.Vector3(a/2+0.45,0.05,0)),t:`宽 ${b} 米`}];
     const R=Math.max(a,b)/2+2; Object.assign(sun.shadow.camera,{left:-R,right:R,top:R,bottom:-R,near:1,far:40}); sun.shadow.camera.updateProjectionMatrix();
     const ab=a+'x'+b; if(st.lastAB!==ab){ st.lastAB=ab; orbit.dist=clamp(Math.max(a,b)*1.25+3,orbit.min,orbit.max); orbit.target.set(0,0,0); }
     buildLabels();
   }
-  /* The animal in the burrow: a cut-out top view at true size (BL14 photoreal), slightly domed so light
-     falls on it like on a body, clipped at the burrow so it really comes out of the hole. */
-  function placeOrganism(grp, h0){
-    const o=hooks.organism; st.shr=null; if(!o) return;
-    const dir=new THREE.Vector2(-h0[0],-h0[1]); if(dir.lengthSq()<1e-6) dir.set(1,0); dir.normalize();
-    const pivot=new THREE.Group(); pivot.position.set(h0[0],0.004,h0[1]); pivot.rotation.y=Math.atan2(dir.y,-dir.x); grp.add(pivot);
-    const W=o.lengthM/Math.max(0.2,o.body[1]-o.body[0]);
-    const clip=new THREE.Plane(new THREE.Vector3(dir.x,0,dir.y), 0);
-    const shr={pivot, clip, W, mesh:null, state:'in', t:0, x:W/2, kick:0, dir};
-    st.shr=shr;
-    const make=(t)=>{
-      if(st.shr!==shr) return;
-      const H=W*t.image.height/t.image.width, geo=new THREE.PlaneGeometry(W,H,64,24), q=geo.attributes.position;
-      for(let i=0;i<q.count;i++){ const y=q.getY(i)/(H/2), xx=(q.getX(i)/W)+0.5; const along=xx<o.body[0]?0:Math.sin(Math.min(1,(xx-o.body[0])/(o.body[1]-o.body[0]))*Math.PI)**0.4;
-        q.setZ(i, Math.max(0,1-(y/0.42)**2)*0.11*o.lengthM*along); }
-      geo.computeVertexNormals();
-      const mat=new THREE.MeshStandardMaterial({map:t, alphaTest:0.4, roughness:0.42, metalness:0, side:THREE.DoubleSide, clippingPlanes:[clip], envMapIntensity:1.1});
-      const mesh=new THREE.Mesh(geo,mat); mesh.rotation.x=-Math.PI/2; mesh.castShadow=true; mesh.receiveShadow=false;
-      mesh.customDepthMaterial=new THREE.MeshDepthMaterial({depthPacking:THREE.RGBADepthPacking, map:t, alphaTest:0.4, clippingPlanes:[clip]});
-      mesh.userData={kind:'shrimp'}; pivot.add(mesh); st.pickables.push(mesh); shr.mesh=mesh;
-    };
-    if(G.shrimpTex && G.shrimpTex.image) make(G.shrimpTex);
-    else { G.shrimpTex=texLoader.load(o.url, make); G.shrimpTex.colorSpace=THREE.SRGBColorSpace; G.shrimpTex.anisotropy=8; }
-  }
-  function updateOrganism(dt, now){
-    const s=st.shr; if(!s||!s.mesh) return; s.t+=dt;
-    const b=new THREE.Vector3(); s.pivot.getWorldPosition(b);
-    s.clip.constant=-(s.clip.normal.x*b.x+s.clip.normal.z*b.z)+0.035; // keep what is outside the burrow mouth
-    const headIn=s.W/2 - 0.18*s.W, peek=headIn-0.03, out=s.W/2-0.86*s.W;
-    let goalX = s.state==='out' ? out + 0.005*Math.sin(s.t*1.4) : peek + (Math.sin(s.t*0.9)>0.6 ? 0 : 0.035);
-    if(reduced()) goalX = s.state==='out'?out:peek;
-    const speed = s.state==='out' ? 1.4 : 3; s.x += (goalX-s.x)*Math.min(1,dt*speed);
-    if(s.kick>0){ s.kick=Math.max(0,s.kick-dt); }
-    const lunge = s.kick>0.25 ? (0.3-s.kick)/0.05 : s.kick/0.25; // 50 ms out, 250 ms back: the strike
-    s.mesh.position.x = s.x - (s.kick>0 ? 0.03*Math.max(0,Math.min(1,lunge)) : 0);
-    s.mesh.rotation.z = s.state==='out' && !reduced() ? 0.05*Math.sin(s.t*0.6) : 0;
-  }
-  function strike(){ const s=st.shr; if(!s||s.state!=='out'||s.kick>0) return; s.kick=0.3;
-    const p=new THREE.Vector3(-s.W/2+s.mesh.position.x-0.02,0,0); s.mesh.parent.localToWorld(p); setTimeout(()=>puff(p.x,p.z,40,0.5,0.25),50); }
   function buildWheel(){
     const r = 1/(2*Math.PI); // circumference exactly 1 m, like a real surveyor's measuring wheel
     const group = new THREE.Group(), spin = new THREE.Group(); group.add(spin);
@@ -351,7 +317,7 @@ export function create(stage, kind, params, onPick, hooks){
   const ray=new THREE.Raycaster();
   cv.addEventListener('pointerup',e=>{ptrs.delete(e.pointerId);if(ptrs.size<2)pinch0=null;
     if(ptrs.size===0&&down){ if(!down.moved&&performance.now()-down.t<450){const r=cv.getBoundingClientRect();ray.setFromCamera(new THREE.Vector2(((e.clientX-r.left)/r.width)*2-1,-((e.clientY-r.top)/r.height)*2+1),cam);
-      const hit=ray.intersectObjects(st.pickables,false).find(h=>h.object.visible); if(hit&&hit.object.userData.kind==='shrimp'){ if(st.shr&&st.shr.state==='out') strike(); else if(st.shr) st.shr.state='out'; } if(hit&&onPick)onPick(hit.object.userData)} down=null }});
+      const hit=ray.intersectObjects(st.pickables,false).find(h=>h.object.visible); if(hit&&hit.object.userData.kind==='shrimp'&&st.org){ st.org.cmd('tap'); } if(hit&&onPick)onPick(hit.object.userData)} down=null }});
   cv.addEventListener('pointercancel',e=>{ptrs.delete(e.pointerId);down=null;pinch0=null});
   cv.addEventListener('wheel',e=>{e.preventDefault();orbit.dist=clamp(orbit.dist*(1+Math.sign(e.deltaY)*0.08),orbit.min,orbit.max)},{passive:false});
 
@@ -372,7 +338,8 @@ export function create(stage, kind, params, onPick, hooks){
         if(live) a.needsUpdate=true; }
       // a few grains trickle out of the burrow now and then: something lives in there
       if(st.burrow && Math.random()<dt*0.6) puff(st.burrow.x,st.burrow.z,4,0.08,0.05);
-      updateOrganism(dt, now);
+      if(st.org){ for(const m of st.org.pickables) if(!st.pickables.includes(m)) st.pickables.push(m); st.org.update(dt, now);
+        if(st.orgFollow && st.org.ready && !goal){ const a=st.org.center(); orbit.target.lerp(a.setY(0.02),Math.min(1,dt*1.2)); } }
       const sp=st.snow.geometry.attributes.position; for(let i=0;i<sp.count;i++){let y=sp.getY(i)-dt*0.04; if(y<0)y=6; sp.setY(i,y); sp.setX(i,sp.getX(i)+Math.sin(now*0.0003+i)*dt*0.03)} sp.needsUpdate=true;
       if(st.walk){ const P=2*(st.params.a+st.params.b); st.walk.d=Math.min(P, st.walk.d+(reduced()?P:dt*1.3));
         const p=pathAt(st.walk.d,0); st.reel.position.set(p.x,0.25+Math.sin(now*0.004)*0.02,p.z);
@@ -409,6 +376,7 @@ export function create(stage, kind, params, onPick, hooks){
     // underwater the viewer drifts very slightly, like a diver holding position
     if(reef && !reduced()){ cam.position.y+=Math.sin(now*0.0007)*0.015*o.dist/6; cam.rotation.z+=Math.sin(now*0.00043)*0.004; }
     renderer.render(scene,cam); placeLabels();
+    if(st.org&&st.org.placeLabels){ const rect=renderer.domElement.getBoundingClientRect(); st.org.placeLabels(v=>{ const p=v.project(cam); return {x:(p.x+1)/2*rect.width, y:(1-p.y)/2*rect.height}; }); }
   }
   build(); frame();
 
@@ -417,18 +385,19 @@ export function create(stage, kind, params, onPick, hooks){
     setParams(p){ st.params={...p}; st.walk=null; st.fill=null; st.reveal=null; build(); },
     walk(){ if(!garden)return; if(reef){st.tape.forEach(m=>m.visible=false)} else st.chalk.clear(); st.walk={d:0,marks:0}; follow=true; },
     focusShrimp(){ if(!st.burrow)return; follow=false;
-      const s=st.shr, t=st.burrow.clone(); if(s) t.add(new THREE.Vector3(s.dir.x,0,s.dir.y).multiplyScalar(0.09));
-      glide({target:t, dist:s?0.62:1.1, el:s?1.1:0.62}); puff(st.burrow.x,st.burrow.z,30,0.25,0.12);
-      if(s) setTimeout(()=>{ if(st.shr===s) s.state='out'; }, reduced()?0:700); },
-    strike(){ strike(); },
+      const t=st.burrow.clone(); if(st.orgDir) t.add(new THREE.Vector3(st.orgDir.x,0,st.orgDir.y).multiplyScalar(0.12));
+      glide({target:t, dist:st.org?0.36:1.1, el:st.org?0.9:0.62}); puff(st.burrow.x,st.burrow.z,30,0.25,0.12);
+      if(st.org){ st.orgFollow=true; setTimeout(()=>st.org&&st.org.cmd('show'), reduced()?0:600); } },
+    organism(cmd){ if(!st.org) return; if(cmd==='anatomy'){ st.orgFollow=true; glide({dist:0.46, el:1.3}); } st.org.cmd(cmd); },
+    organismState(){ return st.org&&st.org.ready ? {mode:st.org.mode, exploded:!!st.org.exploded} : null; },
     fill(){ if(!garden)return; st.tiles.forEach(m=>{m.visible=false;m.userData.t0=0}); st.fill={next:0,t0:performance.now()}; },
     reveal(){ if(garden)return; st.cubes.forEach(m=>{m.visible=false;m.userData.t0=0}); st.reveal={rows:0,t0:performance.now()}; },
     setRot(on){ st.rotTarget = on? Math.PI/2 : 0; },
     showAllTiles(n){ if(garden) st.tiles.forEach((m,i)=>{m.visible=i<n;m.position.y=0.085}); },
-    reset(){ if(def){ follow=false; glide({...def, target:new THREE.Vector3(0,reef?0:garden?0.2:0.6,0)}); } },
+    reset(){ if(def){ follow=false; st.orgFollow=false; glide({...def, target:new THREE.Vector3(0,reef?0:garden?0.2:0.6,0)}); } },
     zoom(f){ if(goal) goal.dist=clamp(goal.dist*f,orbit.min,orbit.max); else orbit.dist=clamp(orbit.dist*f,orbit.min,orbit.max); },
     toggleLabels(){ st.hideLabels=!st.hideLabels; },
-    dispose(){ st.dead=true; cancelAnimationFrame(st.raf); ro.disconnect(); stage.querySelectorAll('.hs,.dimlab').forEach(n=>n.remove());
+    dispose(){ st.dead=true; st.org?.dispose(); cancelAnimationFrame(st.raf); ro.disconnect(); stage.querySelectorAll('.hs,.dimlab').forEach(n=>n.remove());
       scene.traverse(n=>{ if(n.isMesh){ n.geometry.dispose(); } }); envRT.dispose(); pm.dispose(); renderer.dispose(); renderer.domElement.remove(); }
   };
 }

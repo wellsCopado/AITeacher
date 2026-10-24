@@ -71,6 +71,26 @@ describe('each rule catches its failure', () => {
     sp.timing.steps!.demo = 400;
     expect(failed(sp)).toContain('V16');
   });
+  it('V17 every question has a step-by-step demo ending in the answer and a similar question to do alone', () => {
+    expect(failed(base)).not.toContain('V17');
+    const sp = clone(base); delete sp.challenges[0].worked_example;
+    expect(failed(sp)).toContain('V17');
+    const sp2 = clone(base); sp2.challenges[0].worked_example = { steps: ['卷尺走一圈。', '所以是 16 米。'] };
+    expect(validate(sp2, ctx()).results.find(r => r.id === 'V17')!.issues[0].msg).toContain('没说出答案 15');
+    const sp3 = clone(base); sp3.challenges[0].twin = { prompt: sp3.challenges[0].prompt, answers: sp3.challenges[0].answers };
+    expect(failed(sp3)).toContain('V17');
+    const sp4 = clone(base); sp4.challenges[0].twin!.answers = [{ field: 'X', value: 1 }];
+    expect(failed(sp4)).toContain('V17');
+    const sp5 = clone(base); delete sp5.challenges[1].twin;
+    expect(failed(sp5)).toContain('V17');
+  });
+  it('V18 a wrong answer comes with a real reason to keep going', () => {
+    expect(failed(base)).not.toContain('V18');
+    const sp = clone(base); delete sp.encouragement;
+    expect(failed(sp)).toContain('V18');
+    const sp2 = clone(base); sp2.encouragement = { persist: ['加油！', '螳螂虾的洞也是一点一点挖出来的。'] };
+    expect(failed(sp2)).toContain('V18');
+  });
   it('V06 unknown component, unreviewed version, code in content', () => {
     const sp = clone(base); sp.scene_component_ids = ['FancyGame@1.0'];
     expect(failed(sp)).toContain('V06');

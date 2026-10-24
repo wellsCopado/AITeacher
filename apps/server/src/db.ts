@@ -36,6 +36,7 @@ create table if not exists feedback (id text primary key, tenant_id text not nul
 create table if not exists media (id text primary key, tenant_id text not null, asset_id text not null, kind text not null, origin text not null default '实拍', mime text not null,
   file text not null, key text not null, credit text not null, license text not null, source_url text, caption text, length_cm real,
   added_by text not null, created_at text not null);
+create table if not exists settings (tenant_id text not null, k text not null, v text not null, primary key (tenant_id, k));
 `;
 
 export type Role = 'parent' | 'device';
@@ -239,6 +240,10 @@ export class Store {
   media(id: string) { return this.get<MediaRow>('select * from media where tenant_id=? and id=?', this.tenant, id); }
   mediaFor(asset?: string) { return this.all<MediaRow>(`select * from media where tenant_id=? ${asset ? 'and asset_id=?' : ''} order by id`, ...(asset ? [this.tenant, asset] : [this.tenant])); }
   deleteMedia(id: string) { this.run('delete from media where tenant_id=? and id=?', this.tenant, id); }
+
+  // family settings (e.g. which voice reads the lessons)
+  setting(k: string) { return this.get<{ v: string }>('select v from settings where tenant_id=? and k=?', this.tenant, k)?.v; }
+  setSetting(k: string, v: string) { this.run('insert into settings (tenant_id, k, v) values (?,?,?) on conflict(tenant_id, k) do update set v=excluded.v', this.tenant, k, v); }
 
   /** BL11: everything stored about one child, and deleting it. Lessons and schedule for the child stay unless asked. */
   exportChild(child: string) {

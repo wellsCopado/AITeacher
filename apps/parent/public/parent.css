@@ -30,3 +30,5 @@ table{width:100%;border-collapse:collapse;background:var(--surface);border-radiu
 .addmedia{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;border-top:1px dashed var(--line);padding-top:8px}.addmedia .wide{flex-basis:100%}
 .addmedia input:not([type=checkbox]):not([type=file]){font:inherit;padding:5px 7px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:inherit}
 .media img.cutout{object-fit:contain;background:#c9bfa6}
+
+.voicepick{display:flex;align-items:center;gap:8px;margin:6px 0;flex-wrap:wrap}.voicepick select{min-width:260px;max-width:100%}

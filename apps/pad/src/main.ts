@@ -49,6 +49,35 @@ function shell(inner: string) {
   syncBadge();
 }
 
+// Full screen for learning: Safari's address bar and tabs go away. iPad only allows it from a tap, so every
+// button tap asks again while the page isn't full screen (a child who swipes out is back in on the next tap).
+// From the home-screen icon the app already has the whole screen.
+type FsDoc = Document & { webkitFullscreenElement?: Element | null; webkitExitFullscreen?: () => void };
+type FsEl = HTMLElement & { webkitRequestFullscreen?: () => void };
+const isFull = () => !!(document.fullscreenElement ?? (document as FsDoc).webkitFullscreenElement);
+// display-mode is also "fullscreen" while the browser page itself is full screen, so that doesn't count as the app
+const standalone = () => !!(navigator as Navigator & { standalone?: boolean }).standalone || matchMedia('(display-mode: standalone)').matches || (!isFull() && matchMedia('(display-mode: fullscreen)').matches);
+const canFull = () => !standalone() && !!(document.documentElement.requestFullscreen || (document.documentElement as FsEl).webkitRequestFullscreen);
+function enterFull() {
+  if (isFull() || !canFull()) return;
+  const el = document.documentElement as FsEl;
+  try { const r = el.requestFullscreen ? el.requestFullscreen({ navigationUI: 'hide' }) : el.webkitRequestFullscreen?.(); (r as Promise<void> | undefined)?.catch?.(() => undefined); } catch { /* not allowed here */ }
+}
+function toggleFull() {
+  if (!isFull()) return enterFull();
+  const d = document as FsDoc;
+  void (d.exitFullscreen ? d.exitFullscreen().catch(() => undefined) : d.webkitExitFullscreen?.());
+}
+let fullWanted = kv.get('adw.full') !== 'off';
+addEventListener('click', e => { if (fullWanted && (e.target as HTMLElement).closest('button')) enterFull(); }, true);
+// A small corner button to leave or re-enter full screen (a parent may want the browser back).
+const fsBtn = document.createElement('button');
+fsBtn.className = 'fsbtn'; fsBtn.setAttribute('aria-label', '全屏');
+const fsSync = () => { fsBtn.hidden = !canFull(); fsBtn.textContent = isFull() ? '⤡' : '⛶'; document.body.classList.toggle('full', isFull() || standalone()); };
+fsBtn.onclick = e => { e.stopPropagation(); fullWanted = !isFull(); kv.set('adw.full', fullWanted ? 'on' : 'off'); toggleFull(); };
+for (const ev of ['fullscreenchange', 'webkitfullscreenchange']) document.addEventListener(ev, fsSync);
+document.body.appendChild(fsBtn); fsSync();
+
 async function pairScreen() {
   shell(`<h1>连接家里的服务器</h1><p>请家长打开家长端的“设备”页，输入下面的配对码。</p><p class="code" id="code">…</p><p class="muted" id="msg"></p>`);
   const msg = document.getElementById('msg')!;
@@ -66,9 +95,8 @@ async function pairScreen() {
 
 // Opened in Safari rather than from the home-screen icon: show once how to get the full-screen app.
 function installHint() {
-  const standalone = matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone;
-  if (standalone) return '';
-  return `<div class="hint"><b>装成桌面 App：</b>在 Safari 里点顶部的分享按钮 <span class="ico">⬆︎</span>，选“添加到主屏幕”。以后从桌面的“探索世界”图标打开，就是全屏，没有地址栏。</div>`;
+  if (standalone()) return '';
+  return `<div class="hint"><b>全屏学习：</b>点任何按钮都会自动进入全屏${canFull() ? '（右上角 ⛶ 也可以切换）' : ''}。<b>装成桌面 App 更好：</b>在 Safari 里点顶部的分享按钮 <span class="ico">⬆︎</span>，选“添加到主屏幕”，以后从桌面的“探索世界”图标打开，就像 App 一样，没有地址栏。</div>`;
 }
 
 // One tap: a beep, then a Chinese and an English line. Shows which voice is used, so a parent can tell what's wrong.
@@ -82,8 +110,7 @@ async function soundTest() {
   const t0 = performance.now();
   await testVoice.speak('你好，声音正常。', 'zh');
   await testVoice.speak('Hello, I can hear you.', 'en');
-  const standalone = matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone;
-  out.textContent = `用的是${testVoice.source === 'server' ? '服务器 Mac 的语音' : testVoice.source === 'device' ? 'iPad 自带语音' : '（没有可用的语音）'} · 服务器语音${info?.available ? '可用' : '不可用'} · ${standalone ? '桌面 App 模式' : '浏览器模式'} · 用时 ${((performance.now() - t0) / 1000).toFixed(1)} 秒 · 版本 ${__BUILD__}。听不到的话：按音量加键，关掉静音。`;
+  out.textContent = `用的是${testVoice.source === 'server' ? '服务器 Mac 的语音' : testVoice.source === 'device' ? 'iPad 自带语音' : '（没有可用的语音）'} · 服务器语音${info?.available ? '可用' : '不可用'} · ${standalone() ? '桌面 App 模式' : isFull() ? '浏览器全屏' : '浏览器模式'} · 用时 ${((performance.now() - t0) / 1000).toFixed(1)} 秒 · 版本 ${__BUILD__}。听不到的话：按音量加键，关掉静音。`;
 }
 
 async function chooseChild() {

@@ -13,7 +13,7 @@ export interface MountOptions {
   /** Progress while an action runs, e.g. metres walked or quadrats placed. */
   onProgress?(action: string, value: number): void;
   /** A cut-out top view of the animal that lives in the burrow, placed at true size (BL14: photoreal only). */
-  organism?: { url: string; lengthM: number; body: [number, number] };
+  organism?: { url: string; rig: string; rigMeta: string; lengthM: number };
 }
 export interface Instance {
   readonly componentId: string;
@@ -23,6 +23,9 @@ export interface Instance {
   zoom(factor: number): void;
   reset(): void;
   toggleLabels(): void;
+  /** The animal in the scene: show, strike, slow (strike in slow motion), anatomy (apart / together), hide. */
+  organism(cmd: string): void;
+  organismState(): { mode: string; exploded: boolean } | null;
   dispose(): void;
 }
 
@@ -86,6 +89,8 @@ export function mount(el: HTMLElement, componentId: string, params: Record<strin
     zoom: f => engine.zoom(f),
     reset: () => engine.reset(),
     toggleLabels: () => engine.toggleLabels(),
+    organism: cmd => engine.organism?.(cmd),
+    organismState: () => engine.organismState?.() ?? null,
     dispose: () => { pending.clear(); engine.dispose(); },
   };
 }

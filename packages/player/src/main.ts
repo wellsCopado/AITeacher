@@ -3,7 +3,8 @@
 import type { Challenge, LessonSpec } from '../../schema/src/index.js';
 import { mount, type Instance } from '../../components/src/index.js';
 import { pointerKey, utterance } from './language.js';
-import { checkAttempt, describe, type Attempt } from './check.js';
+import { checkAttempt, type Attempt } from './check.js';
+import { answerText, DEMO_AFTER, encourageWrong, findGood, praiseRight, workedSteps } from './encourage.js';
 import { createVoice, readingTime, type FetchAudio } from './voice.js';
 import { budget, Countdown, fmt, STEP_KEYS } from './timing.js';
 
@@ -29,8 +30,8 @@ const h = (html: string) => { const t = document.createElement('template'); t.in
 export interface OrganismMedia {
   id: string; asset_id: string; kind: 'photo' | 'video' | 'model' | 'cutout'; origin?: string; url: string; credit: string; license: string;
   caption?: string | null; length_cm?: number | null;
-  /** cutout only: where the body starts and ends across the picture's width (0–1), to place it at true size. */
-  body?: [number, number] | null;
+  /** cutout only: the jointed relief rig built from it (height and part map, part list). */
+  rig?: string; rig_meta?: string;
 }
 
 export interface PlayOptions {
@@ -155,15 +156,48 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
     const u = utterance(mode, pointers[key] ?? 0, hs.language_pack);
     if (u.advance) pointers[key] = (pointers[key] ?? 0) + 1;
     const stage = root.querySelector('.stage');
-    if (stage) {
-      let sub = stage.querySelector('.sub') as HTMLElement | null;
-      if (!sub) { sub = h('<div class="sub"></div>'); stage.appendChild(sub); }
-      sub.innerHTML = `<span class="tag">${u.lang === 'zh' ? '中' : 'EN'}</span>${esc(u.text)}${u.fallback ? ' <span class="dimtext">（这条暂时没有英文，先用中文）</span>' : ''}`;
+    if (stage) stageSub(stage as HTMLElement, `<span class="tag">${u.lang === 'zh' ? '中' : 'EN'}</span>${esc(u.text)}${u.fallback ? ' <span class="dimtext">（这条暂时没有英文，先用中文）</span>' : ''}`, voice.speak(u.text, u.lang));
+    else void voice.speak(u.text, u.lang);
+    if (anchor === 'shrimp' && organismPending.length && stage) {
+      if (shrimpMedia.some(m => m.kind === 'cutout' && m.rig)) organismBar(stage as HTMLElement);
+      else showOrganism(stage as HTMLElement);
     }
-    voice.speak(u.text, u.lang);
-    if (anchor === 'shrimp' && organismPending.length && stage) showOrganism(stage as HTMLElement);
     log('hotspot', { hotspot: hs.id, lang: u.lang, ...(u.advance ? { count: pointers[key] } : {}), ...(u.fallback ? { fallback: true } : {}) });
     renderPointers();
+  }
+
+  // A subtitle over the 3D scene while a line is read; it fades a little after the voice ends so the animal stays in view.
+  let subGen = 0;
+  function stageSub(stage: HTMLElement, html: string, spoken: Promise<void>) {
+    let sub = stage.querySelector('.sub') as HTMLElement | null;
+    if (!sub) { sub = h('<div class="sub"></div>'); stage.appendChild(sub); }
+    sub.innerHTML = html; sub.classList.remove('gone');
+    const mine = ++subGen;
+    void spoken.then(() => setTimeout(() => { if (mine === subGen) sub!.classList.add('gone'); }, 2500 / scale));
+  }
+
+  // Things to do with the animal in the 3D scene: watch it strike (also slowed down), take it apart, see photos.
+  function organismBar(stage: HTMLElement) {
+    if (stage.querySelector('.orgbar')) return;
+    const bar = h(`<div class="orgbar">
+      <button data-org="strike">👊 出拳</button><button data-org="slow">🐢 慢动作出拳</button>
+      <button data-org="anatomy">🔍 拆开看身体</button>${shrimpMedia.some(m => m.kind === 'photo' || m.kind === 'video') ? '<button data-org="photos">📷 看照片</button>' : ''}
+      <button data-org="hide">🏠 回洞</button></div>`);
+    bar.querySelectorAll<HTMLButtonElement>('[data-org]').forEach(b => b.onclick = () => {
+      const c = b.dataset.org!;
+      log('organism', { cmd: c });
+      if (c === 'photos') { showOrganism(stage); return; }
+      scene?.organism(c === 'anatomy' && scene.organismState()?.exploded ? 'anatomy' : c);
+      const sub = (t: string) => stageSub(stage, esc(t), say(t));
+      if (c === 'slow') sub('慢动作，放慢了 40 倍。真正的一拳只要几毫秒，快到能在水里打出小气泡。');
+      if (c === 'anatomy') {
+        const apart = !b.classList.toggle('on') ? false : true;
+        b.textContent = apart ? '🧩 合起来' : '🔍 拆开看身体';
+        if (apart) sub('拆开看看：两只复眼、触角、触角鳞片、一对捕肢、步足、头胸甲、六节腹节，最后是尾节和尾扇。');
+      }
+      if (c === 'hide') { const a = bar.querySelector('[data-org="anatomy"]') as HTMLElement; a.classList.remove('on'); a.textContent = '🔍 拆开看身体'; }
+    });
+    stage.appendChild(bar);
   }
 
   // The real animal, from the photos, videos or scans the parent registered. Never a stand-in model (BL14).
@@ -264,7 +298,7 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
     const stage = $('#stage');
     const cut = shrimpMedia.find(m => m.kind === 'cutout');
     scene = mount(stage, comp, sp.component_params[name] as Record<string, unknown>, {
-      organism: cut ? { url: cut.url, lengthM: (cut.length_cm ?? 16) / 100, body: cut.body ?? [0, 1] } : undefined,
+      organism: cut?.rig && cut.rig_meta ? { url: cut.url, rig: cut.rig, rigMeta: cut.rig_meta, lengthM: (cut.length_cm ?? 16) / 100 } : undefined,
       hotspots: sp.hotspots.map(x => ({ anchor: x.anchor, label: x.label })),
       onHotspot: a => playHotspot(a),
       onPick: info => log('pick', info),
@@ -277,7 +311,7 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
       const a = b.dataset.act!;
       log('action', { action: a, label: b.textContent?.trim() });
       if (a === 'focus') { scene?.focus('shrimp'); playHotspot('shrimp'); return; }
-      b.disabled = true; await scene?.run(a); b.disabled = false; log('action_done', { action: a });
+      b.disabled = true; b.dataset.running = '1'; await scene?.run(a); delete b.dataset.running; b.disabled = b.classList.contains('later'); log('action_done', { action: a });
     });
     root.querySelectorAll<HTMLButtonElement>('[data-hs]').forEach(b => b.onclick = () => playHotspot(b.dataset.hs!));
     $('#zin').onclick = () => scene?.zoom(0.85); $('#zout').onclick = () => scene?.zoom(1.18);
@@ -301,7 +335,14 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
       root.querySelectorAll('.pulse').forEach(n => n.classList.remove('pulse'));
       root.querySelector('#think')?.remove();
       if (step !== 1) return;
-      if (++k >= tasks.length) { guide('都看完了！还可以自己转一转、点一点，准备好了就去挑战。'); subGuide(''); unlock($('#next')); log('demo_done'); return; }
+      k++;
+      // Buttons for later tasks stay locked until their turn, so the child goes in order.
+      root.querySelectorAll<HTMLButtonElement>('[data-act]').forEach(b => {
+        const later = k < tasks.length && tasks.findIndex(x => x.act === b.dataset.act) > k;
+        b.classList.toggle('later', later);
+        if (!b.dataset.running) b.disabled = later;
+      });
+      if (k >= tasks.length) { guide('都看完了！还可以自己转一转、点一点，准备好了就去挑战。'); subGuide(''); unlock($('#next')); log('demo_done'); return; }
       const t = tasks[k];
       guide(`第 ${k + 1} 件事（共 ${tasks.length} 件）：${t.text}`);
       if (t.act) root.querySelector(`[data-act="${t.act}"]`)?.classList.add('pulse');
@@ -331,24 +372,65 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
     next();
   }
 
-  function challengeCard(c: Challenge, i: number) {
+  type Ask = Pick<Challenge, 'answers' | 'options'>;
+  function answerInputs(c: Ask) {
     const units = [...new Set(c.answers.map(a => a.unit).filter(Boolean))] as string[];
-    const inputs = c.options
+    return c.options
       ? `<div class="row wrap">${c.options.map(o => `<button class="btn opt" data-opt="${esc(o)}">${esc(o)}</button>`).join('')}</div>`
       : `<div class="row wrap">${c.answers.map(a => `<label class="field">${esc(a.label ?? '')}<input inputmode="numeric" data-f="${esc(a.field)}" aria-label="${esc(a.label ?? a.field)}">${a.unit ? `<select data-u="${esc(a.field)}"><option value="">单位</option>${units.map(u => `<option>${esc(u)}</option>`).join('')}</select>` : ''}</label>`).join('')}</div>`;
-    return `<div class="card" data-ch="${esc(c.id)}" hidden><p data-prompt><b>第 ${i + 1} 题（共 ${sp.challenges.length} 题）</b> ${esc(c.prompt)}</p>${inputs}
+  }
+  /** Wires the option buttons of an answer box and returns a reader for what the child entered. */
+  function answerBox(box: HTMLElement, c: Ask) {
+    let picked = '';
+    box.querySelectorAll<HTMLButtonElement>('[data-opt]').forEach(b => b.onclick = () => {
+      picked = b.dataset.opt!; box.querySelectorAll('[data-opt]').forEach(x => x.classList.toggle('on', x === b));
+    });
+    return (): Attempt => {
+      const attempt: Attempt = {};
+      if (c.options) attempt[c.answers[0].field] = { value: picked };
+      else for (const a of c.answers) {
+        attempt[a.field] = {
+          value: (box.querySelector(`[data-f="${a.field}"]`) as HTMLInputElement).value,
+          unit: (box.querySelector(`[data-u="${a.field}"]`) as HTMLSelectElement | null)?.value || undefined,
+        };
+      }
+      return attempt;
+    };
+  }
+  /** Shows the right answer in the boxes (the end of a worked example). */
+  function fillAnswer(box: HTMLElement, c: Ask) {
+    box.classList.add('shown');
+    if (c.options) box.querySelectorAll<HTMLElement>('[data-opt]').forEach(x => x.classList.toggle('on', x.dataset.opt === String(c.answers[0].value)));
+    for (const a of c.answers) {
+      const f = box.querySelector(`[data-f="${a.field}"]`) as HTMLInputElement | null; if (f) f.value = String(a.value);
+      const u = box.querySelector(`[data-u="${a.field}"]`) as HTMLSelectElement | null; if (u && a.unit) u.value = a.unit;
+    }
+    box.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>('input,select,button').forEach(x => { x.disabled = true; });
+  }
+  function challengeCard(c: Challenge, i: number) {
+    return `<div class="card" data-ch="${esc(c.id)}" hidden><p data-prompt><b>第 ${i + 1} 题（共 ${sp.challenges.length} 题）</b> ${esc(c.prompt)}</p><div class="ans">${answerInputs(c)}</div>
       <div class="row"><button class="btn primary" data-chk>检查</button><button class="btn" data-hint>提示</button><button class="btn" data-read>🔊 再读一遍</button><button class="btn primary" data-go hidden>${i + 1 < sp.challenges.length ? '下一题' : '题目做完了'}</button></div>
-      <p class="fb" aria-live="polite"></p></div>`;
+      <p class="fb" aria-live="polite"></p><div class="worked" hidden></div><div class="twin" hidden></div></div>`;
   }
 
-  // One question at a time: each is shown with a subtitle and read aloud, the next one opens after the child
-  // has checked an answer (or the question's time is up), and 去聊聊 opens after the last one.
+  // One question at a time: each is shown with a subtitle and read aloud, and the next one opens once this one
+  // is done (or its time is up). Every answer gets specific praise for what the child got right; after
+  // DEMO_AFTER misses the Pad shows how it's done, step by step, and the child does a similar question alone.
   function challenges() {
     $('#body').innerHTML = sp.challenges.map(challengeCard).join('') + `<div class="row"><button class="btn primary" id="next">去聊聊</button></div>`;
     const next = $('#next');
     lock(next, `先做完这 ${sp.challenges.length} 道题`);
     const per = Math.max(30, Math.floor(times.challenge / Math.max(1, sp.challenges.length)));
+    const persist = sp.encouragement?.persist;
     let cur = -1;
+    const questionClock = (i: number, seconds: number) => {
+      subClock?.stop();
+      const mine = epoch, c = sp.challenges[i];
+      subClock = new Countdown(seconds, scale, {
+        tick: left => subGuide(`这道题还有 ${fmt(Math.ceil(left))}`),
+        end: () => { if (epoch !== mine || cur !== i) return; log('question_timeout', { challenge: c.id }); void say('这道题的时间到了，我们看下一题。'); show(i + 1); },
+      }, []).start();
+    };
     const show = (i: number) => {
       subClock?.stop();
       root.querySelectorAll<HTMLElement>('[data-ch]').forEach((el, k) => { el.hidden = k !== i; });
@@ -357,46 +439,89 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
         root.querySelectorAll<HTMLElement>('[data-ch]').forEach(el => { el.hidden = false; });
         guide('题目都做完了，点「去聊聊」。'); subGuide(''); unlock(next); return;
       }
-      const c = sp.challenges[i], mine = epoch;
+      const c = sp.challenges[i];
       guide(`第 ${i + 1} 题（共 ${sp.challenges.length} 题）：先听题，再作答。`, false);
       void narrate([{ text: c.prompt, el: root.querySelector(`[data-ch="${c.id}"] [data-prompt]`) }]);
-      subClock = new Countdown(per, scale, {
-        tick: left => subGuide(`这道题还有 ${fmt(Math.ceil(left))}`),
-        end: () => { if (epoch !== mine || cur !== i) return; log('question_timeout', { challenge: c.id }); void say('这道题的时间到了，我们看下一题。'); show(i + 1); },
-      }, []).start();
+      questionClock(i, per);
     };
     sp.challenges.forEach((c, i) => {
       const card = root.querySelector(`[data-ch="${c.id}"]`) as HTMLElement;
-      (card.querySelector('[data-read]') as HTMLButtonElement).onclick = () => { void narrate([{ text: c.prompt, el: card.querySelector('[data-prompt]') }]); };
-      (card.querySelector('[data-go]') as HTMLButtonElement).onclick = () => show(i + 1);
-      const fb = card.querySelector('.fb') as HTMLElement;
-      let picked = '';
-      card.querySelectorAll<HTMLButtonElement>('[data-opt]').forEach(b => b.onclick = () => {
-        picked = b.dataset.opt!; card.querySelectorAll('[data-opt]').forEach(x => x.classList.toggle('on', x === b));
-      });
-      (card.querySelector('[data-hint]') as HTMLButtonElement).onclick = () => {
+      const q = <T extends HTMLElement>(sel: string) => card.querySelector(sel) as T;
+      const chk = q<HTMLButtonElement>('[data-chk]'), hintBtn = q<HTMLButtonElement>('[data-hint]'), go = q<HTMLButtonElement>('[data-go]');
+      const fb = q<HTMLElement>('.fb'), ans = q<HTMLElement>('.ans');
+      const read = answerBox(ans, c);
+      let tries = 0, done = false;
+      const finished = () => { done = true; chk.disabled = true; hintBtn.disabled = true; go.hidden = false; go.classList.add('pulse'); };
+      const nextHint = () => {
         const n = hintsUsed[c.id] = Math.min((hintsUsed[c.id] ?? 0) + 1, c.hints.length);
-        fb.textContent = c.hints.slice(0, n).join(' ');
-        void narrate([{ text: c.hints[n - 1] ?? '' }]);
         log('hint', { challenge: c.id, level: n });
+        return c.hints[n - 1] ?? '';
       };
-      (card.querySelector('[data-chk]') as HTMLButtonElement).onclick = () => {
-        const attempt: Attempt = {};
-        if (c.options) attempt[c.answers[0].field] = { value: picked };
-        else for (const a of c.answers) {
-          attempt[a.field] = {
-            value: (card.querySelector(`[data-f="${a.field}"]`) as HTMLInputElement).value,
-            unit: (card.querySelector(`[data-u="${a.field}"]`) as HTMLSelectElement | null)?.value || undefined,
-          };
+      q<HTMLButtonElement>('[data-read]').onclick = () => { void narrate([{ text: c.prompt, el: q('[data-prompt]') }]); };
+      go.onclick = () => show(i + 1);
+      hintBtn.onclick = () => { const t = nextHint(); fb.className = 'fb'; fb.textContent = c.hints.slice(0, hintsUsed[c.id]).join(' '); void narrate([{ text: t }]); };
+      chk.onclick = async () => {
+        if (done) return;
+        const attempt = read(), r = checkAttempt(c, attempt), hints = hintsUsed[c.id] ?? 0;
+        log('answer', { challenge: c.id, correct: r.correct, hints, attempt, try: tries + 1 });
+        if (r.correct) {
+          voice.chime(); finished();
+          const t = praiseRight({ tries, hints, seed: i });
+          fb.className = 'fb good'; fb.textContent = t; void narrate([{ text: t }]);
+          return;
         }
-        const r = checkAttempt(c, attempt);
-        fb.textContent = describe(r);
-        if (r.correct) voice.chime();
-        void narrate([{ text: describe(r) }]);
-        log('answer', { challenge: c.id, correct: r.correct, hints: hintsUsed[c.id] ?? 0, attempt });
-        const go = card.querySelector('[data-go]') as HTMLElement; go.hidden = false; go.classList.add('pulse');
+        tries++;
+        const t = encourageWrong(c, r, attempt, { tries, persist });
+        fb.className = 'fb try'; fb.textContent = t;
+        if (tries < DEMO_AFTER) {
+          // the second miss brings the next hint by itself
+          const hint = tries === 2 && (hintsUsed[c.id] ?? 0) < c.hints.length ? nextHint() : '';
+          if (hint) fb.textContent += ` 提示：${hint}`;
+          void narrate([{ text: t }, ...(hint ? [{ text: `提示：${hint}` }] : [])]);
+          return;
+        }
+        chk.disabled = true; hintBtn.disabled = true;
+        const mine = epoch;
+        subClock?.stop(); // watching the demo doesn't use up the child's time
+        if (!await narrate([{ text: t }]) || epoch !== mine || cur !== i) return;
+        await workedExample(c, i, card, ans, mine);
       };
     });
+
+    async function workedExample(c: Challenge, i: number, card: HTMLElement, ans: HTMLElement, mine: number) {
+      log('worked_example', { challenge: c.id });
+      const w = card.querySelector('.worked') as HTMLElement, steps = workedSteps(c);
+      w.hidden = false;
+      w.innerHTML = `<p class="wtitle">👀 一起看一遍怎么做</p><ol>${steps.map(x => `<li hidden>${esc(x)}</li>`).join('')}</ol>`;
+      const lis = [...w.querySelectorAll<HTMLElement>('li')];
+      for (const [k, li] of lis.entries()) {
+        if (epoch !== mine || cur !== i) return;
+        li.hidden = false;
+        if (k === lis.length - 1) fillAnswer(ans, c);
+        await narrate([{ text: steps[k], el: li }]);
+      }
+      if (epoch !== mine || cur !== i) return;
+      // Now the child uses the same method alone, on a similar question.
+      const tw = c.twin ?? { prompt: c.prompt, answers: c.answers, options: c.options };
+      const box = card.querySelector('.twin') as HTMLElement;
+      box.hidden = false;
+      box.innerHTML = `<p class="wtitle">✋ 轮到你自己做一次</p><p data-tprompt>${esc(tw.prompt)}</p><div class="ans">${answerInputs(tw)}</div>
+        <div class="row"><button class="btn primary" data-tchk>检查</button></div><p class="fb" aria-live="polite"></p>`;
+      const tans = box.querySelector('.ans') as HTMLElement, tfb = box.querySelector('.fb') as HTMLElement, tchk = box.querySelector('[data-tchk]') as HTMLButtonElement;
+      const read = answerBox(tans, tw);
+      const go = card.querySelector('[data-go]') as HTMLButtonElement;
+      tchk.onclick = () => {
+        const attempt = read(), r = checkAttempt({ ...c, ...tw }, attempt);
+        log('answer', { challenge: c.id, twin: true, correct: r.correct, attempt });
+        tchk.disabled = true; go.hidden = false; go.classList.add('pulse');
+        let t: string;
+        if (r.correct) { voice.chime(); t = praiseRight({ tries: 0, hints: 0, afterDemo: true, seed: i }); tfb.className = 'fb good'; }
+        else { t = `${findGood(tw, r, attempt)}这道题的答案是：${answerText(tw)}。方法你已经看懂了，下次一定能自己做出来！`; tfb.className = 'fb try'; fillAnswer(tans, tw); }
+        tfb.textContent = t; void narrate([{ text: t }]);
+      };
+      questionClock(i, Math.max(30, Math.round(per * 0.6)));
+      void narrate([{ text: '现在轮到你自己做一次。' }, { text: tw.prompt, el: box.querySelector('[data-tprompt]') }]);
+    }
     next.onclick = () => go(3);
     show(0);
     onTimeout[2] = () => {
@@ -453,7 +578,7 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
     <button class="btn primary big" id="start">🔊 开始上课</button>
     <p class="muted small">点了没有声音：按 iPad 侧面的音量加键，再看控制中心里的静音铃铛是不是开着。</p></div>`;
   $('#start').onclick = () => { voice.unlock(); log('start'); go(0); };
-  return { events, dispose: () => { scene?.dispose(); clock?.stop(); subClock?.stop(); voice.stop(); } };
+  return { events, get scene() { return scene; }, dispose: () => { scene?.dispose(); clock?.stop(); subClock?.stop(); voice.stop(); } };
 }
 
 declare global { interface Window { __LESSON__?: LessonSpec; __CHILD_NAME__?: string } }

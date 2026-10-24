@@ -283,4 +283,38 @@ export const RULES: Rule[] = [
       return total > max ? [{ path: '$.timing.steps', msg: `各步时间加起来 ${total} 秒，超过预计的 ${max} 秒`, fix: '缩短某一步，或调大 est_minutes' }] : [];
     },
   },
+  {
+    id: 'V17', name: '每道题都有“错三次就演示一遍，再做一道同类题”', basis: '家长要求：不能卡在一道题上', level: 'error',
+    check(sp) {
+      const out: Issue[] = [];
+      sp.challenges.forEach((c, i) => {
+        const at = `$.challenges[${i}]`;
+        const steps = c.worked_example?.steps ?? [];
+        if (steps.length < 2) out.push({ path: `${at}.worked_example`, msg: `第 ${i + 1} 题没有分步演示`, fix: '写 2–5 步，每步一句孩子听得懂的话，最后一步说出答案' });
+        else {
+          const last = steps[steps.length - 1];
+          const missing = c.answers.filter(a => !last.includes(String(a.value)));
+          if (missing.length) out.push({ path: `${at}.worked_example.steps`, msg: `第 ${i + 1} 题演示的最后一步没说出答案 ${missing.map(a => a.value).join('、')}`, fix: '最后一步写“所以……是 X”' });
+        }
+        if (!c.twin) out.push({ path: `${at}.twin`, msg: `第 ${i + 1} 题没有演示后让孩子自己做的同类题`, fix: '同一个方法，换数字或换情境出一道' });
+        else {
+          if (c.twin.prompt.trim() === c.prompt.trim()) out.push({ path: `${at}.twin.prompt`, msg: `第 ${i + 1} 题的同类题和原题一样`, fix: '换数字或换情境，孩子要自己用一遍方法，不是照抄答案' });
+          const fields = (xs: { field: string }[]) => xs.map(a => a.field).sort().join(',');
+          if (fields(c.twin.answers) !== fields(c.answers)) out.push({ path: `${at}.twin.answers`, msg: `第 ${i + 1} 题的同类题要填的空和原题不一样`, fix: '同类题用和原题相同的 field，Pad 才能用同样的输入框' });
+          if (!!c.options !== !!c.twin.options) out.push({ path: `${at}.twin.options`, msg: `第 ${i + 1} 题是${c.options ? '选择题' : '填空题'}，同类题也要是`, fix: c.options ? '给同类题写 options' : '去掉同类题的 options' });
+          else if (c.twin.options) for (const a of c.twin.answers) if (!c.twin.options.includes(String(a.value))) out.push({ path: `${at}.twin.answers`, msg: `第 ${i + 1} 题同类题的答案“${a.value}”不在选项里`, fix: '把答案写进 options' });
+        }
+      });
+      return out;
+    },
+  },
+  {
+    id: 'V18', name: '答错时有给孩子坚持下去的理由', basis: 'BL10 · 家长要求：多给孩子信心', level: 'error',
+    check(sp) {
+      const p = sp.encouragement?.persist ?? [];
+      if (p.length < 2) return [{ path: '$.encouragement.persist', msg: '没写答错时鼓励孩子坚持的话（至少 2 句）', fix: '结合这节课的主题写，例如“螳螂虾的洞也是一点点挖出来的，我们再试一次”' }];
+      const empty = p.filter(x => /^(真棒|很棒|你真棒|加油|好)[！!。]?$/.test(x.trim()));
+      return empty.length ? [{ path: '$.encouragement.persist', msg: `“${empty[0]}”太空了，孩子听不出为什么要坚持`, fix: '说出一个具体的理由，最好和主题相连' }] : [];
+    },
+  },
 ];

@@ -80,3 +80,22 @@ h1{font-size:20px;margin:0}.muted{color:var(--muted)}.small{font-size:13px}.dimt
 .adw.kid .demo{grid-template-columns:minmax(0,1fr) 300px}
 .adw.kid .stage{aspect-ratio:auto;height:calc(100vh - 210px);min-height:360px}
 .adw.kid .panel .card{margin:6px 0}
+.orgbar{position:absolute;left:50%;transform:translateX(-50%);bottom:10px;display:flex;gap:6px;z-index:3;width:max-content;max-width:calc(100% - 20px);overflow-x:auto;scrollbar-width:none}
+.orgbar button{flex:none}
+.orgbar button{font:inherit;font-size:14px;border:1px solid rgba(255,255,255,.35);background:rgba(10,16,24,.62);color:#fff;border-radius:999px;padding:6px 12px;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.orgbar button.on{background:rgba(36,87,197,.85)}
+.organlab{position:absolute;transform:translate(-50%,-120%);background:rgba(255,255,255,.92);color:#10202c;font-size:12px;font-weight:600;padding:2px 8px;border-radius:6px;pointer-events:none;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.25);z-index:2}
+.organlab[hidden]{display:none}
+.stage .sub{transition:opacity .6s}
+.stage .sub.gone{opacity:0;pointer-events:none}
+.stage:has(.orgbar) .sub{bottom:58px}
+.btn.later{opacity:.45}
+/* answer feedback: praise in green, a wrong try in warm amber (never red), the worked example and the twin */
+.fb.good{color:#17663a;font-weight:600}
+.fb.try{color:#8a4b00}
+.worked,.twin{margin-top:10px;padding:10px 12px;border-radius:10px;background:#f2f7ff;border:1px solid #d5e3fb}
+.twin{background:#f3faf4;border-color:#cfe8d5}
+.worked .wtitle,.twin .wtitle{margin:0 0 6px;font-weight:700}
+.worked ol{margin:0;padding-left:22px}.worked li{margin:4px 0}
+.ans.shown input,.ans.shown select{background:#e9f6ec;border-color:#7cc28e;color:#17663a;font-weight:700}
+.ans.shown .opt.on{outline:3px solid #7cc28e}

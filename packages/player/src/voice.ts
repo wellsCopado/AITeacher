@@ -68,7 +68,8 @@ export function createVoice(scale = 1, fetchAudio?: FetchAudio): Voice {
     if (!el || my !== gen) return res();
     const url = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
     const end = (e?: unknown) => { el.onended = el.onerror = null; endCurrent = null; URL.revokeObjectURL(url); clearTimeout(t); if (e) rej(e); else res(); };
-    const t = setTimeout(() => end(), (buf.byteLength / 44100) * 1000 + 3000);
+    const rate = buf.byteLength > 32 ? new DataView(buf).getUint32(28, true) || 44100 : 44100; // WAV byte rate
+    const t = setTimeout(() => end(), (buf.byteLength / rate) * 1000 + 3000);
     endCurrent = () => end();
     el.src = url;
     el.onended = () => end(); el.onerror = () => end(new Error('audio'));
@@ -84,7 +85,8 @@ export function createVoice(scale = 1, fetchAudio?: FetchAudio): Voice {
   const pick = (lang: Lang) => {
     const want = lang === 'zh' ? /^zh[-_](CN|Hans)/i : /^en[-_](US|GB)/i;
     const all = voices.filter(v => want.test(v.lang));
-    return all.find(v => /Tingting|Ting-Ting|Samantha|Karen|Daniel|Xiaoxiao|Yaoyao/i.test(v.name)) ?? all.find(v => v.localService) ?? all[0];
+    // Downloaded "Premium / Enhanced" voices sound far more human than the compact defaults.
+    return all.find(v => /Premium|Enhanced|高级|增强|优化/i.test(v.name)) ?? all.find(v => /Lilian|Tingting|Ting-Ting|Ava|Zoe|Samantha|Xiaoxiao/i.test(v.name)) ?? all.find(v => v.localService) ?? all[0];
   };
 
   // iPad Safari: sound only starts from a finished tap (touchend / click, not touchstart or pointerdown),
@@ -157,7 +159,7 @@ export function createVoice(scale = 1, fetchAudio?: FetchAudio): Voice {
           const u = new SpeechSynthesisUtterance(r.text);
           u.lang = r.lang === 'zh' ? 'zh-CN' : 'en-US';
           const voice = pick(r.lang); if (voice) u.voice = voice;
-          u.rate = r.lang === 'en' ? 0.88 : 0.95; u.pitch = 1.05;
+          u.rate = r.lang === 'en' ? 0.92 : 1;
           // A voice that fails (e.g. sound not unlocked yet) still gives the child time to read the subtitle.
           if (i === parts.length - 1) { u.onend = finish; u.onerror = () => { void wait(est).then(finish); }; }
           live.push(u);

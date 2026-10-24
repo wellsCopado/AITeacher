@@ -1,6 +1,34 @@
 [
-  { "file": "top-cutout.webp", "kind": "cutout", "origin": "AI 写实图", "caption": "俯视：从背上看螳螂虾", "length_cm": 16, "width_px_body": [0.18, 0.985] },
-  { "file": "side.jpg", "kind": "photo", "origin": "AI 写实图", "caption": "侧面：贴着海底走路的孔雀螳螂虾", "length_cm": 16 },
-  { "file": "closeup.jpg", "kind": "photo", "origin": "AI 写实图", "caption": "特写：会转动的复眼和收起来的捕肢" },
-  { "file": "anatomy.jpg", "kind": "photo", "origin": "AI 写实图", "caption": "身体结构：复眼、捕肢、步足、游泳足、尾扇" }
+ {
+  "file": "top-cutout.webp",
+  "kind": "cutout",
+  "origin": "AI 写实图",
+  "caption": "俯视：从背上看螳螂虾（三维关节模型的皮肤）",
+  "length_cm": 16,
+  "width_px_body": [
+   0.18,
+   0.985
+  ],
+  "rig": "rig.png",
+  "rig_meta": "rig.json"
+ },
+ {
+  "file": "side.jpg",
+  "kind": "photo",
+  "origin": "AI 写实图",
+  "caption": "侧面：贴着海底走路的孔雀螳螂虾",
+  "length_cm": 16
+ },
+ {
+  "file": "closeup.jpg",
+  "kind": "photo",
+  "origin": "AI 写实图",
+  "caption": "特写：会转动的复眼和收起来的捕肢"
+ },
+ {
+  "file": "anatomy.jpg",
+  "kind": "photo",
+  "origin": "AI 写实图",
+  "caption": "身体结构：复眼、捕肢、步足、游泳足、尾扇"
+ }
 ]

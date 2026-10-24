@@ -202,7 +202,8 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
 
   async 设备与数据() {
     const list = await api<{ label: string; created_at: string }[]>('/v1/devices');
-    view().innerHTML = `<div class="card"><h3>添加孩子的 Pad</h3><p class="muted">在 Pad 上打开 /pad/，屏幕会显示 6 位配对码。</p>
+    const tts = await api<{ available: boolean; current: Record<'zh' | 'en', string> | null; options: VoiceOption[] }>('/v1/tts/voices').catch(() => null);
+    view().innerHTML = `${voiceCard(tts)}<div class="card"><h3>添加孩子的 Pad</h3><p class="muted">在 Pad 上打开 /pad/，屏幕会显示 6 位配对码。</p>
       <form id="pair" class="row"><input name="code" inputmode="numeric" placeholder="配对码" maxlength="7" required><input name="label" placeholder="设备名，例如：哥哥的 iPad" maxlength="40"><button class="btn primary">批准</button></form></div>
       <div class="card"><h3>已配对的设备</h3><ul>${list.map(d => `<li>${esc(d.label)} · ${esc(d.created_at.slice(0, 10))} <button class="btn revoke" data-l="${esc(d.label)}">移除</button></li>`).join('') || '<li class="muted">没有</li>'}</ul></div>
       ${dataSection(ctx())}`;
@@ -211,11 +212,52 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
       const f = Object.fromEntries(new FormData(e.target as HTMLFormElement)) as Record<string, string>;
       guard(async () => { await api(`/v1/pair/${f.code.replace(/\D/g, '')}/approve`, { method: 'POST', body: JSON.stringify({ label: f.label }) }); await VIEWS.设备与数据(); toast('已批准，Pad 几秒内会自动连上'); })();
     };
+    wireVoices();
     view().querySelectorAll<HTMLButtonElement>('.revoke').forEach(b => b.onclick = guard(async () => {
       if (!confirm(`移除「${b.dataset.l}」？这台 Pad 需要重新配对。`)) return;
       await api(`/v1/devices/${encodeURIComponent(b.dataset.l!)}`, { method: 'DELETE' }); await VIEWS.设备与数据();
     }));
   },
 };
+
+// ---- 朗读声音: which Mac voice reads the lessons; hear one before choosing it ----
+interface VoiceOption { name: string; locale: string; lang: 'zh' | 'en'; quality: 'premium' | 'enhanced' | 'standard' | 'system' }
+const QUALITY_LABEL = { premium: '高级 · 最像真人', enhanced: '增强', standard: '普通', system: '' };
+const SAMPLE = { zh: '你好！今天我们去珊瑚礁，看看螳螂虾的家有多大。', en: 'Hello! Today we visit the coral reef to see how big the mantis shrimp’s home is.' };
+function voiceCard(t: { available: boolean; current: Record<'zh' | 'en', string> | null; options: VoiceOption[] } | null) {
+  if (!t?.available || !t.current) return `<div class="card"><h3>朗读声音</h3><p class="muted">服务器不在 Mac 上运行，Pad 会用 iPad 自带的声音朗读。</p></div>`;
+  const pick = (lang: 'zh' | 'en') => {
+    const opts: VoiceOption[] = [...t.options.filter(o => o.lang === lang), { name: 'system', locale: '', lang, quality: 'system' }];
+    return `<label class="voicepick">${lang === 'zh' ? '中文' : '英文'}
+      <select data-lang="${lang}">${opts.map(o => `<option value="${esc(o.name)}" ${o.name === t.current![lang] ? 'selected' : ''}>${o.name === 'system' ? 'Mac 系统朗读声音（可在 Mac 设置里选 Siri 声音）' : `${esc(o.name)}${QUALITY_LABEL[o.quality] ? ` · ${QUALITY_LABEL[o.quality]}` : ''}`}</option>`).join('')}</select>
+      <button class="btn" type="button" data-try="${lang}">▶ 试听</button></label>`;
+  };
+  const natural = t.options.some(o => o.quality === 'premium' || o.quality === 'enhanced');
+  return `<div class="card" id="voices"><h3>朗读声音</h3>
+    <p class="muted">孩子上课时听到的声音。选好后点“试听”，满意再保存。</p>
+    ${pick('zh')}${pick('en')}
+    <div class="row"><button class="btn primary" id="vsave" type="button">保存</button></div>
+    ${natural ? '' : '<p class="muted small">这台 Mac 还没有“高级 / 增强”声音，听起来会比较机械。下载方法：系统设置 → 辅助功能 → 朗读内容 → 系统声音 → 管理声音，中文选 Lilian（高级）或婷婷（增强），英文选 Ava（高级）或 Zoe（高级），下载完重启服务。</p>'}
+  </div>`;
+}
+function wireVoices() {
+  const box = document.getElementById('voices'); if (!box) return;
+  const sel = (lang: string) => box.querySelector<HTMLSelectElement>(`select[data-lang="${lang}"]`)!;
+  let playing: HTMLAudioElement | null = null;
+  box.querySelectorAll<HTMLButtonElement>('[data-try]').forEach(b => b.onclick = guard(async () => {
+    const lang = b.dataset.try as 'zh' | 'en';
+    b.disabled = true; b.textContent = '生成中…';
+    try {
+      const r = await fetch(`/v1/tts?lang=${lang}&voice=${encodeURIComponent(sel(lang).value)}&text=${encodeURIComponent(SAMPLE[lang])}`, { headers: { authorization: `Bearer ${token}` } });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? '试听失败');
+      playing?.pause();
+      playing = new Audio(URL.createObjectURL(await r.blob())); await playing.play();
+    } finally { b.disabled = false; b.textContent = '▶ 试听'; }
+  }));
+  (document.getElementById('vsave') as HTMLButtonElement).onclick = guard(async () => {
+    await api('/v1/tts/voices', { method: 'PUT', body: JSON.stringify({ zh: sel('zh').value, en: sel('en').value }) });
+    toast('已保存，Pad 下一句开始用新的声音');
+  });
+}
 
 token ? main().catch(() => login()) : login();

@@ -1,4 +1,4 @@
-# 自动校验 V01–V16
+# 自动校验 V01–V18
 
 `dls validate` 输出每条规则的结果；✗ 为错误（阻止发布），! 为警告。
 
@@ -20,3 +20,5 @@
 | V14 | 兴趣与心愿 | 引用这个孩子自己的兴趣，或设 neutral；用 `dls theme --write` 生成心愿问题；删掉养殖经营内容 |
 | V15 | 同一机制连续 3 次重教未见效 | 换一个组件或表征；没有合适组件就请家长开组件工单。重教历史由 `dls sync` 从服务器拉到 `content/reteach.json` |
 | V16 | 每步时间上限 | `timing.steps` 里各步秒数（explain/demo/challenge/chat）加起来不超过 `est_minutes` 上限；不写就按预计时长自动分配 |
+| V17 | 错三次演示 + 同类题 | 每道题写 `worked_example.steps`（2–5 步，最后一步说出全部答案）和 `twin`（换数字或情境，`field` 与原题一致，选择题的同类题也带 `options`） |
+| V18 | 坚持的理由 | 写 `encouragement.persist` 至少 2 句，和主题相连；“真棒”“加油”这种空话不算 |

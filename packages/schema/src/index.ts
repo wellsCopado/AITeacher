@@ -46,6 +46,10 @@ export interface ActivityNode {
 export interface Challenge {
   id: string; prompt: string; with_theme: boolean; hints: string[]; options?: string[];
   answers: { field: string; label?: string; value: number | string; unit?: string }[];
+  /** Shown step by step (subtitle + voice) after the child misses the question 3 times; the last step gives the answer. */
+  worked_example?: { steps: string[] };
+  /** A similar question the child then does alone: same method, new numbers or setting. */
+  twin?: { prompt: string; answers: Challenge['answers']; options?: string[] };
 }
 export interface ExperimentModel {
   id: string; ver: string; deterministic: true;
@@ -77,6 +81,8 @@ export interface LessonSpec {
   pending_assets?: PendingAsset[];
   /** Seconds per step; when one runs out the lesson moves on (the last step ends the lesson). */
   timing?: { steps?: Partial<Record<'explain' | 'demo' | 'challenge' | 'chat', number>> };
+  /** Reasons to keep going after a wrong answer, tied to the lesson's theme. */
+  encouragement?: { persist: string[] };
   assessment_plan: { in_lesson: string[]; followup: string; states?: string[] };
   offscreen?: { task: string; adult: boolean; materials?: string[]; optional: true };
   parent_tip: string;

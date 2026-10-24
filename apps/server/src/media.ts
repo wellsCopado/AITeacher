@@ -29,7 +29,7 @@ export const publicMedia = (m: MediaRow) => ({
 });
 
 /** Pictures that ship with the program, in content/assets/organisms/<asset>/media.json. */
-interface Builtin { file: string; kind: 'photo' | 'video' | 'cutout'; origin: string; caption?: string; length_cm?: number; width_px_body?: [number, number] }
+interface Builtin { file: string; kind: 'photo' | 'video' | 'cutout'; origin: string; caption?: string; length_cm?: number; width_px_body?: [number, number]; rig?: string; rig_meta?: string }
 const ORIGINS = ['实拍', '标本扫描', 'AI 写实图'];
 function builtins(root: string, asset?: string) {
   const dir = join(root, 'content', 'assets', 'organisms');
@@ -39,6 +39,7 @@ function builtins(root: string, asset?: string) {
       id: `${a}#${i + 1}`, asset_id: a, kind: b.kind, origin: b.origin, url: `/organism-assets/${a}/${b.file}`,
       credit: '家长提供', license: '家用；AI 生成图，商用前换成实拍或授权素材', source_url: null, caption: b.caption ?? null,
       length_cm: b.length_cm ?? null, body: b.width_px_body ?? null, builtin: true, created_at: null,
+      ...(b.rig && b.rig_meta ? { rig: `/organism-assets/${a}/${b.rig}`, rig_meta: `/organism-assets/${a}/${b.rig_meta}` } : {}),
     })));
 }
 
@@ -57,9 +58,9 @@ export function mediaRoutes(app: FastifyInstance, d: Deps) {
   });
   app.get('/organism-assets/:asset/:file', async (req, reply) => {
     const { asset, file } = req.params as { asset: string; file: string };
-    const b = builtins(d.root, asset).find(x => x.url.endsWith('/' + file)) ?? fail(404, '没有这个素材');
+    const b = builtins(d.root, asset).find(x => [x.url, x.rig, x.rig_meta].some(u => u?.endsWith('/' + file))) ?? fail(404, '没有这个素材');
     const ext = file.split('.').pop()!;
-    reply.header('cache-control', 'public, max-age=604800').type(({ jpg: 'image/jpeg', webp: 'image/webp', png: 'image/png', mp4: 'video/mp4' } as Record<string, string>)[ext] ?? 'application/octet-stream');
+    reply.header('cache-control', 'public, max-age=604800').type(({ jpg: 'image/jpeg', webp: 'image/webp', png: 'image/png', mp4: 'video/mp4', json: 'application/json' } as Record<string, string>)[ext] ?? 'application/octet-stream');
     return readFileSync(join(d.root, 'content', 'assets', 'organisms', b.asset_id, file));
   });
 

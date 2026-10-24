@@ -133,6 +133,10 @@ describe('family server', () => {
     expect(evs.map((e: { type: string }) => e.type)).toEqual(['step', 'answer', 'next_lesson_wish', 'lesson_end']);
     expect(summarize(evs)).toContain('下一课想学：“机器人”');
     expect((await req('GET', '/v1/sessions/sess-0000001/events', pad)).status).toBe(403);
+    // three misses, the step-by-step demo, then the similar question done alone
+    const at = '2026-10-24T02:05:00Z', miss = { id: 'x', at, type: 'answer', challenge: 'c2', correct: false, hints: 1 };
+    const helped = summarize([miss, miss, miss, { id: 'w', at, type: 'worked_example', challenge: 'c2' }, { id: 't', at, type: 'answer', challenge: 'c2', twin: true, correct: true }]);
+    expect(helped).toContain('挑战 c2：试了 3 次，还没做对，用了 1 级提示，看了一遍分步演示，同类题自己做对了。');
   });
 
   it('dates a late-synced session by its first event', async () => {
@@ -244,6 +248,43 @@ describe('narration audio', () => {
     const list = 'Alex                en_US    # Most people recognize me by my voice.\nMeijia              zh_TW    # 你好，我叫美佳。\nSamantha            en_US    # Hello, my name is Samantha.\nTingting            zh_CN    # 你好，我叫婷婷。\n';
     expect(pickVoices(list)).toEqual({ zh: 'Tingting', en: 'Samantha' });
     expect(pickVoices('Alex                en_US    # hi\n')).toBeNull();
+  });
+  it('prefers the most human-sounding voices (Premium, then Enhanced) and never joke voices', async () => {
+    const { pickVoices, listVoices } = await import('../apps/server/src/tts.js');
+    const list = ['Albert              en_US    # Hello', 'Samantha            en_US    # Hello', 'Ava (Premium)       en_US    # Hello', 'Daniel (Enhanced)   en_GB    # Hello',
+      'Tingting            zh_CN    # 你好', 'Tingting (Enhanced) zh_CN    # 你好', 'Lilian (Premium)    zh_CN    # 你好', 'Sinji               zh_HK    # 你好', 'Eddy (中文（中国大陆）) zh_CN    # 你好'].join('\n');
+    expect(pickVoices(list)).toEqual({ zh: 'Lilian (Premium)', en: 'Ava (Premium)' });
+    const vs = listVoices(list);
+    expect(vs.some(v => v.name === 'Albert' || v.name.startsWith('Eddy') || v.name === 'Sinji')).toBe(false);
+    expect(vs.find(v => v.name === 'Tingting (Enhanced)')?.quality).toBe('enhanced');
+  });
+  it('lets the parent hear and choose the voice, and keeps the choice', async () => {
+    await app.close();
+    const made: string[] = [];
+    const dbPath = join(mkdtempSync(join(tmpdir(), 'adw-')), 'db.sqlite');
+    const synth = () => ({ voices: { zh: 'Tingting', en: 'Samantha' }, list: [
+      { name: 'Lilian (Premium)', locale: 'zh_CN', lang: 'zh' as const, quality: 'premium' as const }, { name: 'Tingting', locale: 'zh_CN', lang: 'zh' as const, quality: 'standard' as const },
+      { name: 'Samantha', locale: 'en_US', lang: 'en' as const, quality: 'standard' as const }],
+      make: async (t: string, l: 'zh' | 'en', v?: string) => { made.push(`${v}:${t}`); return Buffer.from('RIFF....WAVE'); } });
+    app = await buildApp({ root, dbPath, pin: PIN, now: () => clock, tts: synth() });
+    const parent = await login(), pad = await pair(parent);
+    expect((await req('GET', '/v1/tts/voices', pad)).status).toBe(403);
+    const v = (await req('GET', '/v1/tts/voices', parent)).body;
+    expect(v.current).toEqual({ zh: 'Tingting', en: 'Samantha' });
+    expect(v.options.map((o: { name: string }) => o.name)).toContain('Lilian (Premium)');
+    // preview a voice before choosing it
+    const hear = await app.inject({ method: 'GET', url: `/v1/tts?lang=zh&voice=${encodeURIComponent('Lilian (Premium)')}&text=${encodeURIComponent('试听')}`, headers: { authorization: `Bearer ${parent}` } });
+    expect(hear.statusCode).toBe(200);
+    expect(made).toEqual(['Lilian (Premium):试听']);
+    expect((await app.inject({ method: 'GET', url: '/v1/tts?lang=zh&voice=Nobody&text=x', headers: { authorization: `Bearer ${parent}` } })).statusCode).toBe(400);
+    expect((await req('PUT', '/v1/tts/voices', parent, { zh: 'Nobody' })).status).toBe(400);
+    expect((await req('PUT', '/v1/tts/voices', parent, { zh: 'Lilian (Premium)' })).body.current).toEqual({ zh: 'Lilian (Premium)', en: 'Samantha' });
+    await app.inject({ method: 'GET', url: `/v1/tts?lang=zh&text=${encodeURIComponent('你好')}`, headers: { authorization: `Bearer ${pad}` } });
+    expect(made.at(-1)).toBe('Lilian (Premium):你好');
+    // the choice survives a restart
+    await app.close();
+    app = await buildApp({ root, dbPath, pin: PIN, now: () => clock, tts: synth() });
+    expect((await req('GET', '/v1/tts/info', await login())).body.voices).toEqual({ zh: 'Lilian (Premium)', en: 'Samantha' });
   });
   it('makes each line once on the server and hands the Pad a WAV', async () => {
     await app.close();

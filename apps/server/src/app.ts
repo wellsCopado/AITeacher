@@ -12,7 +12,7 @@ import { Store, type EventIn, type Role } from './db.js';
 import { HttpError, TZ, addDays, fail, isDate, isKey, sha, shanghaiDate } from './http.js';
 import { homeworkRoutes, reteachHistory } from './homework.js';
 import { mediaRoutes } from './media.js';
-import { macSay, type Synth } from './tts.js';
+import { macSay, SYSTEM_VOICE, type Lang, type Synth } from './tts.js';
 
 export { shanghaiDate, TZ } from './http.js';
 
@@ -333,21 +333,38 @@ export async function buildApp(o: AppOptions) {
   homeworkRoutes(app, { store, root: o.root, dataDir: o.dataDir ?? join(dirname(o.dbPath), 'homework'), today, iso, parent, childParam, pin: o.pin });
   // ---- narration audio (Spec: sound on the Pad) ----
   const tts = o.tts === undefined ? macSay() : o.tts;
+  // Which voice reads: the parent's choice in the app, else ADW_VOICE_ZH / ADW_VOICE_EN, else the most natural one found.
+  const known = (lang: Lang, name: unknown): name is string => typeof name === 'string' && (name === SYSTEM_VOICE || !tts?.list || tts.list.some(v => v.lang === lang && v.name === name));
+  if (tts) for (const lang of ['zh', 'en'] as Lang[]) {
+    const want = store.setting(`voice.${lang}`) ?? process.env[`ADW_VOICE_${lang.toUpperCase()}`];
+    if (want && known(lang, want)) tts.voices[lang] = want;
+  }
   app.decorate('ttsVoices', tts?.voices ?? null);
   const ttsDir = join(dirname(o.dbPath), 'tts');
   const making = new Map<string, Promise<Buffer>>();
   app.get('/v1/tts/info', anyone, async () => ({ available: !!tts, voices: tts?.voices ?? null }));
+  // The parent picks the voices (and can hear one before choosing it).
+  app.get('/v1/tts/voices', parent, async () => ({ available: !!tts, current: tts?.voices ?? null, options: tts?.list ?? [] }));
+  app.put('/v1/tts/voices', parent, async (req) => {
+    if (!tts) fail(501, '这台服务器不能生成语音（需要在 Mac 上运行）');
+    const b = (req.body ?? {}) as Partial<Record<Lang, string>>;
+    for (const lang of ['zh', 'en'] as Lang[]) if (b[lang] !== undefined && !known(lang, b[lang])) fail(400, `这台 Mac 上没有这个${lang === 'zh' ? '中文' : '英文'}声音`);
+    for (const lang of ['zh', 'en'] as Lang[]) if (b[lang]) { tts!.voices[lang] = b[lang]!; store.setSetting(`voice.${lang}`, b[lang]!); }
+    return { current: tts!.voices };
+  });
   app.get('/v1/tts', anyone, async (req, reply) => {
-    const q = req.query as { lang?: string; text?: string };
-    const lang = q.lang === 'en' ? 'en' : q.lang === 'zh' ? 'zh' : fail(400, '语言只能是 zh 或 en');
+    const q = req.query as { lang?: string; text?: string; voice?: string };
+    const lang: Lang = q.lang === 'en' ? 'en' : q.lang === 'zh' ? 'zh' : fail(400, '语言只能是 zh 或 en');
     const text = String(q.text ?? '').trim();
     if (!text || text.length > 600) fail(400, '朗读的文字要在 600 字以内');
     if (!tts) fail(501, '这台服务器不能生成语音（需要在 Mac 上运行）');
-    const key = sha(`${tts!.voices[lang as 'zh']}|${lang}|${text}`).slice(0, 32), file = join(ttsDir, `${key}.wav`);
+    if (q.voice !== undefined && !known(lang, q.voice)) fail(400, '没有这个声音');
+    const voice = q.voice ?? tts!.voices[lang];
+    const key = sha(`${voice}|${lang}|${text}`).slice(0, 32), file = join(ttsDir, `${key}.wav`);
     let buf: Buffer;
     if (existsSync(file)) buf = readFileSync(file);
     else {
-      if (!making.has(key)) making.set(key, tts!.make(text, lang as 'zh').then(b => { mkdirSync(ttsDir, { recursive: true }); writeFileSync(file, b); return b; }).finally(() => making.delete(key)));
+      if (!making.has(key)) making.set(key, tts!.make(text, lang, voice).then(b => { mkdirSync(ttsDir, { recursive: true }); writeFileSync(file, b); return b; }).finally(() => making.delete(key)));
       buf = await making.get(key)!;
     }
     return reply.header('cache-control', 'private, max-age=2592000').type('audio/wav').send(buf);

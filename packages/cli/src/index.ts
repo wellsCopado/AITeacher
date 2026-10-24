@@ -81,6 +81,8 @@ function assembleSpec(dir: string): LessonSpec {
     ...(d.offscreen ? { offscreen: d.offscreen } : {}),
     parent_tip: d.parent_tip,
     source_refs: d.source_refs,
+    ...(d.encouragement ? { encouragement: d.encouragement } : {}),
+    ...(d.timing ? { timing: d.timing } : {}),
     distribution: { scope: a.scope ?? 'family', tenant_id: t.tenant_id },
   };
   return spec as LessonSpec;

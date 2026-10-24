@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { utterance } from '../packages/player/src/language.js';
 import { checkAttempt, describe as say } from '../packages/player/src/check.js';
+import { DEMO_AFTER, encourageWrong, findGood, praiseRight, workedSteps } from '../packages/player/src/encourage.js';
 import type { Challenge } from '../packages/schema/src/index.js';
 
 const root = join(import.meta.dirname, '..');
@@ -51,5 +52,37 @@ describe('challenge checking', () => {
     const ch: Challenge = { id: 'c2', prompt: '', with_theme: false, hints: [], options: ['一样多', '不一样'], answers: [{ field: 'choice', value: '一样多' }] };
     expect(checkAttempt(ch, { choice: { value: '一样多' } }).correct).toBe(true);
     expect(checkAttempt(ch, { choice: { value: '' } }).correct).toBe(false);
+  });
+});
+
+describe('praise and help after wrong answers', () => {
+  const c: Challenge = { id: 'c1', prompt: '', with_theme: false, hints: ['5+3+5+3。'], answers: [
+    { field: 'P', label: '卷尺', value: 16, unit: '米' }, { field: 'S', label: '样方', value: 15, unit: '平方米' }] };
+  const wrong = (a: Record<string, { value: string; unit?: string }>, tries: number, persist?: string[]) => encourageWrong(c, checkAttempt(c, a), a, { tries, persist });
+  it('a wrong answer starts with what the child really got right', () => {
+    expect(wrong({ P: { value: '16', unit: '米' }, S: { value: '15', unit: '米' } }, 1)).toBe('卷尺完全做对了，很了不起！样方的数对了，单位再看一看。再试一次！');
+    const a = { P: { value: '16', unit: '平方米' }, S: { value: '15', unit: '米' } };
+    expect(findGood(c, checkAttempt(c, a), a)).toBe('卷尺、样方的数算对了，计算很棒！');
+    const u = { P: { value: '20', unit: '米' }, S: { value: '9', unit: '平方米' } };
+    expect(findGood(c, checkAttempt(c, u), u)).toBe('卷尺、样方的单位选对了，说明你知道它在量什么。');
+    const typed = { P: { value: '3' }, S: { value: '4' } };
+    expect(findGood(c, checkAttempt(c, typed), typed)).toContain('你动手算了');
+    expect(findGood(c, checkAttempt(c, {}), {})).toContain('写错也没关系');
+  });
+  it('gives a reason to keep going, from the lesson when it has one, and offers the demo on the third miss', () => {
+    const none = {};
+    expect(wrong(none, 2, ['螳螂虾的洞也是一点一点挖出来的。', '再瞄准一次。'])).toContain('螳螂虾的洞也是一点一点挖出来的。');
+    expect(wrong(none, DEMO_AFTER)).toContain('我们一起看一遍怎么做');
+    expect(DEMO_AFTER).toBe(3);
+  });
+  it('praise matches how the answer was reached', () => {
+    expect(praiseRight({ tries: 0, hints: 0 })).toContain('一次就做对了');
+    expect(praiseRight({ tries: 2, hints: 1 })).toContain('没有放弃');
+    expect(praiseRight({ tries: 0, hints: 1 })).toContain('提示');
+    expect(praiseRight({ tries: 0, hints: 0, afterDemo: true })).toContain('自己做出来了');
+  });
+  it('the worked example comes from the lesson, or from the hints and the answer', () => {
+    expect(workedSteps({ ...c, worked_example: { steps: ['a', 'b'] } })).toEqual(['a', 'b']);
+    expect(workedSteps(c)).toEqual(['5+3+5+3。', '所以答案是：卷尺 16 米，样方 15 平方米。']);
   });
 });
