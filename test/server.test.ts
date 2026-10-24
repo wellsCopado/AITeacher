@@ -85,6 +85,7 @@ describe('family server', () => {
 
   it('shows a child only the lessons scheduled today or granted, and only their own', async () => {
     const t = await login();
+    expect((await req('PUT', '/v1/schedule/auto', t, { on: false })).body.auto).toBe(false); // the parent schedules by hand here
     await req('POST', '/v1/lessons', t, freeze(spec('L-PA')));
     await req('POST', '/v1/lessons', t, freeze(spec('L-ARR')));
     const pad = await pair(t);
@@ -106,6 +107,41 @@ describe('family server', () => {
     expect((await req('GET', '/v1/today?child=meimei', pad)).body.lessons).toHaveLength(1);
     clock = new Date('2026-10-27T16:30:00Z');
     expect((await req('GET', '/v1/today?child=meimei', pad)).body.lessons).toEqual([]);
+  });
+
+  it('schedules one unfinished lesson a day by itself, and the parent can change or cancel any day', async () => {
+    const t = await login();
+    const pad = await pair(t);
+    const todayKeys = async (child = 'gege') => (await req('GET', `/v1/today?child=${child}`, pad)).body.lessons.map((l: { key: string }) => l.key);
+    expect(await todayKeys()).toEqual([]); // nothing published yet
+    await req('POST', '/v1/lessons', t, freeze(spec('L-PA')));
+    expect(await todayKeys()).toEqual(['L-PA@1.0']);
+    expect(await todayKeys('meimei')).toEqual([]); // never a sibling's lesson
+    let plan = (await req('GET', '/v1/schedule/plan?days=3', t)).body;
+    expect(plan.auto).toBe(true);
+    expect(plan.days[0].kids.find((k: { child: string }) => k.child === 'gege')).toMatchObject({ mode: 'auto', lessons: [{ key: 'L-PA@1.0', finished: false }] });
+    expect(plan.days[1].kids.find((k: { child: string }) => k.child === 'gege').mode).toBe('none'); // only one lesson, assumed done today
+
+    // The parent cancels today; that day stays theirs, and can be handed back.
+    await req('PUT', '/v1/schedule', t, { date: '2026-10-24', child: 'gege', lessons: [] });
+    expect(await todayKeys()).toEqual([]);
+    expect((await req('DELETE', '/v1/schedule/2026-10-24/gege', t)).status).toBe(200);
+    expect(await todayKeys()).toEqual(['L-PA@1.0']);
+
+    // Finished today: still today's lesson; tomorrow the next unfinished one, or nothing when all are done.
+    await req('POST', '/v1/sessions/sess-0000009/events', pad, { child: 'gege', lesson: 'L-PA@1.0', events: [{ id: 'ev-00000091', at: '2026-10-24T02:10:00Z', type: 'lesson_end', solved: [] }] });
+    expect(await todayKeys()).toEqual(['L-PA@1.0']);
+    clock = new Date('2026-10-24T16:30:00Z');
+    expect(await todayKeys()).toEqual([]);
+    plan = (await req('GET', '/v1/schedule/plan?days=2', t)).body;
+    expect(plan.days[0].kids.find((k: { child: string }) => k.child === 'gege').mode).toBe('none');
+
+    // Turned off: nothing is picked by itself any more.
+    await req('PUT', '/v1/schedule/auto', t, { on: false });
+    await req('POST', '/v1/lessons', t, freeze(spec('L-ARR')));
+    expect(await todayKeys('meimei')).toEqual([]);
+    await req('PUT', '/v1/schedule/auto', t, { on: true });
+    expect(await todayKeys('meimei')).toEqual(['L-ARR@1.0']);
   });
 
   it('stores events idempotently and turns a next-lesson wish into the child\'s own interest', async () => {

@@ -119,9 +119,23 @@ export async function buildApp(o: AppOptions) {
   app.get('/v1/children', anyone, async () => store.children());
 
   const childParam = (v: unknown) => { const c = String(v ?? ''); if (!store.hasChild(c)) fail(400, '没有这个孩子'); return c; };
+  // Automatic schedule (the parent's choice, on unless turned off): each child gets one lesson a day, the oldest
+  // published one they haven't finished. Today's pick is written down the first time anyone looks, so it stays
+  // the same all day; the parent can change or cancel any day, and that day is then theirs.
+  const autoOn = () => (store.setting('schedule.auto') ?? '1') === '1';
+  const unfinished = (child: string) => {
+    const done = new Set(store.sessions(child).filter(s => s.finished).map(s => s.lesson_key));
+    return store.lessons().filter(l => l.for_child === child && !done.has(l.key)).reverse().map(l => l.key);
+  };
+  const ensureAuto = (date: string, child: string) => {
+    if (!autoOn() || date !== today() || store.dayMode(date, child)) return;
+    const next = unfinished(child)[0];
+    if (next) store.setSchedule(date, child, [next], 'auto');
+  };
   /** BL13: a child sees a lesson only when it is scheduled for today or a parent granted it. */
   const todayFor = (child: string) => {
     const d = today();
+    ensureAuto(d, child);
     const out = new Map<string, { key: string; title: string; concept: string; reason: '今天的课' | '临时授权'; expires_on: string | null }>();
     const add = (key: string, reason: '今天的课' | '临时授权', expires_on: string | null) => {
       const sp = store.lesson(key);
@@ -277,6 +291,38 @@ export async function buildApp(o: AppOptions) {
     const q = req.query as { from?: string; to?: string };
     const from = isDate(q.from) ? q.from : today(), to = isDate(q.to) ? q.to : addDays(from, 13);
     return store.scheduleRange(from, to);
+  });
+  /** The next days as the parent sees them: what each child has, and whether the parent or the automatic plan chose it. */
+  app.get('/v1/schedule/plan', parent, async (req) => {
+    const n = Math.min(14, Math.max(1, Number((req.query as { days?: string }).days ?? 7) || 7));
+    const dates = [...Array(n)].map((_, i) => addDays(today(), i));
+    const lessonOf = (key: string, child: string) => ({ key, title: store.lesson(key)?.title ?? key, finished: store.sessions(child).some(s => s.lesson_key === key && s.finished) });
+    const rows = store.children().map(c => {
+      const queue = unfinished(c.id);
+      return dates.map(date => {
+        ensureAuto(date, c.id);
+        const mode = store.dayMode(date, c.id);
+        if (mode) {
+          const keys = store.scheduled(date, c.id);
+          for (const k of keys) { const i = queue.indexOf(k); if (i >= 0) queue.splice(i, 1); } // assume it gets done that day
+          return { date, child: c.id, mode, lessons: keys.map(k => lessonOf(k, c.id)) };
+        }
+        const next = autoOn() ? queue.shift() : undefined;
+        return { date, child: c.id, mode: next ? 'planned' : 'none', lessons: next ? [lessonOf(next, c.id)] : [] };
+      });
+    });
+    return { auto: autoOn(), today: today(), days: dates.map((date, i) => ({ date, kids: rows.map(r => r[i]) })), grants: store.grants().filter(g => g.expires_on >= today()) };
+  });
+  app.put('/v1/schedule/auto', parent, async (req) => {
+    store.setSetting('schedule.auto', (req.body as { on?: unknown })?.on ? '1' : '0');
+    return { auto: autoOn() };
+  });
+  /** Give a day back to the automatic plan. */
+  app.delete('/v1/schedule/:date/:child', parent, async (req) => {
+    const { date, child } = req.params as { date: string; child: string };
+    if (!isDate(date)) fail(400, '日期格式是 YYYY-MM-DD');
+    store.clearSchedule(date, childParam(child));
+    return { ok: true };
   });
   app.put('/v1/schedule', parent, async (req) => {
     const b = (req.body ?? {}) as { date?: unknown; child?: unknown; lessons?: unknown };

@@ -11,6 +11,8 @@ create table if not exists lessons (
   content_hash text not null, published_at text not null, spec text not null, primary key (lesson_id, version));
 create table if not exists schedule (tenant_id text not null, date text not null, child text not null, lesson_key text not null,
   primary key (tenant_id, date, child, lesson_key));
+create table if not exists schedule_days (tenant_id text not null, date text not null, child text not null, mode text not null,
+  primary key (tenant_id, date, child));
 create table if not exists grants (id integer primary key autoincrement, tenant_id text not null, child text not null,
   lesson_key text not null, expires_on text not null, granted_by text not null, created_at text not null);
 create table if not exists sessions (key text primary key, tenant_id text not null, child text not null, lesson_key text not null,
@@ -97,13 +99,22 @@ export class Store {
       .map(r => ({ key: `${r.lesson_id}@${r.version}`, ...r }));
   }
 
-  // schedule and grants (FR55, BL13)
-  setSchedule(date: string, child: string, keys: string[]) {
+  // schedule and grants (FR55, BL13). A day is 'manual' once the parent set it (even to nothing), 'auto' when the
+  // server picked the next lesson itself; a day with neither is still open for the automatic pick.
+  setSchedule(date: string, child: string, keys: string[], mode: 'manual' | 'auto' = 'manual') {
     this.tx(() => {
       this.run('delete from schedule where tenant_id=? and date=? and child=?', this.tenant, date, child);
       for (const k of keys) this.run('insert into schedule (tenant_id, date, child, lesson_key) values (?,?,?,?)', this.tenant, date, child, k);
+      this.run('insert into schedule_days (tenant_id, date, child, mode) values (?,?,?,?) on conflict(tenant_id, date, child) do update set mode=excluded.mode', this.tenant, date, child, mode);
     });
   }
+  clearSchedule(date: string, child: string) {
+    this.tx(() => {
+      this.run('delete from schedule where tenant_id=? and date=? and child=?', this.tenant, date, child);
+      this.run('delete from schedule_days where tenant_id=? and date=? and child=?', this.tenant, date, child);
+    });
+  }
+  dayMode(date: string, child: string) { return this.get<{ mode: 'manual' | 'auto' }>('select mode from schedule_days where tenant_id=? and date=? and child=?', this.tenant, date, child)?.mode; }
   scheduled(date: string, child: string) { return this.all<{ lesson_key: string }>('select lesson_key from schedule where tenant_id=? and date=? and child=?', this.tenant, date, child).map(r => r.lesson_key); }
   scheduleRange(from: string, to: string) { return this.all<{ date: string; child: string; lesson_key: string }>('select date, child, lesson_key from schedule where tenant_id=? and date between ? and ? order by date', this.tenant, from, to); }
   addGrant(child: string, key: string, expiresOn: string, by: string, now: string) {

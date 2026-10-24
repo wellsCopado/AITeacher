@@ -111,13 +111,20 @@ try {
   await card.locator('.approve').click();
   await parent.waitForFunction(() => document.getElementById('toast')?.textContent?.includes('已发布'));
   check(await parent.locator('.draft').count() === 1, '审核通过后发布，课程库里只剩妹妹那节等审核');
+  // Right after publishing: one tap to put it on today.
+  await parent.waitForSelector('#jp .when');
+  await parent.click('#jp .when[data-n="0"]');
+  await parent.waitForFunction(() => document.getElementById('toast')?.textContent?.includes('已排到今天'));
+  ok('发布后点“今天就上”就排好了');
   await parent.click('[data-t="排课"]');
-  await parent.waitForSelector('.day');
-  await parent.locator('.day').first().locator('.kidcol[data-c="gege"] input[value="L-PA@1.0"]').check();
-  await parent.locator('.day').first().locator('.save').click();
-  await parent.waitForFunction(() => document.getElementById('toast')?.textContent?.includes('已保存'));
+  await parent.waitForSelector('.todaykid');
+  const todayText = await parent.textContent('.todaykid[data-c="gege"]');
+  check(todayText?.includes('珊瑚礁') && todayText.includes('你排的'), '「排课」最上面的“今天”显示哥哥今天的课');
+  check(await parent.isChecked('#auto'), '自动排课默认打开');
+  await parent.locator('.daypick[data-c="gege"]').first().selectOption('__none');
+  await parent.waitForFunction(() => document.getElementById('toast')?.textContent?.includes('已改好'));
+  check(await parent.locator('.daypick[data-c="gege"]').first().inputValue() === '__none', '一周日历里选“这天不上”马上生效');
   await parent.screenshot({ path: join(shots, 'parent-schedule.png') });
-  ok('家长排了今天的课');
 
   await pad.click('#back'); await pad.click('.kidbtn[data-id="gege"]');
   await pad.waitForSelector('.lesson');

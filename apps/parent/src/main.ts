@@ -17,6 +17,8 @@ interface Organism {
   asset_id: string; name: string; status: string; real_scale: string | null;
   media: { id: string; kind: 'photo' | 'video' | 'model' | 'cutout'; origin: string; builtin?: boolean; url: string; credit: string; license: string; source_url: string | null; caption: string | null; length_cm: number | null; pending?: boolean; refs?: string[] | null; added_by?: string }[];
 }
+interface PlanDay { date: string; kids: { child: string; mode: 'auto' | 'manual' | 'planned' | 'none'; lessons: { key: string; title: string; finished: boolean }[] }[] }
+interface Plan { auto: boolean; today: string; days: PlanDay[]; grants: { child: string; lesson_key: string; expires_on: string }[] }
 interface Interest { id: string; child: string; topic: string; source: string; said: string | null; observed_on: string; state: string; lesson_ref: string | null }
 
 const app = document.getElementById('app')!;
@@ -29,6 +31,7 @@ let today = '';
 const TABS = ['排课', '课程库', '学习记录', '作业', '掌握与重教', '兴趣与心愿', '设备与数据'] as const;
 type Tab = typeof TABS[number];
 let tab: Tab = '排课';
+let justPublished: Lesson | null = null;
 
 async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   // no content-type without a body: the server refuses an empty JSON body (DELETE 移除 buttons)
@@ -74,20 +77,56 @@ const kidOptions = (sel?: string) => kids.map(k => `<option value="${esc(k.id)}"
 
 const VIEWS: Record<Tab, () => Promise<void>> = {
   async 排课() {
-    const sched = await api<{ date: string; child: string; lesson_key: string }[]>(`/v1/schedule?from=${today}`);
-    const days = [...Array(7)].map((_, i) => new Date(Date.parse(today + 'T00:00:00Z') + i * 86_400_000).toISOString().slice(0, 10));
-    view().innerHTML = `<p class="muted">孩子只能看到当天排的课和临时授权的课（BL13）。勾选后点保存。</p>
-      <div class="grid">${days.map(d => `<div class="card day"><h3>${d === today ? '今天 ' : ''}${d}</h3>${kids.map(k => {
-        const mine = lessons.filter(l => l.for_child === k.id);
-        return `<div class="kidcol" data-d="${d}" data-c="${esc(k.id)}"><b>${esc(k.name)}</b>${mine.length ? mine.map(l => `<label><input type="checkbox" value="${esc(l.key)}" ${sched.some(s => s.date === d && s.child === k.id && s.lesson_key === l.key) ? 'checked' : ''}> ${esc(l.title)}</label>`).join('') : '<span class="muted small">还没有发布的课，先到「课程库」审核</span>'}</div>`;
-      }).join('')}<button class="btn save" data-d="${d}">保存这天</button></div>`).join('')}</div>`;
-    view().querySelectorAll<HTMLButtonElement>('.save').forEach(b => b.onclick = guard(async () => {
-      for (const col of view().querySelectorAll<HTMLElement>(`.kidcol[data-d="${b.dataset.d}"]`)) {
-        const keys = [...col.querySelectorAll<HTMLInputElement>('input:checked')].map(i => i.value);
-        await api('/v1/schedule', { method: 'PUT', body: JSON.stringify({ date: b.dataset.d, child: col.dataset.c, lessons: keys }) });
-      }
-      toast(`${b.dataset.d} 已保存`);
-    }));
+    const plan = await api<Plan>('/v1/schedule/plan?days=8');
+    const WD = '日一二三四五六';
+    const wd = (d: string) => `周${WD[new Date(d + 'T00:00:00Z').getUTCDay()]}`;
+    const MODE = { auto: '自动排的', manual: '你排的', planned: '自动（预计）', none: '' } as const;
+    const mine = (c: string) => lessons.filter(l => l.for_child === c);
+    const day0 = plan.days[0];
+    const todayKid = (k: Child) => {
+      const kd = day0.kids.find(x => x.child === k.id)!;
+      const grants = plan.grants.filter(g => g.child === k.id);
+      return `<div class="todaykid" data-c="${esc(k.id)}"><b>${esc(k.name)}</b>
+        <div class="pills">${kd.lessons.map(l => `<span class="pill">${esc(l.title)}${l.finished ? ' · 学完了 ✓' : ''} <span class="badge">${MODE[kd.mode]}</span></span>`).join('') || '<span class="muted">今天没有课</span>'}
+        ${grants.map(g => `<span class="pill">${esc(title(g.lesson_key))} <span class="badge">临时授权到 ${esc(g.expires_on)}</span></span>`).join('')}</div>
+        <div class="row">${mine(k.id).length ? `<select class="pick" data-d="${day0.date}" data-c="${esc(k.id)}"><option value="">${kd.lessons.length ? '换一节…' : '排一节…'}</option>${mine(k.id).map(l => `<option value="${esc(l.key)}">${esc(l.title)}</option>`).join('')}</select>` : '<span class="muted small">还没有发布的课，先到「课程库」出课和审核</span>'}
+          ${kd.lessons.length ? `<button class="btn skip" data-d="${day0.date}" data-c="${esc(k.id)}">今天不上</button>` : ''}
+          ${kd.mode === 'manual' && plan.auto ? `<button class="btn reauto" data-d="${day0.date}" data-c="${esc(k.id)}">恢复自动</button>` : ''}</div></div>`;
+    };
+    const daySelect = (date: string, k: Child) => {
+      const kd = plan.days.find(d => d.date === date)!.kids.find(x => x.child === k.id)!;
+      const manual = kd.mode === 'manual', one = manual && kd.lessons.length === 1 ? kd.lessons[0].key : '';
+      const autoLabel = plan.auto ? (kd.mode === 'manual' ? '自动' : `自动：${kd.lessons[0]?.title ?? '没有新课了'}`) : '不排';
+      return `<label class="kidsel"><b>${esc(k.name)}</b><select class="daypick" data-d="${date}" data-c="${esc(k.id)}">
+        <option value="__auto" ${manual ? '' : 'selected'}>${esc(autoLabel)}</option>
+        ${mine(k.id).map(l => `<option value="${esc(l.key)}" ${one === l.key ? 'selected' : ''}>${esc(l.title)}</option>`).join('')}
+        ${manual && kd.lessons.length > 1 ? `<option selected disabled>${esc(kd.lessons.map(l => l.title).join('、'))}</option>` : ''}
+        <option value="__none" ${manual && !kd.lessons.length ? 'selected' : ''}>这天不上</option></select></label>`;
+    };
+    view().innerHTML = `<div class="card todaycard"><h3>今天 ${esc(day0.date)}（${wd(day0.date)}）</h3>
+        <label class="consent"><input type="checkbox" id="auto" ${plan.auto ? 'checked' : ''}> 自动排课：每天给每个孩子排一节还没学完的课（按发布的先后）。不满意就在这里换一节或今天不上，点了马上生效。</label>
+        ${kids.map(todayKid).join('')}</div>
+      <h3>接下来一周</h3><p class="muted small">选了马上生效。选“自动”就交给自动排课。</p>
+      <div class="grid">${plan.days.slice(1).map(d => `<div class="card day"><h3>${esc(d.date.slice(5))}（${wd(d.date)}）</h3>${kids.map(k => daySelect(d.date, k)).join('')}</div>`).join('')}</div>`;
+    const put = (date: string, child: string, keys: string[]) => api('/v1/schedule', { method: 'PUT', body: JSON.stringify({ date, child, lessons: keys }) });
+    const back = (date: string, child: string) => api(`/v1/schedule/${date}/${encodeURIComponent(child)}`, { method: 'DELETE' });
+    const done = async (msg: string) => { await VIEWS.排课(); toast(msg); };
+    (document.getElementById('auto') as HTMLInputElement).onchange = e => guard(async () => {
+      const on = (e.target as HTMLInputElement).checked;
+      await api('/v1/schedule/auto', { method: 'PUT', body: JSON.stringify({ on }) });
+      await done(on ? '已打开自动排课' : '已关闭自动排课：之后只有你排的课孩子才看得到');
+    })();
+    view().querySelectorAll<HTMLSelectElement>('.pick').forEach(sel => sel.onchange = () => guard(async () => {
+      if (!sel.value) return;
+      await put(sel.dataset.d!, sel.dataset.c!, [sel.value]); await done(`${name(sel.dataset.c!)}今天改上「${title(sel.value)}」`);
+    })());
+    view().querySelectorAll<HTMLButtonElement>('.skip').forEach(b => b.onclick = guard(async () => { await put(b.dataset.d!, b.dataset.c!, []); await done(`${name(b.dataset.c!)}今天不上课了`); }));
+    view().querySelectorAll<HTMLButtonElement>('.reauto').forEach(b => b.onclick = guard(async () => { await back(b.dataset.d!, b.dataset.c!); await done('已交回自动排课'); }));
+    view().querySelectorAll<HTMLSelectElement>('.daypick').forEach(sel => sel.onchange = () => guard(async () => {
+      const { d, c } = sel.dataset as { d: string; c: string };
+      if (sel.value === '__auto') await back(d, c); else await put(d, c, sel.value === '__none' ? [] : [sel.value]);
+      await done(`${d.slice(5)} ${name(c)}：已改好`);
+    })());
   },
 
   async 课程库() {
@@ -99,7 +138,9 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
       writerCard(ctx(), () => VIEWS.课程库()),
     ]);
     const preview = (key: string) => `/pad/preview.html#key=${encodeURIComponent(key)}&t=${encodeURIComponent(token ?? '')}`;
-    view().innerHTML = `${writer}
+    const jp = justPublished;
+    view().innerHTML = `${jp ? `<div class="card justpub" id="jp"><b>刚发布「${esc(jp.title)}」（${esc(name(jp.for_child))}）。</b>什么时候上？
+        <div class="row"><button class="btn primary when" data-n="0">今天就上</button><button class="btn when" data-n="1">明天上</button><button class="btn when" data-n="-1">按顺序自动排</button></div></div>` : ''}${writer}
       ${drafts.length ? `<h3>等你审核（${drafts.length}）</h3><p class="muted">先点“预览”把课走一遍，再逐项勾选四类审核。全部勾上才能发布；发布后内容冻结，孩子在排课当天才看得到。</p>` : ''}
       ${drafts.map(d => `<div class="card draft" data-k="${esc(d.key)}"><h3>${esc(d.title)} <span class="badge">${esc(d.status)}</span></h3>
         <p class="muted small">${esc(name(d.child))} · ${esc(d.concept)} · ${esc(d.key)} · 主题「${esc(d.theme.name)}」：${esc(d.theme.why)} · 由 ${esc(d.submitted_by)} 交来</p>
@@ -157,6 +198,16 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
       };
     });
     wireStudio(ctx());
+    view().querySelectorAll<HTMLButtonElement>('#jp .when').forEach(b => b.onclick = guard(async () => {
+      const n = Number(b.dataset.n), p = justPublished!;
+      justPublished = null;
+      if (n >= 0) {
+        const date = new Date(Date.parse(today + 'T00:00:00Z') + n * 86_400_000).toISOString().slice(0, 10);
+        await api('/v1/schedule', { method: 'PUT', body: JSON.stringify({ date, child: p.for_child, lessons: [p.key] }) });
+      }
+      document.getElementById('jp')?.remove();
+      toast(n < 0 ? '好的，按顺序自动排。可以在「排课」里看和改。' : `已排到${n ? '明天' : '今天'}，${name(p.for_child)}${n ? '明天' : '现在'}就能在 Pad 上看到。`);
+    }));
     view().querySelectorAll<HTMLElement>('.draft').forEach(card => {
       const key = card.dataset.k!;
       card.querySelector<HTMLButtonElement>('.approve')!.onclick = guard(async () => {
@@ -164,8 +215,9 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
         card.querySelectorAll<HTMLInputElement>('input[type=checkbox]:checked').forEach(c => (checked[c.dataset.cat!] ??= []).push(c.value));
         await api(`/v1/drafts/${encodeURIComponent(key)}/approve`, { method: 'POST', body: JSON.stringify({ checked }) });
         lessons = await api<Lesson[]>('/v1/lessons');
+        justPublished = lessons.find(l => l.key === key) ?? null;
         await VIEWS.课程库();
-        toast('已发布。去「排课」页勾选日期，孩子当天就能看到。');
+        toast('已发布。');
       });
       card.querySelector<HTMLButtonElement>('.reject')!.onclick = guard(async () => {
         await api(`/v1/drafts/${encodeURIComponent(key)}/reject`, { method: 'POST', body: JSON.stringify({ note: card.querySelector<HTMLInputElement>('.note')!.value }) });
