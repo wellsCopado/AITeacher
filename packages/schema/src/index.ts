@@ -42,7 +42,7 @@ export interface ActivityNode {
   no_theme?: boolean; complete: string;
 }
 export interface Challenge {
-  id: string; prompt: string; with_theme: boolean; hints: string[];
+  id: string; prompt: string; with_theme: boolean; hints: string[]; options?: string[];
   answers: { field: string; label?: string; value: number | string; unit?: string }[];
 }
 export interface ExperimentModel {
@@ -62,6 +62,7 @@ export interface LessonSpec {
     status: '参考·待核对' | '先修补强' | '已核对本年级' | '兴趣拓展'; verified_by?: string | null; checked_on?: string;
   };
   theme: { id: string; name: string; skin?: string; interest_refs: string[]; neutral?: boolean; why: string; no_husbandry: true };
+  intro: { headline: string; paragraphs: string[]; note?: string };
   learner_profile: { grade: number; scaffold?: string[]; language: { default: 'zh'; cycle_enabled: boolean }; recent_judgment_ref?: string | null; est_minutes?: [number, number] };
   scene_component_ids: string[];
   component_params: Record<string, unknown>;

@@ -4,6 +4,8 @@ import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { join, resolve, basename } from 'node:path';
 import type { InterestObservation, LessonSpec } from '../../schema/src/index.js';
 import { loadContext, validate, type Report } from '../../validator/src/index.js';
+import { buildPreview } from './preview.js';
+import { writeFileSync } from 'node:fs';
 import {
   REVIEW_CHECKLIST, STAGE_FILES as F, canonical, contentHash, findRoot, loadAssets, loadInterests, loadPublished,
   loadThemes, readJson, suggestTheme, writeJson,
@@ -64,6 +66,7 @@ function assembleSpec(dir: string): LessonSpec {
     ...(t.prerequisites ? { prerequisites: t.prerequisites } : {}),
     curriculum_mapping: t.curriculum_mapping,
     theme: d.theme,
+    intro: d.intro,
     learner_profile: t.learner_profile,
     scene_component_ids: d.scene_component_ids,
     component_params: d.component_params,
@@ -102,7 +105,7 @@ function runValidate(target: string, flags: Flags): { sp: LessonSpec; report: Re
   return { sp, report, dir: isDir ? target : null };
 }
 
-const commands: Record<string, (pos: string[], flags: Flags) => number> = {
+const commands: Record<string, (pos: string[], flags: Flags) => number | Promise<number>> = {
   init(pos, flags) {
     const [id, ver] = pos;
     need(id, '课程 id（如 L-PA）'); need(ver, '版本（如 1.0）');
@@ -205,6 +208,18 @@ const commands: Record<string, (pos: string[], flags: Flags) => number> = {
     return report.ok ? 0 : 1;
   },
 
+  async preview(pos, flags) {
+    const target = resolve(need(pos[0], '课程目录或 lessonspec 文件'));
+    const { sp, report, dir } = runValidate(target, flags);
+    if (!report.ok) { printReport(report); console.log('\n校验未通过；预览照常生成，但不能发布'); }
+    const children = readJson(join(root, 'content', 'children.json'));
+    const html = await buildPreview(sp, children[sp.for_child]?.name ?? sp.for_child);
+    const out = str(flags, 'out') ?? join(dir ?? resolve(target, '..'), 'preview.html');
+    writeFileSync(out, html);
+    console.log(`已生成预览：${out}（${Math.round(html.length / 1024)} KB，用浏览器直接打开）`);
+    return 0;
+  },
+
   review(pos, flags) {
     const dir = lessonDir(need(pos[0], '课程目录'));
     const p = join(dir, F.review);
@@ -285,18 +300,19 @@ const HELP = `dls — discovery-learning-studio 命令行
   dls assets <目录>                       阶段 3：核验素材（许可、写实底线）
   dls assemble <目录>                     阶段 4：组装 lessonspec.json
   dls validate <目录|文件> [--previous <文件>] [--json]   阶段 5：V01–V14
+  dls preview <目录|文件> [--out <文件>]         生成可直接打开的课程预览
   dls review <目录> [--init] [--approve <类别,…|all> --by <审核人>]   阶段 6：审核清单
   dls publish <目录>                      阶段 6：校验 + 审核齐全后发布并冻结
   dls interest [add] --child <孩子> [--topic … --source … --state … --said …]`;
 
-function main(argv: string[]): number {
+async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv;
   if (!cmd || cmd === 'help' || cmd === '--help') { console.log(HELP); return 0; }
   const fn = commands[cmd];
   if (!fn) { console.log(`未知命令 ${cmd}\n\n${HELP}`); return 2; }
   const { pos, flags } = parse(rest);
-  try { return fn(pos, flags); }
+  try { return await fn(pos, flags); }
   catch (e) { if (e instanceof UsageError) { console.log(e.message); return 2; } throw e; }
 }
 
-process.exitCode = main(process.argv.slice(2));
+process.exitCode = await main(process.argv.slice(2));

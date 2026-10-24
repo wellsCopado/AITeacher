@@ -6,194 +6,602 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema_version", "lesson_id", "version", "tenant_id", "for_child", "title",
-    "primary_concept", "curriculum_mapping", "theme", "learner_profile",
-    "scene_component_ids", "component_params", "experiment_model_version",
-    "activity_graph", "hotspots", "challenges", "end_chat",
-    "object_asset_versions", "assessment_plan", "parent_tip", "source_refs", "distribution"
+    "schema_version",
+    "lesson_id",
+    "version",
+    "tenant_id",
+    "for_child",
+    "title",
+    "primary_concept",
+    "curriculum_mapping",
+    "theme",
+    "learner_profile",
+    "intro",
+    "scene_component_ids",
+    "component_params",
+    "experiment_model_version",
+    "activity_graph",
+    "hotspots",
+    "challenges",
+    "end_chat",
+    "object_asset_versions",
+    "assessment_plan",
+    "parent_tip",
+    "source_refs",
+    "distribution"
   ],
   "properties": {
-    "schema_version": { "const": "lessonspec/1.0" },
-    "lesson_id": { "type": "string", "pattern": "^L-[A-Z0-9-]+$" },
-    "version": { "type": "string", "pattern": "^\\d+\\.\\d+(\\.\\d+)?$" },
-    "tenant_id": { "type": "string", "minLength": 1 },
-    "for_child": { "type": "string", "minLength": 1 },
-    "title": { "type": "string", "minLength": 2, "maxLength": 40 },
-    "previous_version": { "type": ["string", "null"] },
-    "trigger_judgment_ref": { "type": ["string", "null"] },
+    "schema_version": {
+      "const": "lessonspec/1.0"
+    },
+    "lesson_id": {
+      "type": "string",
+      "pattern": "^L-[A-Z0-9-]+$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+(\\.\\d+)?$"
+    },
+    "tenant_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "for_child": {
+      "type": "string",
+      "minLength": 1
+    },
+    "title": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 40
+    },
+    "previous_version": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "trigger_judgment_ref": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "primary_concept": {
-      "type": "object", "additionalProperties": false,
-      "required": ["id", "name", "target_misconceptions"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "target_misconceptions"
+      ],
       "properties": {
-        "id": { "type": "string" },
-        "name": { "type": "string" },
-        "target_misconceptions": { "type": "array", "items": { "type": "string" }, "maxItems": 3 }
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "target_misconceptions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 3
+        }
       }
     },
-    "prerequisites": { "type": "array", "items": { "type": "string" } },
+    "prerequisites": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "curriculum_mapping": {
-      "type": "object", "additionalProperties": false,
-      "required": ["region", "system", "grade", "source", "status"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "region",
+        "system",
+        "grade",
+        "source",
+        "status"
+      ],
       "properties": {
-        "region": { "type": "string" },
-        "system": { "type": "string" },
-        "grade": { "type": "integer", "minimum": 1, "maximum": 9 },
-        "term": { "type": "string" },
-        "source": { "type": "string" },
-        "publisher": { "type": "string" },
-        "unit": { "type": "string" },
-        "status": { "enum": ["参考·待核对", "先修补强", "已核对本年级", "兴趣拓展"] },
-        "verified_by": { "type": ["string", "null"] },
-        "checked_on": { "type": "string" }
+        "region": {
+          "type": "string"
+        },
+        "system": {
+          "type": "string"
+        },
+        "grade": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9
+        },
+        "term": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "publisher": {
+          "type": "string"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "参考·待核对",
+            "先修补强",
+            "已核对本年级",
+            "兴趣拓展"
+          ]
+        },
+        "verified_by": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "checked_on": {
+          "type": "string"
+        }
       }
     },
     "theme": {
-      "type": "object", "additionalProperties": false,
-      "required": ["id", "name", "interest_refs", "why", "no_husbandry"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "interest_refs",
+        "why",
+        "no_husbandry"
+      ],
       "properties": {
-        "id": { "type": "string" },
-        "name": { "type": "string" },
-        "skin": { "type": "string", "description": "组件主题皮肤，如 reef、garden、blocks" },
-        "interest_refs": { "type": "array", "items": { "type": "string" } },
-        "neutral": { "type": "boolean", "description": "还没有孩子自述兴趣时用中性题材，必须同时在课末问心愿" },
-        "why": { "type": "string" },
-        "no_husbandry": { "const": true }
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "skin": {
+          "type": "string",
+          "description": "组件主题皮肤，如 reef、garden、blocks"
+        },
+        "interest_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "neutral": {
+          "type": "boolean",
+          "description": "还没有孩子自述兴趣时用中性题材，必须同时在课末问心愿"
+        },
+        "why": {
+          "type": "string"
+        },
+        "no_husbandry": {
+          "const": true
+        }
       }
     },
     "learner_profile": {
-      "type": "object", "additionalProperties": false,
-      "required": ["grade", "language"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "grade",
+        "language"
+      ],
       "properties": {
-        "grade": { "type": "integer" },
-        "scaffold": { "type": "array", "items": { "type": "string" } },
-        "language": {
-          "type": "object", "additionalProperties": false,
-          "required": ["default", "cycle_enabled"],
-          "properties": { "default": { "enum": ["zh"] }, "cycle_enabled": { "type": "boolean" } }
+        "grade": {
+          "type": "integer"
         },
-        "recent_judgment_ref": { "type": ["string", "null"] },
-        "est_minutes": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2 }
+        "scaffold": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "language": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "default",
+            "cycle_enabled"
+          ],
+          "properties": {
+            "default": {
+              "enum": [
+                "zh"
+              ]
+            },
+            "cycle_enabled": {
+              "type": "boolean"
+            }
+          }
+        },
+        "recent_judgment_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "est_minutes": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        }
       }
     },
-    "scene_component_ids": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^[A-Za-z]+@\\d+\\.\\d+(\\.\\d+)?$" } },
-    "component_params": { "type": "object" },
+    "scene_component_ids": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z]+@\\d+\\.\\d+(\\.\\d+)?$"
+      }
+    },
+    "component_params": {
+      "type": "object"
+    },
     "experiment_model_version": {
-      "type": "object", "additionalProperties": false,
-      "required": ["id", "ver", "deterministic", "vars", "outputs", "reference_cases"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "ver",
+        "deterministic",
+        "vars",
+        "outputs",
+        "reference_cases"
+      ],
       "properties": {
-        "id": { "type": "string" },
-        "ver": { "type": "string" },
-        "deterministic": { "const": true },
+        "id": {
+          "type": "string"
+        },
+        "ver": {
+          "type": "string"
+        },
+        "deterministic": {
+          "const": true
+        },
         "vars": {
           "type": "object",
           "additionalProperties": {
-            "type": "object", "additionalProperties": false,
-            "required": ["unit", "min", "max", "step"],
-            "properties": { "unit": { "type": "string" }, "min": { "type": "number" }, "max": { "type": "number" }, "step": { "type": "number", "exclusiveMinimum": 0 } }
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "unit",
+              "min",
+              "max",
+              "step"
+            ],
+            "properties": {
+              "unit": {
+                "type": "string"
+              },
+              "min": {
+                "type": "number"
+              },
+              "max": {
+                "type": "number"
+              },
+              "step": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              }
+            }
           }
         },
         "outputs": {
           "type": "object",
           "additionalProperties": {
-            "type": "object", "additionalProperties": false,
-            "required": ["expr", "unit"],
-            "properties": { "expr": { "type": "string" }, "unit": { "type": "string" } }
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "expr",
+              "unit"
+            ],
+            "properties": {
+              "expr": {
+                "type": "string"
+              },
+              "unit": {
+                "type": "string"
+              }
+            }
           }
         },
         "reference_cases": {
-          "type": "array", "minItems": 1,
+          "type": "array",
+          "minItems": 1,
           "items": {
-            "type": "object", "additionalProperties": false, "required": ["in"],
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "in"
+            ],
             "properties": {
-              "in": { "type": "object", "additionalProperties": { "type": "number" } },
-              "out": { "type": "object", "additionalProperties": { "type": "number" } },
-              "expect": { "enum": ["reject_out_of_range"] }
+              "in": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "number"
+                }
+              },
+              "out": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "number"
+                }
+              },
+              "expect": {
+                "enum": [
+                  "reject_out_of_range"
+                ]
+              }
             }
           }
         }
       }
     },
     "activity_graph": {
-      "type": "array", "minItems": 1,
+      "type": "array",
+      "minItems": 1,
       "items": {
-        "type": "object", "additionalProperties": false,
-        "required": ["id", "type", "teaches", "complete"],
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "type",
+          "teaches",
+          "complete"
+        ],
         "properties": {
-          "id": { "type": "string" },
-          "type": { "enum": ["explain", "demo", "contrast", "predict", "transfer", "chat"] },
-          "teaches": { "type": ["string", "null"] },
-          "action": { "type": "string" },
-          "prompt": { "type": "string" },
-          "hints": { "type": "array", "items": { "type": "string" }, "maxItems": 3 },
-          "items": { "type": "array", "items": { "type": "string" } },
-          "no_theme": { "type": "boolean" },
-          "complete": { "type": "string" }
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "explain",
+              "demo",
+              "contrast",
+              "predict",
+              "transfer",
+              "chat"
+            ]
+          },
+          "teaches": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "action": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "hints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 3
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "no_theme": {
+            "type": "boolean"
+          },
+          "complete": {
+            "type": "string"
+          }
         }
       }
     },
     "hotspots": {
-      "type": "array", "minItems": 1,
+      "type": "array",
+      "minItems": 1,
       "items": {
-        "type": "object", "additionalProperties": false,
-        "required": ["id", "label", "anchor", "teaches", "language_pack"],
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "label",
+          "anchor",
+          "teaches",
+          "language_pack"
+        ],
         "properties": {
-          "id": { "type": "string" },
-          "label": { "type": "string" },
-          "anchor": { "type": "string" },
-          "teaches": { "type": ["string", "null"] },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "anchor": {
+            "type": "string"
+          },
+          "teaches": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "facts": {
             "type": "array",
             "items": {
-              "type": "object", "additionalProperties": false, "required": ["text", "ref"],
-              "properties": { "text": { "type": "string" }, "ref": { "type": "string" } }
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "text",
+                "ref"
+              ],
+              "properties": {
+                "text": {
+                  "type": "string"
+                },
+                "ref": {
+                  "type": "string"
+                }
+              }
             }
           },
           "language_pack": {
-            "type": "object", "additionalProperties": false, "required": ["zh", "en"],
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "zh",
+              "en"
+            ],
             "properties": {
-              "zh": { "type": "string" },
-              "en": { "type": "array", "items": { "type": ["string", "null"] }, "maxItems": 3 }
+              "zh": {
+                "type": "string"
+              },
+              "en": {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "maxItems": 3
+              }
             }
           }
         }
       }
     },
     "challenges": {
-      "type": "array", "minItems": 1, "maxItems": 3,
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 3,
       "items": {
-        "type": "object", "additionalProperties": false,
-        "required": ["id", "prompt", "answers", "with_theme", "hints"],
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "prompt",
+          "answers",
+          "with_theme",
+          "hints"
+        ],
         "properties": {
-          "id": { "type": "string" },
-          "prompt": { "type": "string" },
+          "id": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
           "answers": {
-            "type": "array", "minItems": 1,
+            "type": "array",
+            "minItems": 1,
             "items": {
-              "type": "object", "additionalProperties": false, "required": ["field", "value"],
-              "properties": { "field": { "type": "string" }, "label": { "type": "string" }, "value": { "type": ["number", "string"] }, "unit": { "type": "string" } }
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "field",
+                "value"
+              ],
+              "properties": {
+                "field": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": [
+                    "number",
+                    "string"
+                  ]
+                },
+                "unit": {
+                  "type": "string"
+                }
+              }
             }
           },
-          "with_theme": { "type": "boolean" },
-          "hints": { "type": "array", "items": { "type": "string" }, "maxItems": 3 }
+          "with_theme": {
+            "type": "boolean"
+          },
+          "hints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 3
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 2
+          }
         }
       }
     },
     "end_chat": {
-      "type": "object", "additionalProperties": false,
-      "required": ["skippable", "questions"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "skippable",
+        "questions"
+      ],
       "properties": {
-        "skippable": { "const": true },
+        "skippable": {
+          "const": true
+        },
         "questions": {
-          "type": "array", "minItems": 1, "maxItems": 3,
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
           "items": {
-            "type": "object", "additionalProperties": false,
-            "required": ["id", "kind", "prompt", "options"],
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "kind",
+              "prompt",
+              "options"
+            ],
             "properties": {
-              "id": { "type": "string" },
-              "kind": { "enum": ["reflection", "next_lesson_wish"] },
-              "prompt": { "type": "string" },
-              "options": { "type": "array", "minItems": 2, "items": { "type": "string" } },
-              "allow_own_words": { "type": "boolean" }
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "reflection",
+                  "next_lesson_wish"
+                ]
+              },
+              "prompt": {
+                "type": "string"
+              },
+              "options": {
+                "type": "array",
+                "minItems": 2,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "allow_own_words": {
+                "type": "boolean"
+              }
             }
           }
         }
@@ -202,82 +610,275 @@
     "object_asset_versions": {
       "type": "array",
       "items": {
-        "type": "object", "additionalProperties": false,
-        "required": ["asset_id", "kind", "realism", "ver", "license", "commercial_ok", "source", "depiction"],
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "asset_id",
+          "kind",
+          "realism",
+          "ver",
+          "license",
+          "commercial_ok",
+          "source",
+          "depiction"
+        ],
         "properties": {
-          "asset_id": { "type": "string" },
-          "kind": { "enum": ["organism", "object", "texture", "hdri", "photo"] },
-          "realism": { "enum": ["scan", "photo", "ai_from_photo", "pbr_measured", "pbr", "stylized"] },
-          "ver": { "type": "string" },
-          "license": { "type": "string" },
-          "commercial_ok": { "type": "boolean" },
-          "source": { "type": "string" },
-          "depiction": { "type": "string" },
-          "reference_photos": { "type": "array", "items": { "type": "string" } },
-          "checked_by": { "type": ["string", "null"] }
+          "asset_id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "organism",
+              "object",
+              "texture",
+              "hdri",
+              "photo"
+            ]
+          },
+          "realism": {
+            "enum": [
+              "scan",
+              "photo",
+              "ai_from_photo",
+              "pbr_measured",
+              "pbr",
+              "stylized"
+            ]
+          },
+          "ver": {
+            "type": "string"
+          },
+          "license": {
+            "type": "string"
+          },
+          "commercial_ok": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": "string"
+          },
+          "depiction": {
+            "type": "string"
+          },
+          "reference_photos": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "checked_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
         }
       }
     },
     "pending_assets": {
       "type": "array",
       "items": {
-        "type": "object", "additionalProperties": false,
-        "required": ["asset_id", "kind", "realism_required", "status", "until_ready"],
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "asset_id",
+          "kind",
+          "realism_required",
+          "status",
+          "until_ready"
+        ],
         "properties": {
-          "asset_id": { "type": "string" },
-          "kind": { "enum": ["organism", "object", "texture", "hdri", "photo"] },
-          "realism_required": { "enum": ["scan", "photo", "ai_from_photo", "pbr_measured", "pbr"] },
-          "status": { "type": "string" },
-          "until_ready": { "type": "string" }
+          "asset_id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "organism",
+              "object",
+              "texture",
+              "hdri",
+              "photo"
+            ]
+          },
+          "realism_required": {
+            "enum": [
+              "scan",
+              "photo",
+              "ai_from_photo",
+              "pbr_measured",
+              "pbr"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "until_ready": {
+            "type": "string"
+          }
         }
       }
     },
     "assessment_plan": {
-      "type": "object", "additionalProperties": false,
-      "required": ["in_lesson", "followup"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "in_lesson",
+        "followup"
+      ],
       "properties": {
-        "in_lesson": { "type": "array", "items": { "type": "string" } },
-        "followup": { "type": "string" },
-        "states": { "type": "array", "items": { "type": "string" } }
+        "in_lesson": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "followup": {
+          "type": "string"
+        },
+        "states": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       }
     },
     "offscreen": {
-      "type": "object", "additionalProperties": false,
-      "required": ["task", "adult", "optional"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task",
+        "adult",
+        "optional"
+      ],
       "properties": {
-        "task": { "type": "string" },
-        "adult": { "type": "boolean" },
-        "materials": { "type": "array", "items": { "type": "string" } },
-        "optional": { "const": true }
+        "task": {
+          "type": "string"
+        },
+        "adult": {
+          "type": "boolean"
+        },
+        "materials": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "optional": {
+          "const": true
+        }
       }
     },
-    "parent_tip": { "type": "string", "minLength": 4 },
+    "parent_tip": {
+      "type": "string",
+      "minLength": 4
+    },
     "source_refs": {
-      "type": "array", "minItems": 1,
+      "type": "array",
+      "minItems": 1,
       "items": {
-        "type": "object", "additionalProperties": false, "required": ["id", "for"],
-        "properties": { "id": { "type": "string" }, "for": { "type": "string" }, "url": { "type": "string" } }
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "for"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "for": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        }
       }
     },
     "distribution": {
-      "type": "object", "additionalProperties": false,
-      "required": ["scope", "tenant_id"],
-      "properties": { "scope": { "enum": ["family", "commercial"] }, "tenant_id": { "type": "string" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "tenant_id"
+      ],
+      "properties": {
+        "scope": {
+          "enum": [
+            "family",
+            "commercial"
+          ]
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      }
     },
     "review_records": {
       "type": "array",
       "items": {
-        "type": "object", "additionalProperties": false,
-        "required": ["category", "reviewer", "checked", "at"],
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "category",
+          "reviewer",
+          "checked",
+          "at"
+        ],
         "properties": {
-          "category": { "enum": ["科学", "教研", "语言", "安全"] },
-          "reviewer": { "type": "string" },
-          "checked": { "type": "array", "items": { "type": "string" } },
-          "at": { "type": "string" }
+          "category": {
+            "enum": [
+              "科学",
+              "教研",
+              "语言",
+              "安全"
+            ]
+          },
+          "reviewer": {
+            "type": "string"
+          },
+          "checked": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "at": {
+            "type": "string"
+          }
         }
       }
     },
-    "content_hash": { "type": "string" },
-    "published_at": { "type": "string" }
+    "content_hash": {
+      "type": "string"
+    },
+    "published_at": {
+      "type": "string"
+    },
+    "intro": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "headline",
+        "paragraphs"
+      ],
+      "properties": {
+        "headline": {
+          "type": "string"
+        },
+        "paragraphs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": {
+            "type": "string"
+          }
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    }
   }
 }

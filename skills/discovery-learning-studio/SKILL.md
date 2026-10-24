@@ -48,7 +48,7 @@ pnpm -s dls theme content/lessons/L-XXX/1.0 --component PerimeterArea --write
 
 把建议告诉家长；家长可以改。工具提示“待开发”的主题皮肤，要转告家长需要开素材工单，这节课先用可用的主题。
 
-再补全 `02-director.json`：标题、`scene_component_ids`、`component_params`、实验模型（变量范围 + 公式 + 参考算例，必须含越界算例）、活动图、热点（中文 1 条 + 英文 3 条）、≤ 3 道挑战（至少一道不带主题的迁移题）、课末反思问题、评估计划、可选离屏任务、家长提示、出处。每个活动节点和热点都写 `teaches`。字段说明见 [reference/lessonspec.md](reference/lessonspec.md)，组件能力见 [reference/components.md](reference/components.md)，主题映射见 [reference/themes.md](reference/themes.md)。
+再补全 `02-director.json`：标题、说明页 `intro`、`scene_component_ids`、`component_params`、实验模型（变量范围 + 公式 + 参考算例，必须含越界算例）、活动图、热点（中文 1 条 + 英文 3 条）、≤ 3 道挑战（至少一道不带主题的迁移题）、课末反思问题、评估计划、可选离屏任务、家长提示、出处。每个活动节点和热点都写 `teaches`。字段说明见 [reference/lessonspec.md](reference/lessonspec.md)，组件能力见 [reference/components.md](reference/components.md)，主题映射见 [reference/themes.md](reference/themes.md)。
 
 ### 3. 素材检索核验 → `03-assets.json`
 
@@ -71,6 +71,14 @@ pnpm -s dls validate content/lessons/L-XXX/1.0
 ```
 
 V01–V14 全部无错误才能继续；警告要告诉家长。按每条问题后面的“→”提示修改阶段文件，再从阶段 4 重跑。规则解释见 [reference/validation.md](reference/validation.md)。
+
+### 预览（阶段 5 之后、审核之前）
+
+```
+pnpm -s dls preview content/lessons/L-XXX/1.0
+```
+
+生成 `preview.html`，浏览器直接打开就能完整走一遍课（写实 3D 场景、热点讲解、挑战判题、课末心愿）。把它发给家长审核时一起看。
 
 ### 6. 审核与发布 → `06-review.json` + 冻结包
 
