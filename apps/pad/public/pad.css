@@ -8,3 +8,6 @@
 .lesson b{font-size:20px}
 .bar{display:flex;gap:14px;align-items:center;margin-bottom:16px}.bar h1{margin:0}
 .center{text-align:center}
+.hint{margin-top:28px;border:1px dashed var(--line,#ccd);border-radius:14px;padding:14px 16px;font-size:15px;line-height:1.6}
+.hint .ico{display:inline-block;border:1px solid currentColor;border-radius:5px;padding:0 5px;font-size:13px}
+body{padding-top:env(safe-area-inset-top)}

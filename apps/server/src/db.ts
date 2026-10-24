@@ -33,7 +33,7 @@ create table if not exists drafts (key text not null, tenant_id text not null, f
   status text not null, note text, submitted_by text not null, submitted_at text not null, primary key (tenant_id, key));
 create table if not exists feedback (id text primary key, tenant_id text not null, child text not null, source text not null, said text not null,
   context text, kind text not null, ref text, created_at text not null);
-create table if not exists media (id text primary key, tenant_id text not null, asset_id text not null, kind text not null, mime text not null,
+create table if not exists media (id text primary key, tenant_id text not null, asset_id text not null, kind text not null, origin text not null default '实拍', mime text not null,
   file text not null, key text not null, credit text not null, license text not null, source_url text, caption text, length_cm real,
   added_by text not null, created_at text not null);
 `;
@@ -42,7 +42,7 @@ export type Role = 'parent' | 'device';
 export interface SessionRow { key: string; child: string; lesson_key: string; started_on: string; updated_at: string; finished: number }
 export interface JudgmentRow { id: string; child: string; homework_ref: string; status: '草稿' | '已确认'; created_at: string; confirmed_at: string | null; judgment: LearningJudgment; card: ParentCard | null; card_used: number }
 export interface MediaRow {
-  id: string; asset_id: string; kind: 'photo' | 'video' | 'model'; mime: string; file: string; key: string; credit: string; license: string;
+  id: string; asset_id: string; kind: 'photo' | 'video' | 'model'; origin: string; mime: string; file: string; key: string; credit: string; license: string;
   source_url: string | null; caption: string | null; length_cm: number | null; added_by: string; created_at: string;
 }
 export interface EventIn { id: string; at: string; type: string; [k: string]: unknown }
@@ -53,6 +53,8 @@ export class Store {
     this.db = new DatabaseSync(path);
     this.db.exec('pragma journal_mode = wal; pragma foreign_keys = on;');
     this.db.exec(SCHEMA);
+    // media.origin came after the first media release
+    if (!this.all<{ name: string }>('pragma table_info(media)').some(c => c.name === 'origin')) this.db.exec("alter table media add column origin text not null default '实拍'");
   }
   private all<T>(sql: string, ...p: (string | number | null)[]): T[] { return this.db.prepare(sql).all(...p) as T[]; }
   private get<T>(sql: string, ...p: (string | number | null)[]): T | undefined { return this.db.prepare(sql).get(...p) as T | undefined; }
@@ -230,8 +232,8 @@ export class Store {
   // real photos, videos and scans of organisms (BL14), shown until a photoreal model is in the component
   addMedia(m: Omit<MediaRow, 'id' | 'created_at'>, now: string): MediaRow {
     const id = this.nextId('media', 'MD');
-    this.run('insert into media (id, tenant_id, asset_id, kind, mime, file, key, credit, license, source_url, caption, length_cm, added_by, created_at) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-      id, this.tenant, m.asset_id, m.kind, m.mime, m.file, m.key, m.credit, m.license, m.source_url, m.caption, m.length_cm, m.added_by, now);
+    this.run('insert into media (id, tenant_id, asset_id, kind, origin, mime, file, key, credit, license, source_url, caption, length_cm, added_by, created_at) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      id, this.tenant, m.asset_id, m.kind, m.origin, m.mime, m.file, m.key, m.credit, m.license, m.source_url, m.caption, m.length_cm, m.added_by, now);
     return this.media(id)!;
   }
   media(id: string) { return this.get<MediaRow>('select * from media where tenant_id=? and id=?', this.tenant, id); }

@@ -55,8 +55,15 @@ async function pairScreen() {
   } catch (e) { msg.textContent = `连不上服务器：${(e as Error).message}`; }
 }
 
+// Opened in Safari rather than from the home-screen icon: show once how to get the full-screen app.
+function installHint() {
+  const standalone = matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone;
+  if (standalone) return '';
+  return `<div class="hint"><b>装成桌面 App：</b>在 Safari 里点顶部的分享按钮 <span class="ico">⬆︎</span>，选“添加到主屏幕”。以后从桌面的“探索世界”图标打开，就是全屏，没有地址栏。</div>`;
+}
+
 async function chooseChild() {
-  shell(`<h1>今天谁来学？</h1><div class="kids" id="kids">…</div>`);
+  shell(`<h1>今天谁来学？</h1><div class="kids" id="kids">…</div>${installHint()}`);
   try {
     const kids = await api<Child[]>('/v1/children');
     kv.set('adw.children', JSON.stringify(kids));

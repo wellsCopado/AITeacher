@@ -214,7 +214,14 @@ describe('organism media', () => {
     expect((await req('POST', '/v1/organisms/M-not-there/media', parent, {})).status).toBe(404);
     const m = (await add({ caption: '出击', length_cm: 16 })).body;
     expect(m).toMatchObject({ kind: 'video', length_cm: 16, credit: '拍摄者' });
-    expect((await req('GET', '/v1/media', pad)).body.map((x: { id: string }) => x.id)).toEqual([m.id]);
+    const listed = (await req('GET', '/v1/media', pad)).body as { id: string; builtin?: boolean; url: string; kind: string }[];
+    expect(listed.filter(x => !x.builtin).map(x => x.id)).toEqual([m.id]);
+    // pictures that ship with the program, including the cut-out used in the 3D scene
+    const cut = listed.find(x => x.builtin && x.kind === 'cutout')!;
+    const img = await app.inject({ method: 'GET', url: cut.url });
+    expect(img.statusCode).toBe(200);
+    expect(img.headers['content-type']).toBe('image/webp');
+    expect((await app.inject({ method: 'GET', url: '/organism-assets/M-peacock-mantis-shrimp/..%2F..%2Fchildren.json' })).statusCode).toBe(404);
 
     const full = await app.inject({ method: 'GET', url: m.url });
     expect(full.statusCode).toBe(200);
@@ -227,6 +234,6 @@ describe('organism media', () => {
     expect((await app.inject({ method: 'GET', url: `/v1/media/${m.id}/wrongkey` })).statusCode).toBe(404);
 
     expect((await req('DELETE', `/v1/media/${m.id}`, parent)).status).toBe(200);
-    expect((await req('GET', '/v1/media', pad)).body).toEqual([]);
+    expect((await req('GET', '/v1/media', pad)).body.filter((x: { builtin?: boolean }) => !x.builtin)).toEqual([]);
   });
 });

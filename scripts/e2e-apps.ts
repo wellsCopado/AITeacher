@@ -29,6 +29,12 @@ try {
   const parentCtx = await browser.newContext({ viewport: { width: 1100, height: 800 } });
   const parent = await parentCtx.newPage();
   const padCtx = await browser.newContext({ viewport: { width: 1180, height: 820 }, reducedMotion: 'reduce', hasTouch: true });
+  // Record what the Pad asks the device voice to say.
+  await padCtx.addInitScript(() => {
+    const w = window as any; w.__spoken = [];
+    const orig = speechSynthesis.speak.bind(speechSynthesis);
+    speechSynthesis.speak = (u: SpeechSynthesisUtterance) => { w.__spoken.push({ text: u.text, lang: u.lang, volume: u.volume }); orig(u); };
+  });
   const pad = await padCtx.newPage();
   const errors: string[] = [];
   for (const p of [parent, pad]) p.on('pageerror', (e: Error) => errors.push(e.message));
@@ -71,7 +77,7 @@ try {
   check(await parent.locator('.draft').count() === 2, '两节样课在课程库等审核');
   const card = parent.locator('.draft[data-k="L-PA@1.0"]');
   const [pv] = await Promise.all([parentCtx.waitForEvent('page'), card.locator('a.btn').click()]);
-  await pv.waitForSelector('#next', { timeout: 20000 });
+  await pv.waitForSelector('#start', { timeout: 20000 });
   check((await pv.textContent('h1'))?.includes('螳螂虾'), '家长端能预览待审核的课');
   await pv.close();
 
@@ -79,6 +85,7 @@ try {
   const auto = await parentCtx.newPage();
   auto.on('pageerror', (e: Error) => errors.push(e.message));
   await auto.goto(`${base}/pad/preview.html?adw_time=60#key=L-PA%401.0&t=${encodeURIComponent(tok!)}`);
+  await auto.click('#start');
   await auto.waitForSelector('#next');
   check(await auto.locator('#next').isDisabled(), '说明没听完，「开始演示」是锁着的');
   check(!(await auto.$('#lang')) && !(await auto.$('[data-zh]')), '没有讲解语言选择，也没有纯中文按钮');
@@ -108,7 +115,12 @@ try {
   await pad.screenshot({ path: join(shots, 'pad-today.png') });
   check((await pad.textContent('.lesson'))?.includes('今天的课'), '孩子看到今天的课');
   await pad.click('.lesson');
+  await pad.waitForSelector('#start');
+  check((await pad.textContent('#body'))?.includes('开始上课'), '先点一下“开始上课”，同时打开声音');
+  await pad.click('#start');
   await pad.waitForSelector('#next');
+  const spoken = await pad.evaluate(() => (window as any).__spoken as { text: string; lang: string; volume: number }[]);
+  check(spoken.some(u => u.lang === 'zh-CN' && u.volume !== 0 && u.text.includes('潜到珊瑚礁海底')), '点“开始上课”后，iPad 语音马上开始读说明');
   check(!(await pad.$('.side')), 'Pad 上不显示家长侧栏');
   check(await pad.locator('.step').first().isDisabled(), '孩子不能点上面的步骤跳着走');
   await pad.waitForSelector('#cap:not([hidden])');
@@ -130,8 +142,11 @@ try {
   check(await pad.locator('#next').isEnabled(), '跟着引导一件件做完，「去挑战」才打开');
   await pad.locator('[data-act="focus"]').click();
   await pad.waitForSelector('.observe img');
-  check((await pad.textContent('.observe'))?.includes('身长约 16 厘米') && (await pad.textContent('.observe'))?.includes('测试拍摄者'), '点螳螂虾的洞打开实拍观察窗，带身长对比和作者授权');
-  check(await pad.evaluate(() => (document.querySelector('.observe img') as HTMLImageElement).naturalWidth === 1), '实拍照片从本机服务器加载成功');
+  check(await pad.evaluate(() => (window as any).__spoken.some((u: { lang: string; text: string }) => u.text.includes('螳螂虾') || u.lang === 'en-US')), '点螳螂虾的洞，讲解读出声');
+  const obs = (await pad.textContent('.observe'))!;
+  check(obs.includes('身长约 16 厘米') && obs.includes('AI 写实图') && obs.includes('1/4'), '点螳螂虾的洞打开观察窗：自带 3 张写实图加家长传的 1 张，标明来源和身长对比');
+  await pad.waitForFunction(() => (document.querySelector('.observe img') as HTMLImageElement)?.naturalWidth > 100);
+  ok('写实图从本机服务器加载成功');
   await pad.screenshot({ path: join(shots, 'pad-observe.png') });
 
   // Wi-Fi drops: the child keeps going, events wait in the queue.

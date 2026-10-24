@@ -29,3 +29,4 @@ table{width:100%;border-collapse:collapse;background:var(--surface);border-radiu
 .media{margin:0;border:1px solid var(--line);border-radius:10px;padding:6px}.media img,.media video,.media .glb{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:6px;display:grid;place-items:center;background:#0c1116;color:#fff}
 .addmedia{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;border-top:1px dashed var(--line);padding-top:8px}.addmedia .wide{flex-basis:100%}
 .addmedia input:not([type=checkbox]):not([type=file]){font:inherit;padding:5px 7px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:inherit}
+.media img.cutout{object-fit:contain;background:#c9bfa6}

@@ -26,7 +26,12 @@ const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&a
 const h = (html: string) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild as HTMLElement; };
 
 /** Real photos, videos or scans the parent registered for an organism that has no photoreal model yet. */
-export interface OrganismMedia { id: string; asset_id: string; kind: 'photo' | 'video' | 'model'; url: string; credit: string; license: string; caption?: string | null; length_cm?: number | null }
+export interface OrganismMedia {
+  id: string; asset_id: string; kind: 'photo' | 'video' | 'model' | 'cutout'; origin?: string; url: string; credit: string; license: string;
+  caption?: string | null; length_cm?: number | null;
+  /** cutout only: where the body starts and ends across the picture's width (0–1), to place it at true size. */
+  body?: [number, number] | null;
+}
 
 export interface PlayOptions {
   childName?: string; /** Pad mode: no parent side panel. */ kid?: boolean; onExit?: () => void;
@@ -162,7 +167,7 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
   // The real animal, from the photos, videos or scans the parent registered. Never a stand-in model (BL14).
   function showOrganism(stage: HTMLElement) {
     stage.querySelector('.observe,.pending-card')?.remove();
-    const media = shrimpMedia.filter(m => m.kind !== 'model');
+    const media = shrimpMedia.filter(m => m.kind === 'photo' || m.kind === 'video');
     if (!media.length) {
       stage.appendChild(h(`<div class="pending-card">螳螂虾的实拍素材还没到位，家长在「课程库 · 生物素材」加上后会出现在这里<br><span class="dimtext">写实底线：不用卡通或简化模型代替</span></div>`));
       return;
@@ -175,7 +180,7 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
       (box.querySelector('.frame') as HTMLElement).innerHTML = m.kind === 'video'
         ? `<video src="${esc(m.url)}" autoplay muted loop playsinline controls></video>`
         : `<img src="${esc(m.url)}" alt="${esc(m.caption ?? '孔雀螳螂虾实拍')}">`;
-      (box.querySelector('figcaption') as HTMLElement).innerHTML = `<span class="tag">${m.kind === 'video' ? '实拍视频' : '实拍照片'}</span>${esc(m.caption ?? '')}${m.length_cm ? ` · 身长约 ${esc(m.length_cm)} 厘米，是样方边长 1 米的 ${esc(Math.round(m.length_cm))}/100` : ''}<br><span class="dimtext">${esc(m.credit)} · ${esc(m.license)}</span>`;
+      (box.querySelector('figcaption') as HTMLElement).innerHTML = `<span class="tag">${esc(!m.origin || m.origin === '实拍' ? (m.kind === 'video' ? '实拍视频' : '实拍照片') : m.origin)}</span>${esc(m.caption ?? '')}${m.length_cm ? ` · 身长约 ${esc(m.length_cm)} 厘米，是样方边长 1 米的 ${esc(Math.round(m.length_cm))}/100` : ''}<br><span class="dimtext">${esc(m.credit)} · ${esc(m.license)}</span>`;
       const n = box.querySelector('[data-n]'); if (n) n.textContent = `${k + 1}/${media.length}`;
       log('organism_media', { media: m.id, kind: m.kind });
     };
@@ -255,7 +260,9 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
         </div>
       </div>`;
     const stage = $('#stage');
+    const cut = shrimpMedia.find(m => m.kind === 'cutout');
     scene = mount(stage, comp, sp.component_params[name] as Record<string, unknown>, {
+      organism: cut ? { url: cut.url, lengthM: (cut.length_cm ?? 16) / 100, body: cut.body ?? [0, 1] } : undefined,
       hotspots: sp.hotspots.map(x => ({ anchor: x.anchor, label: x.label })),
       onHotspot: a => playHotspot(a),
       onPick: info => log('pick', info),
@@ -437,7 +444,13 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
   }
 
   renderPointers();
-  go(0);
+  // Start with one big tap: it turns sound on (iPad needs a tap first) and the lesson begins with the voice.
+  renderSteps();
+  $('#guide').hidden = true;
+  $('#body').innerHTML = `<div class="startcard"><p class="lead">${esc(sp.title)}</p><p class="muted">一共 ${STEPS.length} 步，每一步都有时间。把声音打开，准备好了就点下面。</p>
+    <button class="btn primary big" id="start">🔊 开始上课</button>
+    <p class="muted small">点了没有声音：按 iPad 侧面的音量加键，再看控制中心里的静音铃铛是不是开着。</p></div>`;
+  $('#start').onclick = () => { voice.unlock(); log('start'); go(0); };
   return { events, dispose: () => { scene?.dispose(); clock?.stop(); subClock?.stop(); voice.stop(); } };
 }
 

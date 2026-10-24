@@ -12,6 +12,8 @@ export interface MountOptions {
   onPick?(info: Record<string, unknown>): void;
   /** Progress while an action runs, e.g. metres walked or quadrats placed. */
   onProgress?(action: string, value: number): void;
+  /** A cut-out top view of the animal that lives in the burrow, placed at true size (BL14: photoreal only). */
+  organism?: { url: string; lengthM: number; body: [number, number] };
 }
 export interface Instance {
   readonly componentId: string;
@@ -68,6 +70,7 @@ export function mount(el: HTMLElement, componentId: string, params: Record<strin
       onWalk: (d: number) => opts.onProgress?.('walk', d), onWalkDone: done('walk'),
       onFill: (n: number) => opts.onProgress?.('fill', n), onFillDone: done('fill'),
       onReveal: (n: number) => opts.onProgress?.('reveal', n), onRevealDone: done('reveal'),
+      organism: opts.organism,
     });
 
   return {

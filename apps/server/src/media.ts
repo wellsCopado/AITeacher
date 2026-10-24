@@ -2,7 +2,7 @@
 // thing instead — photos, videos or scans the parent adds here, each with who made it and its licence.
 // Files are served by an unguessable per-file key so <img>/<video> can load them without a login header.
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import type { AssetEntry } from '../../../packages/schema/src/index.js';
@@ -24,9 +24,23 @@ export const MEDIA_TYPES: Record<string, { ext: string; kind: MediaRow['kind'] }
 const MAX_BYTES = 48 * 1024 * 1024;
 
 export const publicMedia = (m: MediaRow) => ({
-  id: m.id, asset_id: m.asset_id, kind: m.kind, url: `/v1/media/${m.id}/${m.key}`, credit: m.credit, license: m.license,
+  id: m.id, asset_id: m.asset_id, kind: m.kind, origin: m.origin ?? '实拍', url: `/v1/media/${m.id}/${m.key}`, credit: m.credit, license: m.license,
   source_url: m.source_url, caption: m.caption, length_cm: m.length_cm, created_at: m.created_at,
 });
+
+/** Pictures that ship with the program, in content/assets/organisms/<asset>/media.json. */
+interface Builtin { file: string; kind: 'photo' | 'video' | 'cutout'; origin: string; caption?: string; length_cm?: number; width_px_body?: [number, number] }
+const ORIGINS = ['实拍', '标本扫描', 'AI 写实图'];
+function builtins(root: string, asset?: string) {
+  const dir = join(root, 'content', 'assets', 'organisms');
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir).filter(a => (!asset || a === asset) && existsSync(join(dir, a, 'media.json'))).flatMap(a =>
+    readJson<Builtin[]>(join(dir, a, 'media.json')).map((b, i) => ({
+      id: `${a}#${i + 1}`, asset_id: a, kind: b.kind, origin: b.origin, url: `/organism-assets/${a}/${b.file}`,
+      credit: '家长提供', license: '家用；AI 生成图，商用前换成实拍或授权素材', source_url: null, caption: b.caption ?? null,
+      length_cm: b.length_cm ?? null, body: b.width_px_body ?? null, builtin: true, created_at: null,
+    })));
+}
 
 export function mediaRoutes(app: FastifyInstance, d: Deps) {
   const { store } = d;
@@ -34,16 +48,28 @@ export function mediaRoutes(app: FastifyInstance, d: Deps) {
     .filter(a => a.kind === 'organism' && a.status !== '拒绝');
 
   app.get('/v1/organisms', d.parent, async () => organisms().map(a => ({
-    asset_id: a.asset_id, name: a.name, status: a.status, real_scale: a.real_scale ?? null, media: store.mediaFor(a.asset_id).map(publicMedia),
+    asset_id: a.asset_id, name: a.name, status: a.status, real_scale: a.real_scale ?? null,
+    media: [...builtins(d.root, a.asset_id), ...store.mediaFor(a.asset_id).map(publicMedia)],
   })));
-  app.get('/v1/media', d.anyone, async req => store.mediaFor((req.query as { asset?: string }).asset).map(publicMedia));
+  app.get('/v1/media', d.anyone, async req => {
+    const asset = (req.query as { asset?: string }).asset;
+    return [...builtins(d.root, asset), ...store.mediaFor(asset).map(publicMedia)];
+  });
+  app.get('/organism-assets/:asset/:file', async (req, reply) => {
+    const { asset, file } = req.params as { asset: string; file: string };
+    const b = builtins(d.root, asset).find(x => x.url.endsWith('/' + file)) ?? fail(404, '没有这个素材');
+    const ext = file.split('.').pop()!;
+    reply.header('cache-control', 'public, max-age=604800').type(({ jpg: 'image/jpeg', webp: 'image/webp', png: 'image/png', mp4: 'video/mp4' } as Record<string, string>)[ext] ?? 'application/octet-stream');
+    return readFileSync(join(d.root, 'content', 'assets', 'organisms', b.asset_id, file));
+  });
 
   app.post('/v1/organisms/:asset/media', { ...d.parent, bodyLimit: Math.ceil(MAX_BYTES * 1.4) }, async req => {
     const asset = (req.params as { asset: string }).asset;
     if (!organisms().some(a => a.asset_id === asset)) fail(404, '资产库里没有这个生物');
     const b = (req.body ?? {}) as Record<string, unknown>;
     const t = MEDIA_TYPES[String(b.mime ?? '')] ?? fail(400, '格式不支持：照片 jpg/png/webp，视频 mp4/mov/webm，扫描模型 glb');
-    if (b.real !== true) fail(400, '要先确认这是实拍、标本扫描，或依据实拍照片做的写实模型，不是卡通或绘画');
+    if (b.real !== true) fail(400, '要先确认这是写实的（实拍、标本扫描或 AI 写实图），不是卡通或绘画');
+    const origin = ORIGINS.includes(String(b.origin)) ? String(b.origin) : '实拍';
     const credit = String(b.credit ?? '').trim().slice(0, 200), license = String(b.license ?? '').trim().slice(0, 100);
     if (!credit) fail(400, '写上作者或来源（例如 维基共享资源 · 某某）');
     if (!license) fail(400, '写上授权（例如 CC BY-SA 4.0、自己拍的）');
@@ -58,7 +84,7 @@ export function mediaRoutes(app: FastifyInstance, d: Deps) {
     const file = `${asset}-${key}.${t.ext}`;
     writeFileSync(join(d.mediaDir, file), buf);
     return publicMedia(store.addMedia({
-      asset_id: asset, kind: t.kind, mime: String(b.mime), file, key, credit, license, source_url: url,
+      asset_id: asset, kind: t.kind, origin, mime: String(b.mime), file, key, credit, license, source_url: url,
       caption: b.caption ? String(b.caption).slice(0, 120) : null, length_cm: len, added_by: req.who ?? '家长',
     }, d.iso()));
   });

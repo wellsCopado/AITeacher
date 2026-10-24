@@ -28,6 +28,8 @@ export interface Voice {
   /** Resolves when the line has been read out (or, without sound, after the time it takes to read it). */
   speak(text: string, lang: Lang): Promise<void>;
   stop(): void;
+  /** Call inside a tap: iPad Safari only lets a page make sound after one. */
+  unlock(): void;
   tap(): void;
   chime(): void;
   tick(): void;
@@ -49,15 +51,26 @@ export function createVoice(scale = 1): Voice {
     return all.find(v => /Tingting|Ting-Ting|Samantha|Karen|Daniel|Xiaoxiao|Yaoyao/i.test(v.name)) ?? all.find(v => v.localService) ?? all[0];
   };
 
+  // iPad Safari: sound only starts from a finished tap (touchend / click, not touchstart or pointerdown),
+  // and the side mute switch silences web audio unless the page asks for "playback".
+  let warmed = false, warmOnly = false;
   const unlock = () => {
     try {
+      const nav = navigator as Navigator & { audioSession?: { type: string } };
+      if (nav.audioSession) nav.audioSession.type = 'playback';
       const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       if (AC && !ctx) ctx = new AC();
-      void ctx?.resume();
-      if (synth && !synth.speaking) synth.speak(new SpeechSynthesisUtterance(' '));
+      if (ctx && ctx.state !== 'running') {
+        void ctx.resume();
+        const src = ctx.createBufferSource(); src.buffer = ctx.createBuffer(1, 1, 22050); src.connect(ctx.destination); src.start(0);
+      }
+      if (synth && !warmed) { warmed = true; const u = new SpeechSynthesisUtterance('。'); u.volume = 0; u.lang = 'zh-CN'; u.onend = () => { warmOnly = false; }; warmOnly = true; synth.speak(u); }
     } catch { /* no audio on this device */ }
+    if (ctx?.state === 'running' && warmed) for (const t of ['touchend', 'click']) window.removeEventListener(t, unlock, true);
   };
-  if (typeof window !== 'undefined') window.addEventListener('pointerdown', unlock, { once: true, capture: true });
+  if (typeof window !== 'undefined') for (const t of ['touchend', 'click']) window.addEventListener(t, unlock, true);
+  // Safari drops an utterance that is garbage-collected mid-sentence (and never fires its end), so keep them.
+  const live: SpeechSynthesisUtterance[] = [];
 
   const tone = (freqs: number[], dur: number, gain: number, type: OscillatorType = 'sine') => {
     if (v.muted || !ctx) return;
@@ -78,7 +91,10 @@ export function createVoice(scale = 1): Voice {
       const est = readingTime(text) * 1000 / scale;
       const parts = runs(text, lang);
       if (!synth || v.muted || !parts.length) return wait(est);
-      synth.cancel();
+      // cancel() right before speak() makes Safari drop the new line, so only cancel when something is playing
+      if ((synth.speaking || synth.pending) && !warmOnly) synth.cancel();
+      warmOnly = false;
+      live.length = 0;
       return new Promise<void>(res => {
         let done = false;
         const finish = () => { if (!done) { done = true; res(); } };
@@ -89,6 +105,7 @@ export function createVoice(scale = 1): Voice {
           u.rate = r.lang === 'en' ? 0.88 : 0.95; u.pitch = 1.05;
           // A voice that fails (e.g. sound not unlocked yet) still gives the child time to read the subtitle.
           if (i === parts.length - 1) { u.onend = finish; u.onerror = () => { void wait(est).then(finish); }; }
+          live.push(u);
           synth.speak(u);
         });
         // Some devices never fire onend; never let a lesson hang on that.
@@ -96,6 +113,7 @@ export function createVoice(scale = 1): Voice {
         cancels.add(finish);
       });
     },
+    unlock() { unlock(); },
     stop() { synth?.cancel(); cancels.forEach(f => f()); cancels.clear(); },
     tap() { tone([1320], 0.05, 0.05, 'triangle'); },
     chime() { tone([660, 880, 1320], 0.22, 0.08); },

@@ -66,3 +66,17 @@ h1{font-size:20px;margin:0}.muted{color:var(--muted)}.small{font-size:13px}.dimt
 .cap[hidden]{display:none}
 .reading{background:color-mix(in srgb,#ffd166 30%,transparent);border-radius:6px;box-shadow:0 0 0 4px color-mix(in srgb,#ffd166 30%,transparent)}
 .card[hidden]{display:none}
+.startcard{text-align:center;padding:48px 16px}.startcard .lead{font-size:26px}
+.btn.big{font-size:22px;padding:16px 36px;border-radius:16px;margin-top:12px}
+/* Pad: the lesson fills the screen; only what the child needs is on top */
+.adw.kid{padding:8px max(10px,env(safe-area-inset-right)) 8px max(10px,env(safe-area-inset-left));max-width:none}
+.adw.kid .pad{border:0;padding:6px 4px;background:transparent}
+.adw.kid .pad-head{align-items:center}
+.adw.kid .pad-head h1{font-size:17px}
+.adw.kid .pad-head .muted,.adw.kid .langtag{display:none}
+.adw.kid .steps{margin:6px 0}.adw.kid .step{padding:2px 10px;font-size:12px}.adw.kid .step .t{display:none}
+.adw.kid .guide{margin-bottom:8px;padding:8px 10px}
+.adw.kid .clock{width:50px;height:50px}
+.adw.kid .demo{grid-template-columns:minmax(0,1fr) 300px}
+.adw.kid .stage{aspect-ratio:auto;height:calc(100vh - 210px);min-height:360px}
+.adw.kid .panel .card{margin:6px 0}
