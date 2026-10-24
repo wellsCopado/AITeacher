@@ -1,5 +1,5 @@
 // Lesson player: renders one frozen LessonSpec with the pre-reviewed components.
-// Used by `dls preview` now and by the Pad app in M3, which will also send the recorded events to the server.
+// Used by `dls preview` (with the parent side panel) and by the Pad app (`kid: true`, events sent to the server).
 import type { Challenge, LessonSpec } from '../../schema/src/index.js';
 import { mount, type Instance } from '../../components/src/index.js';
 import { pointerKey, utterance, type LangMode } from './language.js';
@@ -17,7 +17,9 @@ const STEPS = ['说明', '互动演示', '挑战', '聊聊（可跳过）'];
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 const h = (html: string) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild as HTMLElement; };
 
-export function play(root: HTMLElement, sp: LessonSpec, opts: { childName?: string } = {}) {
+export interface PlayOptions { childName?: string; /** Pad mode: no parent side panel. */ kid?: boolean; onExit?: () => void }
+
+export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) {
   const lessonKey = `${sp.lesson_id}@${sp.version}`;
   const events: LessonEvent[] = [];
   const pointers: Record<string, number> = {};
@@ -36,7 +38,7 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: { childName?: stri
   };
 
   root.innerHTML = `
-  <div class="adw">
+  <div class="adw${opts.kid ? ' kid' : ''}">
     <main class="pad">
       <header class="pad-head">
         <div><h1>${esc(sp.title)}</h1><p class="muted">${esc(opts.childName ?? sp.for_child)} · ${esc(sp.primary_concept.name)} · v${esc(sp.version)}</p></div>
@@ -45,14 +47,14 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: { childName?: stri
       <nav class="steps" id="steps"></nav>
       <section id="body"></section>
     </main>
-    <aside class="side">
+    ${opts.kid ? '' : `<aside class="side">
       <h2>家长看</h2>
       <p>${esc(sp.parent_tip)}</p>
       <p class="muted">主题：${esc(sp.theme.name)}（${esc(sp.theme.why)}）</p>
       ${sp.pending_assets?.length ? `<p class="muted">待到位素材：${sp.pending_assets.map(p => esc(p.asset_id)).join('、')}，到位前不展示。</p>` : ''}
       <h2>讲解语言计数</h2><div id="ptr"></div>
       <h2>学习记录</h2><ol id="log" class="log"></ol>
-    </aside>
+    </aside>`}
   </div>`;
   const $ = (sel: string) => root.querySelector(sel) as HTMLElement;
   ($('#lang') as HTMLSelectElement).value = mode;
@@ -63,7 +65,8 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: { childName?: stri
     el.innerHTML = events.slice(-12).reverse().map(e => `<li><code>${esc(e.at.slice(11, 19))}</code> ${esc(e.type)} ${esc(Object.entries(e).filter(([k]) => k !== 'at' && k !== 'type').map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' '))}</li>`).join('');
   }
   function renderPointers() {
-    $('#ptr').innerHTML = sp.hotspots.map(hs => {
+    const ptr = root.querySelector('#ptr'); if (!ptr) return;
+    ptr.innerHTML = sp.hotspots.map(hs => {
       const n = pointers[pointerKey(sp.for_child, lessonKey, hs.id)] ?? 0;
       return `<div class="ptr"><span>${esc(hs.label)}</span><span>${n} 次</span></div>`;
     }).join('');
@@ -137,7 +140,7 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: { childName?: stri
     });
     root.querySelectorAll<HTMLButtonElement>('[data-act]').forEach(b => b.onclick = async () => {
       const a = b.dataset.act!;
-      log('action', { action: a });
+      log('action', { action: a, label: b.textContent?.trim() });
       if (a === 'focus') { scene?.focus('shrimp'); playHotspot('shrimp'); return; }
       b.disabled = true; await scene?.run(a); b.disabled = false; log('action_done', { action: a });
     });
@@ -218,8 +221,9 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: { childName?: stri
       <p>${solved.size ? `你做对了 ${solved.size} 道题${[...solved].length < sp.challenges.length ? '，其他的下次再试' : ''}。` : '今天主要在看和试，题目下次再做也可以。'}</p>
       <p class="muted small">这里只说看到的事情，不打分、不排名。</p></div>
       ${sp.offscreen ? `<div class="card"><p><b>可以不做的家里小任务</b></p><p>${esc(sp.offscreen.task)}</p><p class="muted small">${sp.offscreen.adult ? '需要大人陪同 · ' : ''}材料：${esc((sp.offscreen.materials ?? []).join('、'))} · 没材料就跳过。</p></div>` : ''}
-      <div class="row"><button class="btn" id="again">再玩一次演示</button></div>`;
+      <div class="row"><button class="btn" id="again">再玩一次演示</button>${opts.onExit ? '<button class="btn" id="exit">回到今天的课</button>' : ''}</div>`;
     $('#again').onclick = () => go(1);
+    if (opts.onExit) $('#exit').onclick = opts.onExit;
     log('lesson_end', { solved: [...solved] });
   }
 

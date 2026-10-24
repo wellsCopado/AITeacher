@@ -1,0 +1,6 @@
+node_modules
+apps/*/dist
+data
+e2e-shots
+**/preview.html
+.git

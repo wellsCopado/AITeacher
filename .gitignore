@@ -3,3 +3,5 @@ dist/
 *.log
 preview.html
 e2e-shots/
+apps/*/dist/
+data/

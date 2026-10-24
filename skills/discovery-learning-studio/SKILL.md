@@ -90,14 +90,20 @@ pnpm -s dls review content/lessons/L-XXX/1.0 --init
 
 ```
 pnpm -s dls review content/lessons/L-XXX/1.0 --approve 科学 --by 家长
-pnpm -s dls publish content/lessons/L-XXX/1.0
+pnpm -s dls publish content/lessons/L-XXX/1.0 --server http://<服务器地址>:8787
 ```
 
-发布后文件在 `content/published/<id>@<ver>.lesson.json`，内容哈希固定、只读。要改就升版本号重走流程。
+发布后文件在 `content/published/<id>@<ver>.lesson.json`，内容哈希固定、只读。要改就升版本号重走流程。带 `--server` 时同时上传到家里的服务器（需要环境变量 `ADW_PIN`），服务器会再校验一遍；没有服务器就去掉 `--server`。上传后提醒家长在家长端排课，孩子当天才看得到。
 
 ## 课后：记录孩子的心愿
 
-孩子在课末选了心愿后（Pad 上线前由家长转述）：
+孩子在 Pad 课末说的心愿会自动记到服务器。做下一节课的阶段 2 之前先同步回来：
+
+```
+pnpm -s dls sync --server http://<服务器地址>:8787
+```
+
+没有服务器时，由家长转述后手动记：
 
 ```
 pnpm -s dls interest add --child gege --topic 机器人 --source 孩子自述 --state 下一课心愿 --lesson L-PA@1.0

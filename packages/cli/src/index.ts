@@ -257,12 +257,31 @@ const commands: Record<string, (pos: string[], flags: Flags) => number | Promise
     const missing = Object.keys(REVIEW_CHECKLIST).filter(c => !rv.records.some((x: { category: string }) => x.category === c));
     if (missing.length) { console.log(`审核未完成：${missing.join('、')}`); return 1; }
     const out = join(root, 'content', 'published', `${sp.lesson_id}@${sp.version}.lesson.json`);
-    if (existsSync(out)) { console.log(`${basename(out)} 已发布且已冻结；修改请升版本号`); return 1; }
+    const server = serverUrl(flags);
+    if (existsSync(out)) {
+      if (!server) { console.log(`${basename(out)} 已发布且已冻结；修改请升版本号`); return 1; }
+      console.log(`${basename(out)} 已在本地冻结，直接上传`);
+      return upload(server, readJson(out));
+    }
     const frozen: LessonSpec = { ...sp, review_records: rv.records, published_at: new Date().toISOString() };
     frozen.content_hash = contentHash(frozen);
     writeJson(out, frozen);
     console.log(`已发布并冻结：${out}\n内容哈希：${frozen.content_hash}`);
-    if (flags.server) console.log('上传到内容服务器在 M3 实现；目前请把这个文件交给服务器目录。');
+    return server ? upload(server, frozen) : 0;
+  },
+
+  /** Pull interest records (including the children's next-lesson wishes) from the server into content/interests.json. */
+  async sync(_pos, flags) {
+    const server = serverUrl(flags) ?? need(undefined, '--server <地址>（或环境变量 ADW_SERVER）');
+    const remote = await serverCall<InterestObservation[]>(server, '/v1/interests');
+    const p = join(root, 'content', 'interests.json');
+    const local = loadInterests(root);
+    const onlyLocal = local.filter(x => !remote.some(r => r.id === x.id));
+    writeJson(p, remote);
+    const added = remote.filter(r => !local.some(x => x.id === r.id));
+    console.log(`已从服务器同步 ${remote.length} 条兴趣记录（新增 ${added.length}）`);
+    for (const x of added) console.log(`  + ${x.id} ${x.child} ${x.topic} · ${x.source} · ${x.state}`);
+    if (onlyLocal.length) console.log(`注意：本地有 ${onlyLocal.length} 条服务器上没有的记录已被替换（${onlyLocal.map(x => x.id).join('、')}），请在家长端重新记一下`);
     return 0;
   },
 
@@ -292,6 +311,30 @@ const commands: Record<string, (pos: string[], flags: Flags) => number | Promise
   },
 };
 
+const serverUrl = (f: Flags) => (str(f, 'server') ?? process.env.ADW_SERVER)?.replace(/\/+$/, '');
+let parentToken: string | null = null;
+async function serverCall<T>(server: string, path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
+  if (!parentToken) {
+    const pin = process.env.ADW_PIN ?? need(undefined, '环境变量 ADW_PIN（家长 PIN）');
+    const r = await fetch(`${server}/v1/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pin }) });
+    const b = await r.json().catch(() => ({}));
+    if (!r.ok) throw new UsageError(`登录服务器失败：${b.error ?? r.status}`);
+    parentToken = b.token;
+  }
+  const r = await fetch(`${server}${path}`, { method: init.method ?? 'GET', headers: { 'content-type': 'application/json', authorization: `Bearer ${parentToken}` }, body: init.body === undefined ? undefined : JSON.stringify(init.body) });
+  const b = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    if (b.report) printReport(b.report);
+    throw new UsageError(`服务器拒绝（${r.status}）：${b.error ?? ''}`);
+  }
+  return b as T;
+}
+async function upload(server: string, sp: LessonSpec): Promise<number> {
+  const r = await serverCall<{ key: string; status: string; warnings?: number }>(server, '/v1/lessons', { method: 'POST', body: sp });
+  console.log(`服务器：${r.key} ${r.status}${r.warnings ? `（警告 ${r.warnings} 条）` : ''}。在家长端排课后孩子就能看到。`);
+  return 0;
+}
+
 const HELP = `dls — discovery-learning-studio 命令行
 
   dls init <课程id> <版本> --child <孩子> [--previous <上一版>] [--judgment <判断id>]
@@ -302,7 +345,8 @@ const HELP = `dls — discovery-learning-studio 命令行
   dls validate <目录|文件> [--previous <文件>] [--json]   阶段 5：V01–V14
   dls preview <目录|文件> [--out <文件>]         生成可直接打开的课程预览
   dls review <目录> [--init] [--approve <类别,…|all> --by <审核人>]   阶段 6：审核清单
-  dls publish <目录>                      阶段 6：校验 + 审核齐全后发布并冻结
+  dls publish <目录> [--server <地址>]     阶段 6：校验 + 审核齐全后发布并冻结；带 --server 时上传（需 ADW_PIN）
+  dls sync --server <地址>                从服务器拉回兴趣和孩子的下一课心愿
   dls interest [add] --child <孩子> [--topic … --source … --state … --said …]`;
 
 async function main(argv: string[]): Promise<number> {
