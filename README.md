@@ -11,9 +11,10 @@
 | 部分 | 位置 |
 | --- | --- |
 | LessonSpec / 资产 / 兴趣 Schema | `packages/schema` |
-| V01–V16 自动校验、安全公式求值 | `packages/validator` |
-| `dls` 命令行（六阶段 + 兴趣记录） | `packages/cli` |
-| Skill：discovery-learning-studio | `skills/discovery-learning-studio`（`.claude/skills` 已链接） |
+| V01–V18 自动校验、安全公式求值 | `packages/validator` |
+| `dls` 命令行（六阶段 + 兴趣记录 + 上下文、AI 出课、MCP） | `packages/cli` |
+| 做课核心：上下文、校验、任意大模型写课与自动修改、MCP 工具 | `packages/studio`、`apps/server/src/studio.ts` |
+| Skill：discovery-learning-studio | `skills/discovery-learning-studio`（Claude Code、Codex、Qoder 的入口都指向这里；见 `AGENTS.md`） |
 | 组件白名单、知识点、资产库、主题表、孩子档案、兴趣记录 | `content/` |
 | 样课：哥哥 L-PA@1.0、妹妹 L-ARR@1.0 | `content/lessons/` |
 | 写实 3D 组件（PerimeterArea、ArrayMultiplier） | `packages/components` |
@@ -40,9 +41,10 @@ pnpm e2e                  # 浏览器里走完两节样课并截图（需要本�
 ADW_PIN=2468 pnpm start   # 启动家庭服务器：/pad/ 和 /parent/
 pnpm e2e:apps             # 浏览器全流程：配对 → 排课 → 孩子上课（中途断网）→ 家长看记录
 pnpm e2e:homework         # 作业闭环：上传照片 → Skill 识别 → 家长核对 → 判断 → 重教需求
+pnpm e2e:studio           # 家长端设置大模型、接入 AI 助手、AI 出课、退回后按意见改
 ```
 
-在本仓库里用 Claude Code 说“给哥哥做一节课”，会按 Skill 的六个阶段走；说“看看今天的作业”，会用 homework-analysis 识别和判断。
+在本仓库里用 Claude Code、Codex 或 Qoder 说“给哥哥做一节课”，会按 Skill 的六个阶段走；说“看看今天的作业”，会用 homework-analysis 识别和判断。换别的大模型、用 MCP 接 AI 助手，见 [docs/agents.md](docs/agents.md)。
 
 ## 写实底线
 

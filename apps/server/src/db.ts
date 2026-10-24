@@ -39,7 +39,8 @@ create table if not exists media (id text primary key, tenant_id text not null, 
 create table if not exists settings (tenant_id text not null, k text not null, v text not null, primary key (tenant_id, k));
 `;
 
-export type Role = 'parent' | 'device';
+/** parent: the PIN holder; device: a paired Pad; agent: an AI assistant the parent let in (it can only hand lessons in for review). */
+export type Role = 'parent' | 'device' | 'agent';
 export interface SessionRow { key: string; child: string; lesson_key: string; started_on: string; updated_at: string; finished: number }
 export interface JudgmentRow { id: string; child: string; homework_ref: string; status: '草稿' | '已确认'; created_at: string; confirmed_at: string | null; judgment: LearningJudgment; card: ParentCard | null; card_used: number }
 export interface MediaRow {
@@ -148,6 +149,8 @@ export class Store {
   token(hash: string) { return this.get<{ role: Role; label: string }>('select role, label from tokens where tenant_id=? and hash=?', this.tenant, hash); }
   devices() { return this.all<{ label: string; created_at: string }>("select label, created_at from tokens where tenant_id=? and role='device' order by created_at", this.tenant); }
   revokeDevice(label: string) { this.run("delete from tokens where tenant_id=? and role='device' and label=?", this.tenant, label); }
+  agents() { return this.all<{ label: string; created_at: string }>("select label, created_at from tokens where tenant_id=? and role='agent' order by created_at", this.tenant); }
+  revokeAgent(label: string) { this.run("delete from tokens where tenant_id=? and role='agent' and label=?", this.tenant, label); }
   startPairing(code: string, now: string) { this.run('insert into pairing (code, tenant_id, created_at) values (?,?,?)', code, this.tenant, now); }
   pairing(code: string) { return this.get<{ code: string; created_at: string; label: string | null; token: string | null }>('select code, created_at, label, token from pairing where tenant_id=? and code=?', this.tenant, code); }
   approvePairing(code: string, label: string, token: string) { this.run('update pairing set label=?, token=? where tenant_id=? and code=?', label, token, this.tenant, code); }

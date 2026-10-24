@@ -12,6 +12,7 @@ import { Store, type EventIn, type Role } from './db.js';
 import { HttpError, TZ, addDays, fail, isDate, isKey, sha, shanghaiDate } from './http.js';
 import { homeworkRoutes, reteachHistory } from './homework.js';
 import { mediaRoutes } from './media.js';
+import { studioRoutes } from './studio.js';
 import { macSay, SYSTEM_VOICE, type Lang, type Synth } from './tts.js';
 
 export { shanghaiDate, TZ } from './http.js';
@@ -31,6 +32,8 @@ export interface AppOptions {
   logger?: boolean;
   /** Narration voice; default: the Mac's `say` when running on a Mac, none elsewhere. */
   tts?: Synth | null;
+  /** How the AI lesson writer reaches model APIs (tests pass a fake). */
+  fetchImpl?: typeof fetch;
 }
 
 const PAIR_TTL_MS = 10 * 60_000;
@@ -70,6 +73,8 @@ export async function buildApp(o: AppOptions) {
   };
   const parent = { preHandler: auth('parent') };
   const anyone = { preHandler: auth('parent', 'device') };
+  /** An AI assistant the parent let in can hand lessons in for review, nothing else. */
+  const agentOrParent = { preHandler: auth('parent', 'agent') };
 
   app.post('/v1/auth/login', async (req) => {
     if (Date.now() < lockedUntil) fail(429, '试错次数太多，请 1 分钟后再试');
@@ -221,7 +226,7 @@ export async function buildApp(o: AppOptions) {
 
   // ---- stage 6 in the parent app: the Skill submits, the parent reviews and publishes with one click ----
   app.get('/v1/review-checklist', parent, async () => REVIEW_CHECKLIST);
-  app.post('/v1/drafts', parent, async (req, reply) => {
+  app.post('/v1/drafts', agentOrParent, async (req, reply) => {
     const { review_records: _r, content_hash: _h, published_at: _p, ...sp } = req.body as LessonSpec;
     const { key, report } = vet(sp as LessonSpec);
     if (store.lesson(key)) fail(409, `${key} 已发布且已冻结；修改请升版本号`);
@@ -296,6 +301,8 @@ export async function buildApp(o: AppOptions) {
     store.addGrant(child, b.lesson as string, expires_on, req.who ?? '家长', iso());
     return { ok: true, expires_on };
   });
+
+  studioRoutes(app, { store, root: o.root, tenant, iso, parent, agentOrParent, issue, vet, fetchImpl: o.fetchImpl });
 
   app.get('/v1/sessions', parent, async (req) => {
     const c = (req.query as { child?: string }).child;

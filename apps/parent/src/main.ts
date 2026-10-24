@@ -3,6 +3,7 @@
 import { summarize, type Ev } from './summary.js';
 import { dataSection, homeworkView, masteryView, type Ctx } from './homework.js';
 import { downscale } from './image.js';
+import { agentsCard, follow, modelsCard, wireStudio, writerCard } from './studio.js';
 
 interface Child { id: string; name: string; grade: number }
 interface Lesson { key: string; for_child: string; title: string; content_hash: string; published_at: string }
@@ -10,7 +11,7 @@ interface Session { key: string; child: string; lesson_key: string; started_on: 
 interface Draft {
   key: string; title: string; child: string; status: string; note: string | null; concept: string; theme: { name: string; why: string };
   challenges: { prompt: string; with_theme: boolean; answers: string[] }[]; pending_assets: string[]; offscreen: string | null;
-  ok: boolean; issues: { rule: string; level: string; msg: string }[];
+  ok: boolean; issues: { rule: string; level: string; msg: string }[]; submitted_by: string;
 }
 interface Organism {
   asset_id: string; name: string; status: string; real_scale: string | null;
@@ -30,7 +31,8 @@ type Tab = typeof TABS[number];
 let tab: Tab = '排课';
 
 async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const r = await fetch(path, { ...init, headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) } });
+  // no content-type without a body: the server refuses an empty JSON body (DELETE 移除 buttons)
+  const r = await fetch(path, { ...init, headers: { ...(init.body !== undefined ? { 'content-type': 'application/json' } : {}), ...(token ? { authorization: `Bearer ${token}` } : {}) } });
   const body = await r.json().catch(() => ({}));
   if (r.status === 401 && path !== '/v1/auth/login') { token = null; ss.set('adw.parent', ''); login(); }
   if (!r.ok) throw new Error(body.error ?? `出错了（${r.status}）`);
@@ -89,18 +91,19 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
   },
 
   async 课程库() {
-    const [grants, drafts, checklist, organisms] = await Promise.all([
+    const [grants, drafts, checklist, organisms, writer] = await Promise.all([
       api<{ child: string; lesson_key: string; expires_on: string; granted_by: string }[]>('/v1/grants'),
       api<Draft[]>('/v1/drafts'),
       api<Record<string, string[]>>('/v1/review-checklist'),
       api<Organism[]>('/v1/organisms'),
+      writerCard(ctx(), () => VIEWS.课程库()),
     ]);
     const preview = (key: string) => `/pad/preview.html#key=${encodeURIComponent(key)}&t=${encodeURIComponent(token ?? '')}`;
-    view().innerHTML = `
+    view().innerHTML = `${writer}
       ${drafts.length ? `<h3>等你审核（${drafts.length}）</h3><p class="muted">先点“预览”把课走一遍，再逐项勾选四类审核。全部勾上才能发布；发布后内容冻结，孩子在排课当天才看得到。</p>` : ''}
       ${drafts.map(d => `<div class="card draft" data-k="${esc(d.key)}"><h3>${esc(d.title)} <span class="badge">${esc(d.status)}</span></h3>
-        <p class="muted small">${esc(name(d.child))} · ${esc(d.concept)} · ${esc(d.key)} · 主题「${esc(d.theme.name)}」：${esc(d.theme.why)}</p>
-        ${d.note ? `<p class="toast bad">你退回时写的：${esc(d.note)}</p>` : ''}
+        <p class="muted small">${esc(name(d.child))} · ${esc(d.concept)} · ${esc(d.key)} · 主题「${esc(d.theme.name)}」：${esc(d.theme.why)} · 由 ${esc(d.submitted_by)} 交来</p>
+        ${d.note ? `<p class="toast bad">你退回时写的：${esc(d.note)} <button class="btn revise">让 AI 按意见改</button></p>` : ''}
         <ol>${d.challenges.map(c => `<li>${esc(c.prompt)} <span class="muted small">答案：${c.answers.map(esc).join('，')}${c.with_theme ? '' : ' · 不带主题的迁移题'}</span></li>`).join('')}</ol>
         ${d.pending_assets.length ? `<p class="small">还没到位、不展示的素材：${d.pending_assets.map(esc).join('、')}</p>` : ''}
         ${d.offscreen ? `<p class="small">家里的小任务：${esc(d.offscreen)}</p>` : ''}
@@ -149,6 +152,7 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
         })();
       };
     });
+    wireStudio(ctx());
     view().querySelectorAll<HTMLElement>('.draft').forEach(card => {
       const key = card.dataset.k!;
       card.querySelector<HTMLButtonElement>('.approve')!.onclick = guard(async () => {
@@ -162,7 +166,13 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
       card.querySelector<HTMLButtonElement>('.reject')!.onclick = guard(async () => {
         await api(`/v1/drafts/${encodeURIComponent(key)}/reject`, { method: 'POST', body: JSON.stringify({ note: card.querySelector<HTMLInputElement>('.note')!.value }) });
         await VIEWS.课程库();
-        toast('已退回。在 Claude Code 里说“看看家长退回的课”，Skill 会按你的意见修改。');
+        toast('已退回。可以点“让 AI 按意见改”，或者对接入的 AI 助手说“看看家长退回的课”。');
+      });
+      const revise = card.querySelector<HTMLButtonElement>('.revise');
+      if (revise) revise.onclick = guard(async () => {
+        const r = await api<{ job: string }>('/v1/studio/generate', { method: 'POST', body: JSON.stringify({ revise: key }) });
+        document.getElementById('writer')?.scrollIntoView({ behavior: 'smooth' });
+        follow(ctx(), r.job, () => VIEWS.课程库());
       });
     });
     view().querySelectorAll<HTMLButtonElement>('.grant').forEach(b => b.onclick = guard(async () => {
@@ -203,9 +213,11 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
   async 设备与数据() {
     const list = await api<{ label: string; created_at: string }[]>('/v1/devices');
     const tts = await api<{ available: boolean; current: Record<'zh' | 'en', string> | null; options: VoiceOption[] }>('/v1/tts/voices').catch(() => null);
+    const [models, agents] = await Promise.all([modelsCard(ctx()), agentsCard(ctx())]);
     view().innerHTML = `${voiceCard(tts)}<div class="card"><h3>添加孩子的 Pad</h3><p class="muted">在 Pad 上打开 /pad/，屏幕会显示 6 位配对码。</p>
       <form id="pair" class="row"><input name="code" inputmode="numeric" placeholder="配对码" maxlength="7" required><input name="label" placeholder="设备名，例如：哥哥的 iPad" maxlength="40"><button class="btn primary">批准</button></form></div>
       <div class="card"><h3>已配对的设备</h3><ul>${list.map(d => `<li>${esc(d.label)} · ${esc(d.created_at.slice(0, 10))} <button class="btn revoke" data-l="${esc(d.label)}">移除</button></li>`).join('') || '<li class="muted">没有</li>'}</ul></div>
+      ${models}${agents}
       ${dataSection(ctx())}`;
     (document.getElementById('pair') as HTMLFormElement).onsubmit = e => {
       e.preventDefault();
@@ -213,6 +225,7 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
       guard(async () => { await api(`/v1/pair/${f.code.replace(/\D/g, '')}/approve`, { method: 'POST', body: JSON.stringify({ label: f.label }) }); await VIEWS.设备与数据(); toast('已批准，Pad 几秒内会自动连上'); })();
     };
     wireVoices();
+    wireStudio(ctx());
     view().querySelectorAll<HTMLButtonElement>('.revoke').forEach(b => b.onclick = guard(async () => {
       if (!confirm(`移除「${b.dataset.l}」？这台 Pad 需要重新配对。`)) return;
       await api(`/v1/devices/${encodeURIComponent(b.dataset.l!)}`, { method: 'DELETE' }); await VIEWS.设备与数据();

@@ -5,6 +5,10 @@ import { join, resolve, basename } from 'node:path';
 import type { CheckedItem, InterestObservation, LearningJudgment, LessonSpec, ReteachTicket } from '../../schema/src/index.js';
 import { checkJudgment, loadContext, validate, type JudgmentReport, type Report } from '../../validator/src/index.js';
 import { buildPreview } from './preview.js';
+import {
+  assemble, chatWith, childList, createMcp, generateLesson, localBackend, modelFromEnv, readStages, serveStdio,
+  StageError, studioContext, writeStages, PROVIDERS,
+} from '../../studio/src/index.js';
 import { writeFileSync } from 'node:fs';
 import {
   REVIEW_CHECKLIST, STAGE_FILES as F, canonical, contentHash, findRoot, loadAssets, loadInterests, loadPublished,
@@ -41,51 +45,8 @@ function printReport(r: Report) {
 }
 
 function assembleSpec(dir: string): LessonSpec {
-  for (const f of [F.target, F.director, F.assets]) if (!has(dir, f)) throw new UsageError(`${dir} 缺少 ${f}，先完成前面的阶段`);
-  const t = readJson(join(dir, F.target)); const d = readJson(join(dir, F.director)); const a = readJson(join(dir, F.assets));
-  const registry = loadAssets(root);
-  const missing: string[] = [];
-  const refs = (a.use as string[]).map(id => {
-    const r = registry.find(x => x.asset_id === id);
-    if (!r) { missing.push(id); return null; }
-    return {
-      asset_id: r.asset_id, kind: r.kind, realism: r.realism, ver: r.version, license: r.license,
-      commercial_ok: r.commercial_ok, source: r.source, depiction: r.depiction,
-      ...(r.reference_photos ? { reference_photos: r.reference_photos } : {}),
-      ...(r.checked_by !== undefined ? { checked_by: r.checked_by } : {}),
-    };
-  }).filter(Boolean);
-  if (missing.length) throw new UsageError(`资产库里没有：${missing.join('、')}（先登记到 content/assets/registry.json）`);
-  const spec = {
-    schema_version: 'lessonspec/1.0',
-    lesson_id: t.lesson_id, version: t.version, tenant_id: t.tenant_id, for_child: t.for_child,
-    title: d.title,
-    ...(t.previous_version ? { previous_version: t.previous_version } : {}),
-    ...(t.trigger_judgment_ref ? { trigger_judgment_ref: t.trigger_judgment_ref } : {}),
-    primary_concept: t.primary_concept,
-    ...(t.prerequisites ? { prerequisites: t.prerequisites } : {}),
-    curriculum_mapping: t.curriculum_mapping,
-    theme: d.theme,
-    intro: d.intro,
-    learner_profile: t.learner_profile,
-    scene_component_ids: d.scene_component_ids,
-    component_params: d.component_params,
-    experiment_model_version: d.experiment_model_version,
-    activity_graph: d.activity_graph,
-    hotspots: d.hotspots,
-    challenges: d.challenges,
-    end_chat: d.end_chat,
-    object_asset_versions: refs,
-    ...(a.pending?.length ? { pending_assets: a.pending } : {}),
-    assessment_plan: d.assessment_plan,
-    ...(d.offscreen ? { offscreen: d.offscreen } : {}),
-    parent_tip: d.parent_tip,
-    source_refs: d.source_refs,
-    ...(d.encouragement ? { encouragement: d.encouragement } : {}),
-    ...(d.timing ? { timing: d.timing } : {}),
-    distribution: { scope: a.scope ?? 'family', tenant_id: t.tenant_id },
-  };
-  return spec as LessonSpec;
+  try { return assemble(readStages(dir), loadAssets(root)); }
+  catch (e) { if (e instanceof StageError) throw new UsageError(e.message); throw e; }
 }
 
 function previousFor(sp: LessonSpec, flags: Flags): LessonSpec | null {
@@ -397,6 +358,52 @@ const commands: Record<string, (pos: string[], flags: Flags) => number | Promise
     return 0;
   },
 
+  /** Everything a model needs to write the next lesson for one child (also what the MCP tool adw_get_context returns). */
+  context(_pos, flags) {
+    const child = need(str(flags, 'child'), `--child（${childList(root).map(c => c.id).join(' / ')}）`);
+    const ctx = studioContext(root, child);
+    if (flags.json) { console.log(JSON.stringify(ctx, null, 2)); return 0; }
+    console.log(`${ctx.child.label}（${ctx.child.id}）· ${ctx.child.grade} 年级 · ${ctx.child.region}${ctx.child.system}`);
+    console.log(`兴趣：${ctx.interests.map(i => `${i.topic}（${i.state}）`).join('、') || '还没有记录'}`);
+    for (const c of ctx.components) {
+      console.log(`\n组件 ${c.id}：${c.teaches.map(t => t.name).join('、')}`);
+      console.log(`  建议主题：${c.suggested_theme.name}（${c.suggested_theme.why}）${c.theme_notes.length ? `；${c.theme_notes.join('；')}` : ''}`);
+      console.log(`  可用主题：${c.themes_ready.map(t => t.name).join('、')} · 热点锚点：${c.hotspot_anchors.join('、')} · 动作：${c.actions.join('、')}`);
+      console.log(`  新课 id：${c.new_lesson_id}@1.0`);
+    }
+    console.log(`\n已发布给这个孩子的课：${ctx.lessons_for_child.map(l => `${l.key} ${l.title}`).join('；') || '没有'}\n（--json 输出完整内容）`);
+    return 0;
+  },
+
+  /** The built-in lesson writer: any OpenAI-compatible model writes the stage files, the validator checks them. */
+  async generate(_pos, flags) {
+    const child = need(str(flags, 'child'), '--child');
+    const cfg = modelFromEnv();
+    if (!cfg) {
+      console.log(`没有配置大模型。设置环境变量后再运行，例如 DeepSeek：\n  ADW_LLM_PROVIDER=deepseek ADW_LLM_API_KEY=sk-… ADW_LLM_MODEL=deepseek-v4-pro pnpm -s dls generate --child ${child}\n可选的 ADW_LLM_PROVIDER：${PROVIDERS.map(p => p.id).join('、')}；其他 OpenAI 兼容接口用 ADW_LLM_BASE_URL。`);
+      return 2;
+    }
+    const ctx = studioContext(root, child);
+    console.log(`用 ${cfg.label} · ${cfg.model} 给 ${ctx.child.label} 写课…`);
+    const r = await generateLesson({ root, ctx, chat: chatWith(cfg), request: { wish: str(flags, 'wish'), component: str(flags, 'component') }, rounds: Number(str(flags, 'rounds') ?? 4), onLog: l => console.log('  ' + l) });
+    if (!r.stages) { console.log('模型没有给出能用的课'); return 1; }
+    const dir = join(root, 'content', 'lessons', r.stages.target.lesson_id, r.stages.target.version);
+    writeStages(dir, r.stages);
+    if (r.spec) writeJson(join(dir, F.spec), r.spec);
+    if (r.report) { writeJson(join(dir, F.validation), r.report); if (!r.ok) printReport(r.report); }
+    console.log(r.ok ? `\n已写好 ${dir}（${r.rounds} 轮）。下一步：dls preview ${dir}，再 dls submit ${dir} 交给家长审核。` : `\n${r.rounds} 轮后还有问题，阶段文件留在 ${dir}，可以手动改或再运行一次。`);
+    if (r.ok && flags.submit) return commands.submit([dir], flags);
+    return r.ok ? 0 : 1;
+  },
+
+  /** MCP server on stdio: agents (Codex, Claude Code, Qoder, Cursor…) call the lesson tools directly. */
+  async mcp(_pos, flags) {
+    const server = serverUrl(flags);
+    const backend = localBackend(root, server ? spec => serverCall(server, '/v1/drafts', { method: 'POST', body: spec }) : undefined);
+    serveStdio(createMcp(backend));
+    return new Promise<number>(res => process.stdin.on('end', () => res(0)));
+  },
+
   interest(pos, flags) {
     const sub = pos[0];
     const p = join(root, 'content', 'interests.json');
@@ -426,14 +433,16 @@ const commands: Record<string, (pos: string[], flags: Flags) => number | Promise
 const serverUrl = (f: Flags) => (str(f, 'server') ?? process.env.ADW_SERVER)?.replace(/\/+$/, '');
 let parentToken: string | null = null;
 async function serverCall<T>(server: string, path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
-  if (!parentToken) {
+  // an agent token from the parent app (设备与数据 → AI 助手接入) can only hand lessons in; everything else needs the parent PIN
+  const agent = process.env.ADW_TOKEN && path === '/v1/drafts' && init.method === 'POST' ? process.env.ADW_TOKEN : null;
+  if (!agent && !parentToken) {
     const pin = process.env.ADW_PIN ?? need(undefined, '环境变量 ADW_PIN（家长 PIN）');
     const r = await fetch(`${server}/v1/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pin }) });
     const b = await r.json().catch(() => ({}));
     if (!r.ok) throw new UsageError(`登录服务器失败：${b.error ?? r.status}`);
     parentToken = b.token;
   }
-  const r = await fetch(`${server}${path}`, { method: init.method ?? 'GET', headers: { 'content-type': 'application/json', authorization: `Bearer ${parentToken}` }, body: init.body === undefined ? undefined : JSON.stringify(init.body) });
+  const r = await fetch(`${server}${path}`, { method: init.method ?? 'GET', headers: { ...(init.body === undefined ? {} : { 'content-type': 'application/json' }), authorization: `Bearer ${agent ?? parentToken}` }, body: init.body === undefined ? undefined : JSON.stringify(init.body) });
   const b = await r.json().catch(() => ({}));
   if (!r.ok) {
     if (b.report) printReport(b.report);
@@ -467,7 +476,7 @@ const HELP = `dls — discovery-learning-studio 命令行
   dls theme <目录> --component <组件> [--write]   阶段 2：按孩子兴趣建议主题和课末心愿
   dls assets <目录>                       阶段 3：核验素材（许可、写实底线）
   dls assemble <目录>                     阶段 4：组装 lessonspec.json
-  dls validate <目录|文件> [--previous <文件>] [--json]   阶段 5：V01–V15
+  dls validate <目录|文件> [--previous <文件>] [--json]   阶段 5：V01–V18
   dls preview <目录|文件> [--out <文件>]         生成可直接打开的课程预览
   dls review <目录> [--init] [--approve <类别,…|all> --by <审核人>]   阶段 6：审核清单
   dls submit <目录> --server <地址>       阶段 6：交给家长端审核并发布（推荐）
@@ -475,7 +484,11 @@ const HELP = `dls — discovery-learning-studio 命令行
   dls sync --server <地址>                从服务器拉回兴趣、孩子的下一课心愿和重教历史
   dls homework list|pull|recognize|draft|check|submit [<作业编号>] --server <地址>   作业判断（homework-analysis Skill）
   dls tickets --server <地址>             重教需求，以及开始重教版的命令
-  dls interest [add] --child <孩子> [--topic … --source … --state … --said …]`;
+  dls interest [add] --child <孩子> [--topic … --source … --state … --said …]
+  dls context --child <孩子> [--json]      做课需要的全部信息（兴趣、可用组件、建议主题、新课 id）
+  dls generate --child <孩子> [--wish <要求>] [--component <组件>] [--submit --server <地址>]
+                                          用任意大模型自动写课并校验（环境变量 ADW_LLM_PROVIDER / ADW_LLM_API_KEY / ADW_LLM_MODEL / ADW_LLM_BASE_URL）
+  dls mcp [--server <地址>]               以 MCP（stdio）提供做课工具，给 Codex、Claude Code、Qoder、Cursor 等 agent 用`;
 
 async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv;
