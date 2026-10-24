@@ -1,6 +1,8 @@
 // SQLite storage for the family server. Every row carries tenant_id so a commercial build can isolate tenants.
 import { DatabaseSync } from 'node:sqlite';
-import type { InterestObservation, LessonSpec } from '../../../packages/schema/src/index.js';
+import type {
+  CheckedItem, FeedbackItem, HomeworkUpload, InterestObservation, LearningJudgment, LessonSpec, ParentCard, ReteachTicket,
+} from '../../../packages/schema/src/index.js';
 
 const SCHEMA = `
 create table if not exists children (id text primary key, tenant_id text not null, name text not null, grade integer not null);
@@ -20,10 +22,20 @@ create table if not exists interests (id text primary key, tenant_id text not nu
 create table if not exists tokens (hash text primary key, tenant_id text not null, role text not null, label text not null, created_at text not null);
 create table if not exists pairing (code text primary key, tenant_id text not null, created_at text not null, label text, token text);
 create index if not exists events_session on events(session_key);
+create table if not exists homework (id text primary key, tenant_id text not null, child text not null, date text not null, note text,
+  photos text not null, status text not null, ai_consent integer not null default 0, recognized_by text, created_at text not null);
+create table if not exists hw_items (homework_id text not null, no text not null, pos integer not null, data text not null, primary key (homework_id, no));
+create table if not exists judgments (id text primary key, tenant_id text not null, child text not null, homework_ref text not null, data text not null,
+  status text not null, created_at text not null, confirmed_at text, card text, card_used integer not null default 0);
+create table if not exists tickets (id text primary key, tenant_id text not null, child text not null, concept_id text not null, judgment_ref text not null,
+  attempt integer not null, status text not null, lesson_ref text, mechanism text, created_at text not null, updated_at text not null);
+create table if not exists feedback (id text primary key, tenant_id text not null, child text not null, source text not null, said text not null,
+  context text, kind text not null, ref text, created_at text not null);
 `;
 
 export type Role = 'parent' | 'device';
 export interface SessionRow { key: string; child: string; lesson_key: string; started_on: string; updated_at: string; finished: number }
+export interface JudgmentRow { id: string; child: string; homework_ref: string; status: '草稿' | '已确认'; created_at: string; confirmed_at: string | null; judgment: LearningJudgment; card: ParentCard | null; card_used: number }
 export interface EventIn { id: string; at: string; type: string; [k: string]: unknown }
 
 export class Store {
@@ -130,4 +142,101 @@ export class Store {
   expirePairings(before: string) { this.run('delete from pairing where tenant_id=? and created_at<?', this.tenant, before); }
   interestCount() { return this.get<{ n: number }>('select count(*) as n from interests where tenant_id=?', this.tenant)!.n; }
   endPairing(code: string) { this.run('delete from pairing where tenant_id=? and code=?', this.tenant, code); }
+
+  // ids like HW-0001, per tenant and prefix
+  private nextId(table: string, prefix: string) {
+    const n = this.get<{ n: number | null }>(`select max(cast(substr(id, ${prefix.length + 2}) as integer)) as n from ${table} where tenant_id=?`, this.tenant)?.n ?? 0;
+    return `${prefix}-${String(n + 1).padStart(4, '0')}`;
+  }
+
+  // homework (Spec §10)
+  addHomework(h: Omit<HomeworkUpload, 'id' | 'status' | 'created_at'>, now: string): HomeworkUpload {
+    const id = this.nextId('homework', 'HW');
+    this.run('insert into homework (id, tenant_id, child, date, note, photos, status, ai_consent, created_at) values (?,?,?,?,?,?,?,?,?)', id, this.tenant, h.child, h.date, h.note, JSON.stringify(h.photos), '待识别', h.ai_consent ? 1 : 0, now);
+    return this.homework(id)!;
+  }
+  homework(id: string): HomeworkUpload | undefined {
+    const r = this.get<HomeworkUpload & { photos: string }>('select id, child, date, note, photos, status, ai_consent, created_at from homework where tenant_id=? and id=?', this.tenant, id);
+    return r ? { ...r, photos: JSON.parse(r.photos), ai_consent: !!r.ai_consent } : undefined;
+  }
+  homeworks(child?: string): HomeworkUpload[] {
+    return this.all<HomeworkUpload & { photos: string }>(`select id, child, date, note, photos, status, ai_consent, created_at from homework where tenant_id=? ${child ? 'and child=?' : ''} order by date desc, id desc`, ...(child ? [this.tenant, child] : [this.tenant]))
+      .map(r => ({ ...r, photos: JSON.parse(r.photos), ai_consent: !!r.ai_consent }));
+  }
+  setHomeworkStatus(id: string, status: HomeworkUpload['status']) { this.run('update homework set status=? where tenant_id=? and id=?', status, this.tenant, id); }
+  setItems(id: string, items: CheckedItem[], by: string) {
+    this.tx(() => {
+      this.run('delete from hw_items where homework_id=?', id);
+      items.forEach((it, pos) => this.run('insert into hw_items (homework_id, no, pos, data) values (?,?,?,?)', id, it.no, pos, JSON.stringify(it)));
+      this.run('update homework set recognized_by=? where tenant_id=? and id=?', by, this.tenant, id);
+    });
+  }
+  items(id: string): CheckedItem[] { return this.all<{ data: string }>('select data from hw_items where homework_id=? order by pos', id).map(r => JSON.parse(r.data)); }
+  updateItem(id: string, item: CheckedItem) { this.run('update hw_items set data=? where homework_id=? and no=?', JSON.stringify(item), id, item.no); }
+
+  // judgments
+  addJudgment(j: LearningJudgment, now: string): string {
+    const id = this.nextId('judgments', 'LJ');
+    this.run('insert into judgments (id, tenant_id, child, homework_ref, data, status, created_at) values (?,?,?,?,?,?,?)', id, this.tenant, j.child, j.homework_ref, JSON.stringify({ ...j, id }), '草稿', now);
+    return id;
+  }
+  private judgmentRow = (r: { id: string; child: string; homework_ref: string; status: '草稿' | '已确认'; created_at: string; confirmed_at: string | null; data: string; card: string | null; card_used: number }): JudgmentRow =>
+    ({ id: r.id, child: r.child, homework_ref: r.homework_ref, status: r.status, created_at: r.created_at, confirmed_at: r.confirmed_at, judgment: JSON.parse(r.data), card: r.card ? JSON.parse(r.card) : null, card_used: r.card_used });
+  judgment(id: string) {
+    const r = this.get<Parameters<Store['judgmentRow']>[0]>('select id, child, homework_ref, status, created_at, confirmed_at, data, card, card_used from judgments where tenant_id=? and id=?', this.tenant, id);
+    return r ? this.judgmentRow(r) : undefined;
+  }
+  judgments(child?: string): JudgmentRow[] {
+    return this.all<Parameters<Store['judgmentRow']>[0]>(`select id, child, homework_ref, status, created_at, confirmed_at, data, card, card_used from judgments where tenant_id=? ${child ? 'and child=?' : ''} order by id`, ...(child ? [this.tenant, child] : [this.tenant])).map(this.judgmentRow);
+  }
+  /** Replace a draft (the Skill may resubmit until the parent confirms). */
+  replaceJudgment(id: string, j: LearningJudgment) { this.run("update judgments set data=? where tenant_id=? and id=? and status='草稿'", JSON.stringify({ ...j, id }), this.tenant, id); }
+  confirmJudgment(id: string, now: string) { this.run("update judgments set status='已确认', confirmed_at=? where tenant_id=? and id=?", now, this.tenant, id); }
+  setCard(id: string, card: ParentCard) { this.run('update judgments set card=? where tenant_id=? and id=?', JSON.stringify(card), this.tenant, id); }
+  setCardUsed(id: string, used: boolean) { this.run('update judgments set card_used=? where tenant_id=? and id=?', used ? 1 : 0, this.tenant, id); }
+
+  // reteach tickets
+  addTicket(t: Omit<ReteachTicket, 'id' | 'created_at' | 'lesson_ref' | 'mechanism'>, now: string): ReteachTicket {
+    const id = this.nextId('tickets', 'RT');
+    this.run('insert into tickets (id, tenant_id, child, concept_id, judgment_ref, attempt, status, created_at, updated_at) values (?,?,?,?,?,?,?,?,?)', id, this.tenant, t.child, t.concept_id, t.judgment_ref, t.attempt, t.status, now, now);
+    return this.tickets().find(x => x.id === id)!;
+  }
+  tickets(child?: string): ReteachTicket[] {
+    return this.all<ReteachTicket>(`select id, child, concept_id, judgment_ref, attempt, status, lesson_ref, mechanism, created_at from tickets where tenant_id=? ${child ? 'and child=?' : ''} order by id`, ...(child ? [this.tenant, child] : [this.tenant]));
+  }
+  updateTicket(id: string, f: { status: ReteachTicket['status']; lesson_ref?: string; mechanism?: string }, now: string) {
+    this.run('update tickets set status=?, lesson_ref=coalesce(?, lesson_ref), mechanism=coalesce(?, mechanism), updated_at=? where tenant_id=? and id=?', f.status, f.lesson_ref ?? null, f.mechanism ?? null, now, this.tenant, id);
+  }
+
+  // feedback kept by source (BL08)
+  addFeedback(f: Omit<FeedbackItem, 'id' | 'created_at'>, now: string): FeedbackItem {
+    const id = this.nextId('feedback', 'FB');
+    this.run('insert into feedback (id, tenant_id, child, source, said, context, kind, ref, created_at) values (?,?,?,?,?,?,?,?,?)', id, this.tenant, f.child, f.source, f.said, f.context, f.kind, f.ref, now);
+    return { ...f, id, created_at: now };
+  }
+  feedback(child?: string): FeedbackItem[] {
+    return this.all<FeedbackItem>(`select id, child, source, said, context, kind, ref, created_at from feedback where tenant_id=? ${child ? 'and child=?' : ''} order by id`, ...(child ? [this.tenant, child] : [this.tenant]));
+  }
+
+  /** BL11: everything stored about one child, and deleting it. Lessons and schedule for the child stay unless asked. */
+  exportChild(child: string) {
+    const sessions = this.sessions(child);
+    return {
+      child: this.children().find(c => c.id === child), interests: this.interests(child),
+      sessions: sessions.map(s => ({ ...s, events: this.events(s.key) })),
+      homework: this.homeworks(child).map(h => ({ ...h, items: this.items(h.id) })),
+      judgments: this.judgments(child), tickets: this.tickets(child), feedback: this.feedback(child),
+      schedule: this.all('select date, lesson_key from schedule where tenant_id=? and child=?', this.tenant, child),
+      grants: this.all('select lesson_key, expires_on, granted_by, created_at from grants where tenant_id=? and child=?', this.tenant, child),
+    };
+  }
+  deleteChildData(child: string): string[] {
+    const hw = this.homeworks(child).map(h => h.id);
+    this.tx(() => {
+      for (const s of this.sessions(child)) this.run('delete from events where tenant_id=? and session_key=?', this.tenant, s.key);
+      for (const id of hw) this.run('delete from hw_items where homework_id=?', id);
+      for (const t of ['sessions', 'interests', 'homework', 'judgments', 'tickets', 'feedback', 'schedule', 'grants']) this.run(`delete from ${t} where tenant_id=? and child=?`, this.tenant, child);
+    });
+    return hw;
+  }
 }

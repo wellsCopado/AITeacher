@@ -12,7 +12,8 @@
     "build": "node scripts/build-apps.mjs",
     "start": "node scripts/build-apps.mjs && tsx apps/server/src/main.ts",
     "dev:server": "tsx apps/server/src/main.ts",
-    "e2e:apps": "tsx scripts/e2e-apps.ts"
+    "e2e:apps": "tsx scripts/e2e-apps.ts",
+    "e2e:homework": "tsx scripts/e2e-homework.ts"
   },
   "engines": {
     "node": ">=20"

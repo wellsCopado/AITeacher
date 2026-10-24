@@ -53,7 +53,7 @@ try {
   await pad.waitForFunction(() => /\d{3} \d{3}/.test(document.getElementById('code')?.textContent ?? ''));
   const code = (await pad.textContent('#code'))!.replace(/\s/g, '');
   await pad.screenshot({ path: join(shots, 'pad-pair.png') });
-  await parent.click('[data-t="设备"]');
+  await parent.click('[data-t="设备与数据"]');
   await parent.fill('#pair [name=code]', code); await parent.fill('#pair [name=label]', '哥哥的 iPad');
   await parent.click('#pair button');
   await pad.waitForSelector('.kidbtn', { timeout: 10000 });

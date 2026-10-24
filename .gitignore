@@ -5,3 +5,5 @@ preview.html
 e2e-shots/
 apps/*/dist/
 data/
+content/homework/
+content/reteach.json

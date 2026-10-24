@@ -1,6 +1,7 @@
 // Parent web app: schedule lessons, give temporary access, read learning records, keep interests and
 // next-lesson wishes, and approve Pads. Everything here calls the family server; nothing is stored locally but the login.
 import { summarize, type Ev } from './summary.js';
+import { dataSection, homeworkView, masteryView, type Ctx } from './homework.js';
 
 interface Child { id: string; name: string; grade: number }
 interface Lesson { key: string; for_child: string; title: string; content_hash: string; published_at: string }
@@ -14,7 +15,7 @@ let token = ss.get('adw.parent');
 let kids: Child[] = [];
 let lessons: Lesson[] = [];
 let today = '';
-const TABS = ['排课', '课程库', '学习记录', '兴趣与心愿', '设备'] as const;
+const TABS = ['排课', '课程库', '学习记录', '作业', '掌握与重教', '兴趣与心愿', '设备与数据'] as const;
 type Tab = typeof TABS[number];
 let tab: Tab = '排课';
 
@@ -28,7 +29,13 @@ async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 const name = (id: string) => kids.find(k => k.id === id)?.name ?? id;
 const title = (key: string) => lessons.find(l => l.key === key)?.title ?? key;
 const toast = (m: string, bad = false) => { const t = document.getElementById('toast'); if (t) { t.textContent = m; t.className = bad ? 'toast bad' : 'toast'; } };
-const guard = (fn: () => Promise<unknown>) => () => fn().catch(e => toast((e as Error).message, true));
+const guard = (fn: () => Promise<unknown>) => () => { fn().catch(e => toast((e as Error).message, true)); };
+async function blob(path: string): Promise<Blob> {
+  const r = await fetch(path, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+  if (!r.ok) throw new Error(`下载失败（${r.status}）`);
+  return r.blob();
+}
+const ctx = (): Ctx => ({ api, blob, kids, today, name, title, toast, guard, view: () => document.getElementById('view')! });
 
 function login() {
   app.innerHTML = `<div class="login card"><h1>家长端</h1><p class="muted">输入家长 PIN</p>
@@ -109,19 +116,23 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
     };
   },
 
-  async 设备() {
+  async 作业() { await homeworkView(ctx()); },
+  async 掌握与重教() { await masteryView(ctx()); },
+
+  async 设备与数据() {
     const list = await api<{ label: string; created_at: string }[]>('/v1/devices');
     view().innerHTML = `<div class="card"><h3>添加孩子的 Pad</h3><p class="muted">在 Pad 上打开 /pad/，屏幕会显示 6 位配对码。</p>
       <form id="pair" class="row"><input name="code" inputmode="numeric" placeholder="配对码" maxlength="7" required><input name="label" placeholder="设备名，例如：哥哥的 iPad" maxlength="40"><button class="btn primary">批准</button></form></div>
-      <div class="card"><h3>已配对的设备</h3><ul>${list.map(d => `<li>${esc(d.label)} · ${esc(d.created_at.slice(0, 10))} <button class="btn revoke" data-l="${esc(d.label)}">移除</button></li>`).join('') || '<li class="muted">没有</li>'}</ul></div>`;
+      <div class="card"><h3>已配对的设备</h3><ul>${list.map(d => `<li>${esc(d.label)} · ${esc(d.created_at.slice(0, 10))} <button class="btn revoke" data-l="${esc(d.label)}">移除</button></li>`).join('') || '<li class="muted">没有</li>'}</ul></div>
+      ${dataSection(ctx())}`;
     (document.getElementById('pair') as HTMLFormElement).onsubmit = e => {
       e.preventDefault();
       const f = Object.fromEntries(new FormData(e.target as HTMLFormElement)) as Record<string, string>;
-      guard(async () => { await api(`/v1/pair/${f.code.replace(/\D/g, '')}/approve`, { method: 'POST', body: JSON.stringify({ label: f.label }) }); await VIEWS.设备(); toast('已批准，Pad 几秒内会自动连上'); })();
+      guard(async () => { await api(`/v1/pair/${f.code.replace(/\D/g, '')}/approve`, { method: 'POST', body: JSON.stringify({ label: f.label }) }); await VIEWS.设备与数据(); toast('已批准，Pad 几秒内会自动连上'); })();
     };
     view().querySelectorAll<HTMLButtonElement>('.revoke').forEach(b => b.onclick = guard(async () => {
       if (!confirm(`移除「${b.dataset.l}」？这台 Pad 需要重新配对。`)) return;
-      await api(`/v1/devices/${encodeURIComponent(b.dataset.l!)}`, { method: 'DELETE' }); await VIEWS.设备();
+      await api(`/v1/devices/${encodeURIComponent(b.dataset.l!)}`, { method: 'DELETE' }); await VIEWS.设备与数据();
     }));
   },
 };

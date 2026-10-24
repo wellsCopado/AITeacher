@@ -2,18 +2,24 @@
 // schedule, grants, records, interests and device pairing. Dates are Asia/Shanghai, decided here, never on the Pad.
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import fastifyStatic from '@fastify/static';
-import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
-import type { ChildProfile, InterestObservation, LessonSpec } from '../../../packages/schema/src/index.js';
-import { loadContext, validate } from '../../../packages/validator/src/index.js';
+import { dirname, join } from 'node:path';
+import type { ChildProfile, InterestObservation, LessonSpec, ReteachTicket } from '../../../packages/schema/src/index.js';
+import { loadContext, mechanism, validate } from '../../../packages/validator/src/index.js';
 import { contentHash, readJson, REVIEW_CHECKLIST } from '../../../packages/cli/src/lib.js';
 import { Store, type EventIn, type Role } from './db.js';
+import { HttpError, TZ, addDays, fail, isDate, isKey, sha, shanghaiDate } from './http.js';
+import { homeworkRoutes, reteachHistory } from './homework.js';
+
+export { shanghaiDate, TZ } from './http.js';
 
 export interface AppOptions {
   /** Repository root (has content/). */
   root: string;
   dbPath: string;
+  /** Where homework photos are kept (default: next to the database). They never leave this server unless the parent agrees. */
+  dataDir?: string;
   /** Parent PIN, at least 4 digits. */
   pin: string;
   tenant?: string;
@@ -23,19 +29,9 @@ export interface AppOptions {
   logger?: boolean;
 }
 
-export const TZ = 'Asia/Shanghai';
-const DAY = 86_400_000;
 const PAIR_TTL_MS = 10 * 60_000;
 const LOCK_AFTER = 5, LOCK_MS = 60_000;
 
-export const shanghaiDate = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
-const addDays = (date: string, n: number) => new Date(Date.parse(date + 'T00:00:00Z') + n * DAY).toISOString().slice(0, 10);
-const sha = (s: string) => createHash('sha256').update(s).digest('hex');
-const isDate = (s: unknown): s is string => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
-const isKey = (s: unknown): s is string => typeof s === 'string' && /^[A-Za-z0-9-]+@\d+\.\d+$/.test(s);
-
-class HttpError extends Error { constructor(readonly status: number, msg: string) { super(msg); } }
-const fail = (status: number, msg: string): never => { throw new HttpError(status, msg); };
 
 declare module 'fastify' { interface FastifyRequest { role?: Role; who?: string } }
 
@@ -55,7 +51,7 @@ export async function buildApp(o: AppOptions) {
   app.setErrorHandler((e: Error & { statusCode?: number }, _req, reply) => {
     const status = e instanceof HttpError ? e.status : e.statusCode ?? 500;
     if (status >= 500) app.log.error(e);
-    reply.code(status).send({ error: status >= 500 ? '服务器出错了' : e.message });
+    reply.code(status).send({ error: status >= 500 ? '服务器出错了' : e.message, ...(e instanceof HttpError ? e.extra : {}) });
   });
 
   // ---- auth ----
@@ -192,10 +188,21 @@ export async function buildApp(o: AppOptions) {
     const prev = store.lesson(key);
     if (prev) { if (prev.content_hash === sp.content_hash) return reply.code(200).send({ key, status: '已存在' }); fail(409, `${key} 已发布且已冻结；修改请升版本号`); }
     const previous = sp.previous_version ? store.lesson(`${sp.lesson_id}@${sp.previous_version}`) ?? null : null;
-    const ctx = { ...loadContext(o.root, previous), interests: store.interests() };
+    let ticket: ReteachTicket | undefined;
+    if (sp.trigger_judgment_ref) {
+      const j = store.judgment(sp.trigger_judgment_ref);
+      if (!j || j.status !== '已确认') fail(400, `重教依据的判断 ${sp.trigger_judgment_ref} 不存在或家长还没确认`);
+      if (j!.child !== sp.for_child) fail(400, '重教依据的判断不是这个孩子的');
+      ticket = store.tickets(sp.for_child).find(t => t.judgment_ref === sp.trigger_judgment_ref && t.concept_id === sp.primary_concept.id && t.status === '需求登记');
+      if (!ticket) fail(400, `判断 ${sp.trigger_judgment_ref} 没有对「${sp.primary_concept.name}」的待做重教需求`);
+    }
+    const ctx = { ...loadContext(o.root, previous), interests: store.interests(), reteach: reteachHistory(store) };
     const report = validate(sp, ctx);
     if (!report.ok) return reply.code(422).send({ error: '服务器校验未通过', report });
-    store.addLesson(sp);
+    store.tx(() => {
+      store.addLesson(sp);
+      if (ticket) store.updateTicket(ticket.id, { status: '已发布', lesson_ref: key, mechanism: mechanism(sp) }, iso());
+    });
     return reply.code(201).send({ key, status: '已发布', warnings: report.warnings });
   });
 
@@ -252,6 +259,8 @@ export async function buildApp(o: AppOptions) {
     const source = b.source === '孩子自述' ? '孩子自述' : '家长报告';
     return store.addInterest({ child, topic, source, said: b.said ? String(b.said).slice(0, 200) : null, observed_on: today().slice(0, 7), state, lesson_ref: null }, iso());
   });
+
+  homeworkRoutes(app, { store, root: o.root, dataDir: o.dataDir ?? join(dirname(o.dbPath), 'homework'), today, iso, parent, childParam, pin: o.pin });
 
   // ---- static apps ----
   if (o.serveApps) {

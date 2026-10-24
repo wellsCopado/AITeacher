@@ -1,6 +1,6 @@
 import Ajv2020 from 'ajv/dist/2020.js';
 import type {
-  AssetEntry, ChildProfile, ComponentDef, InterestObservation, LessonSpec,
+  AssetEntry, ChildProfile, ComponentDef, InterestObservation, LessonSpec, ReteachHistory,
 } from '../../schema/src/index.js';
 import { lessonSpecSchema } from '../../schema/src/index.js';
 import { evalExpr, exprVars, ExprError } from './expr.js';
@@ -14,7 +14,12 @@ export interface Ctx {
   children: Record<string, ChildProfile>;
   /** The version this one replaces; needed for V10 on a reteach. */
   previous?: LessonSpec | null;
+  /** Earlier reteach attempts and whether they helped; needed for V15. */
+  reteach?: ReteachHistory[];
 }
+
+/** The teaching mechanism of a lesson: which reviewed components carry the representation. */
+export const mechanism = (sp: Pick<LessonSpec, 'scene_component_ids'>) => [...new Set(sp.scene_component_ids.map(c => c.split('@')[0]))].sort().join('+');
 export interface Issue { path: string; msg: string; fix?: string }
 export interface Rule {
   id: string; name: string; basis: string; level: 'error' | 'warn';
@@ -253,6 +258,17 @@ export const RULES: Rule[] = [
       }
       for (const [path, s] of strings(sp)) if (/养殖|饲养|喂食|经营/.test(s)) issues.push({ path, msg: '出现养殖或经营内容（BL12 不做）' });
       return issues;
+    },
+  },
+  {
+    id: 'V15', name: '同一机制连续 3 次重教未见效时必须换机制', basis: 'FR24', level: 'error',
+    check(sp, ctx) {
+      if (!sp.trigger_judgment_ref) return [];
+      const hist = (ctx.reteach ?? []).filter(h => h.child === sp.for_child && h.concept_id === sp.primary_concept.id && h.outcome !== '待验证');
+      let streak = 0;
+      const mine = mechanism(sp);
+      for (let k = hist.length - 1; k >= 0 && hist[k].outcome === '未见效' && hist[k].mechanism === mine; k--) streak++;
+      return streak >= 3 ? [{ path: '$.scene_component_ids', msg: `${mine} 已经连续 ${streak} 次重教未见效`, fix: '换一个组件或表征；没有合适组件时请家长开组件工单' }] : [];
     },
   },
 ];

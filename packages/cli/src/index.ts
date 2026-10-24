@@ -2,8 +2,8 @@
 // dls — discovery-learning-studio 命令行。Skill 的六个阶段都通过它落盘和检查。
 import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { join, resolve, basename } from 'node:path';
-import type { InterestObservation, LessonSpec } from '../../schema/src/index.js';
-import { loadContext, validate, type Report } from '../../validator/src/index.js';
+import type { CheckedItem, InterestObservation, LearningJudgment, LessonSpec, ReteachTicket } from '../../schema/src/index.js';
+import { checkJudgment, loadContext, validate, type JudgmentReport, type Report } from '../../validator/src/index.js';
 import { buildPreview } from './preview.js';
 import { writeFileSync } from 'node:fs';
 import {
@@ -282,6 +282,92 @@ const commands: Record<string, (pos: string[], flags: Flags) => number | Promise
     console.log(`已从服务器同步 ${remote.length} 条兴趣记录（新增 ${added.length}）`);
     for (const x of added) console.log(`  + ${x.id} ${x.child} ${x.topic} · ${x.source} · ${x.state}`);
     if (onlyLocal.length) console.log(`注意：本地有 ${onlyLocal.length} 条服务器上没有的记录已被替换（${onlyLocal.map(x => x.id).join('、')}），请在家长端重新记一下`);
+    const hist = await serverCall<unknown[]>(server, '/v1/reteach-history');
+    writeJson(join(root, 'content', 'reteach.json'), hist);
+    console.log(`已同步 ${hist.length} 条重教历史（V15 用）`);
+    return 0;
+  },
+
+  /** homework-analysis Skill: list, pull photos, upload recognition, draft/check/submit a judgment. */
+  async homework(pos, flags) {
+    const sub = pos[0];
+    const server = serverUrl(flags) ?? need(undefined, '--server <地址>（或环境变量 ADW_SERVER）');
+    const hwDir = (id: string) => join(root, 'content', 'homework', id);
+    if (sub === 'list' || !sub) {
+      const list = await serverCall<{ id: string; child: string; date: string; status: string; items: number; to_check: number; judgment: string | null; ai_consent: boolean; note: string | null }[]>(server, '/v1/homework');
+      if (!list.length) console.log('还没有作业');
+      for (const h of list) console.log(`${h.id} ${h.child} ${h.date} · ${h.status}${h.items ? ` · ${h.items} 题，待核对 ${h.to_check}` : ''}${h.judgment ? ` · ${h.judgment}` : ''}${h.ai_consent ? '' : ' · 未同意 AI 识别'}${h.note ? ` · ${h.note}` : ''}`);
+      return 0;
+    }
+    const id = need(pos[1], '作业编号（如 HW-0001）');
+    if (sub === 'pull') {
+      const hw = await serverCall<{ id: string; child: string; date: string; note: string | null; ai_consent: boolean; photos: { id: string; mime: string }[]; items: unknown[] }>(server, `/v1/homework/${id}`);
+      if (!hw.ai_consent) { console.log('家长没有同意用 AI 识别这份作业的照片，不能下载给 Skill 看。请家长在家长端重新上传并勾选同意。'); return 1; }
+      const dir = hwDir(id);
+      mkdirSync(dir, { recursive: true });
+      for (const p of hw.photos) {
+        const buf = await serverFetch(server, `/v1/homework/${id}/photos/${p.id}`);
+        writeFileSync(join(dir, `${p.id}.${p.mime.split('/')[1].replace('jpeg', 'jpg')}`), buf);
+      }
+      const { photos: _p, ...meta } = hw;
+      writeJson(join(dir, 'homework.json'), { ...meta, photos: hw.photos });
+      console.log(`已下载 ${hw.photos.length} 张照片到 ${dir}（${hw.child}，${hw.date}${hw.note ? `，${hw.note}` : ''}）`);
+      console.log(`下一步：逐张看照片，写 ${join(dir, 'recognition.json')}，再运行 dls homework recognize ${id}`);
+      return 0;
+    }
+    if (sub === 'recognize') {
+      const file = str(flags, 'file') ?? join(hwDir(id), 'recognition.json');
+      const rec = readJson(file);
+      const r = await serverCall<{ items: number; to_check: number }>(server, `/v1/homework/${id}/recognition`, { method: 'PUT', body: rec });
+      console.log(`已上传识别结果：${r.items} 题，其中 ${r.to_check} 题置信度低、标了“请核对”。请家长在家长端逐题核对。`);
+      return 0;
+    }
+    if (sub === 'draft') {
+      const hw = await serverCall<{ status: string; items: { confirmed: boolean; no: string; original?: object | null }[] }>(server, `/v1/homework/${id}`);
+      if (hw.status === '待识别' || hw.status === '待核对') { console.log(`家长还没核对完（${hw.items.filter(i => !i.confirmed).length} 题待核对），先等家长核对`); return 1; }
+      const dir = hwDir(id);
+      mkdirSync(dir, { recursive: true });
+      writeJson(join(dir, 'items.json'), hw.items);
+      const out = join(dir, 'judgment.json');
+      if (existsSync(out) && !flags.force) { console.log(`${out} 已存在（--force 覆盖）`); return 1; }
+      writeJson(out, await serverCall(server, `/v1/homework/${id}/draft`));
+      const corrected = hw.items.filter(i => i.original).map(i => i.no);
+      console.log(`已写判断草稿 ${out}，核对后的题在 items.json${corrected.length ? `；家长改过第 ${corrected.join('、')} 题，以改后的为准` : ''}`);
+      console.log('下一步：补全“可能的缺口”“还不知道的”“下一课建议”和家长卡，再运行 dls homework check');
+      return 0;
+    }
+    if (sub === 'check' || sub === 'submit') {
+      const dir = hwDir(id);
+      const j = readJson<LearningJudgment>(str(flags, 'file') ?? join(dir, 'judgment.json'));
+      const items = existsSync(join(dir, 'items.json')) ? readJson<CheckedItem[]>(join(dir, 'items.json')) : [];
+      const prev = await serverCall<{ status: string; judgment: LearningJudgment }[]>(server, `/v1/judgments?child=${encodeURIComponent(j.child)}`);
+      const report = checkJudgment(j, { concepts: readJson(join(root, 'content', 'concepts.json')), items, previous: prev.filter(p => p.status === '已确认').map(p => p.judgment) });
+      printJudgmentReport(report);
+      if (!report.ok) { console.log('\n判断校验未通过'); return 1; }
+      if (sub === 'check') return 0;
+      const r = await serverCall<{ id: string; status: string }>(server, '/v1/judgments', { method: 'POST', body: j });
+      console.log(`\n已提交 ${r.id}（${r.status}）。请家长在家长端“作业”页看判断并确认；确认后“需再支持”的知识点会生成重教需求。`);
+      return 0;
+    }
+    throw new UsageError(`未知子命令 ${sub}`);
+  },
+
+  /** Reteach requests waiting for a lesson, and how to start one. */
+  async tickets(_pos, flags) {
+    const server = serverUrl(flags) ?? need(undefined, '--server <地址>（或环境变量 ADW_SERVER）');
+    const list = await serverCall<ReteachTicket[]>(server, '/v1/tickets');
+    const concepts = readJson<Record<string, { name: string }>>(join(root, 'content', 'concepts.json'));
+    const published = loadPublished(root);
+    if (!list.length) console.log('没有重教需求');
+    for (const t of list) {
+      console.log(`${t.id} ${t.child} · ${concepts[t.concept_id]?.name ?? t.concept_id} · 第 ${t.attempt} 次 · ${t.status}${t.lesson_ref ? ` · ${t.lesson_ref}` : ''} · 依据 ${t.judgment_ref}`);
+      if (t.status !== '需求登记') continue;
+      const last = published.filter(p => p.for_child === t.child && p.primary_concept.id === t.concept_id).sort((a, b) => (b.published_at ?? '').localeCompare(a.published_at ?? ''))[0];
+      if (last) {
+        const [maj, min] = last.version.split('.').map(Number);
+        console.log(`    开始重教版：pnpm -s dls init ${last.lesson_id} ${maj}.${min + 1} --child ${t.child} --previous ${last.version} --judgment ${t.judgment_ref}`);
+      } else console.log(`    这个知识点还没有给 ${t.child} 发布过课，做一节新课并在 01-target.json 写 trigger_judgment_ref: ${t.judgment_ref}`);
+    }
     return 0;
   },
 
@@ -329,6 +415,19 @@ async function serverCall<T>(server: string, path: string, init: { method?: stri
   }
   return b as T;
 }
+async function serverFetch(server: string, path: string): Promise<Buffer> {
+  await serverCall(server, '/v1/time');
+  const r = await fetch(`${server}${path}`, { headers: { authorization: `Bearer ${parentToken}` } });
+  if (!r.ok) throw new UsageError(`下载失败（${r.status}）：${path}`);
+  return Buffer.from(await r.arrayBuffer());
+}
+function printJudgmentReport(r: JudgmentReport) {
+  console.log(`判断校验：${r.ok ? '通过' : '未通过'}（错误 ${r.errors}，警告 ${r.warnings}）`);
+  for (const x of r.results) {
+    console.log(`${x.ok ? '✓' : x.level === 'warn' ? '!' : '✗'} ${x.id} ${x.name} [${x.basis}]`);
+    for (const i of x.issues) console.log(`    ${i.path}：${i.msg}${i.fix ? `\n      → ${i.fix}` : ''}`);
+  }
+}
 async function upload(server: string, sp: LessonSpec): Promise<number> {
   const r = await serverCall<{ key: string; status: string; warnings?: number }>(server, '/v1/lessons', { method: 'POST', body: sp });
   console.log(`服务器：${r.key} ${r.status}${r.warnings ? `（警告 ${r.warnings} 条）` : ''}。在家长端排课后孩子就能看到。`);
@@ -342,11 +441,13 @@ const HELP = `dls — discovery-learning-studio 命令行
   dls theme <目录> --component <组件> [--write]   阶段 2：按孩子兴趣建议主题和课末心愿
   dls assets <目录>                       阶段 3：核验素材（许可、写实底线）
   dls assemble <目录>                     阶段 4：组装 lessonspec.json
-  dls validate <目录|文件> [--previous <文件>] [--json]   阶段 5：V01–V14
+  dls validate <目录|文件> [--previous <文件>] [--json]   阶段 5：V01–V15
   dls preview <目录|文件> [--out <文件>]         生成可直接打开的课程预览
   dls review <目录> [--init] [--approve <类别,…|all> --by <审核人>]   阶段 6：审核清单
   dls publish <目录> [--server <地址>]     阶段 6：校验 + 审核齐全后发布并冻结；带 --server 时上传（需 ADW_PIN）
-  dls sync --server <地址>                从服务器拉回兴趣和孩子的下一课心愿
+  dls sync --server <地址>                从服务器拉回兴趣、孩子的下一课心愿和重教历史
+  dls homework list|pull|recognize|draft|check|submit [<作业编号>] --server <地址>   作业判断（homework-analysis Skill）
+  dls tickets --server <地址>             重教需求，以及开始重教版的命令
   dls interest [add] --child <孩子> [--topic … --source … --state … --said …]`;
 
 async function main(argv: string[]): Promise<number> {

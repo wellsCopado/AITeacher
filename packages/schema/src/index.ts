@@ -8,6 +8,8 @@ const load = (name: string) => JSON.parse(readFileSync(join(here, '..', 'schemas
 export const lessonSpecSchema = load('lessonspec.schema.json');
 export const assetSchema = load('asset.schema.json');
 export const interestSchema = load('interest.schema.json');
+export const recognitionSchema = load('recognition.schema.json');
+export const judgmentSchema = load('judgment.schema.json');
 
 export type Realism = 'scan' | 'photo' | 'ai_from_photo' | 'pbr_measured' | 'pbr' | 'stylized';
 export type AssetKind = 'organism' | 'object' | 'texture' | 'hdri' | 'photo';
@@ -94,4 +96,43 @@ export interface ThemeTable {
   skins: Record<string, { name: string; component: string; status: '已有' | '待开发' }>;
   topics: Record<string, string[]>;
   neutral: Record<string, string>;
+}
+
+// ---- homework and judgment (M4) ----
+export type TeacherMark = '对' | '错' | '半对' | '未批';
+export type MasteryState = '未观察' | '待确认' | '有独立应用证据' | '需再支持';
+export interface RecognitionItem {
+  no: string; photo: string; prompt: string; child_answer: string; teacher_mark: TeacherMark;
+  teacher_note?: string | null; confidence: number; concept_id?: string | null; observation?: string | null;
+}
+export interface Recognition { homework_ref: string; recognized_by?: string; items: RecognitionItem[] }
+/** A recognition item after the parent's check: corrections keep the recognised values in `original`. */
+export interface CheckedItem extends RecognitionItem { confirmed: boolean; needs_check: boolean; original?: Partial<RecognitionItem> | null }
+export interface HomeworkUpload {
+  id: string; child: string; date: string; note: string | null;
+  photos: { id: string; mime: string; sha256: string }[];
+  status: '待识别' | '待核对' | '已核对' | '已判断'; created_at: string;
+  /** The parent agreed that an outside AI (Claude) may read these photos (BL11). */
+  ai_consent: boolean;
+}
+export interface ParentCard { facts: string; child_share: string; unverified: string; talk: string }
+export interface LearningJudgment {
+  id?: string; homework_ref: string; child: string;
+  facts: { text: string; items: string[] }[];
+  gaps: { concept_id: string; misconception?: string | null; text: string; confidence: number; verify_by: string; items: string[] }[];
+  unknowns: string[];
+  next: { kind: '重教' | '巩固' | '新课' | '观察'; concept_id?: string | null; text: string }[];
+  mastery: { concept_id: string; state: MasteryState; evidence: string[] }[];
+  corrects?: { judgment_id: string; gap: number; note: string }[];
+  parent_card: ParentCard;
+}
+export interface ReteachTicket {
+  id: string; child: string; concept_id: string; judgment_ref: string; attempt: number;
+  status: '需求登记' | '已发布' | '已验证' | '未见效'; lesson_ref: string | null; mechanism: string | null; created_at: string;
+}
+/** One reteach attempt for V15: which mechanism was used and whether it helped. */
+export interface ReteachHistory { concept_id: string; child: string; mechanism: string; outcome: '已验证' | '未见效' | '待验证' }
+export interface FeedbackItem {
+  id: string; child: string; source: '孩子' | '家长' | '老师' | '作业' | '系统'; said: string;
+  context: string | null; kind: '事实' | '解释' | '推测'; ref: string | null; created_at: string;
 }

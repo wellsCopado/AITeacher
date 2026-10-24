@@ -70,7 +70,7 @@ pnpm -s dls assemble content/lessons/L-XXX/1.0
 pnpm -s dls validate content/lessons/L-XXX/1.0
 ```
 
-V01–V14 全部无错误才能继续；警告要告诉家长。按每条问题后面的“→”提示修改阶段文件，再从阶段 4 重跑。规则解释见 [reference/validation.md](reference/validation.md)。
+V01–V15 全部无错误才能继续；警告要告诉家长。按每条问题后面的“→”提示修改阶段文件，再从阶段 4 重跑。规则解释见 [reference/validation.md](reference/validation.md)。
 
 ### 预览（阶段 5 之后、审核之前）
 

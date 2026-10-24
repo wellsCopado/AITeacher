@@ -6,12 +6,12 @@
 - 实施 Spec：AI Discovery World 实施 Spec V1.0（Claude Doc）
 - 交互原型：`prototype/ai-discovery-world.html`（单文件，浏览器直接打开）
 
-## 当前进度：M1 核心 Skill 与工具 ✓ · M2 组件与预览 ✓ · M3 服务器、Pad 与家长端 ✓
+## 当前进度：M1 核心 Skill 与工具 ✓ · M2 组件与预览 ✓ · M3 服务器、Pad 与家长端 ✓ · M4 作业判断与重教 ✓
 
 | 部分 | 位置 |
 | --- | --- |
 | LessonSpec / 资产 / 兴趣 Schema | `packages/schema` |
-| V01–V14 自动校验、安全公式求值 | `packages/validator` |
+| V01–V15 自动校验、安全公式求值 | `packages/validator` |
 | `dls` 命令行（六阶段 + 兴趣记录） | `packages/cli` |
 | Skill：discovery-learning-studio | `skills/discovery-learning-studio`（`.claude/skills` 已链接） |
 | 组件白名单、知识点、资产库、主题表、孩子档案、兴趣记录 | `content/` |
@@ -23,8 +23,9 @@
 | Pad 轻 App（选孩子、今天的课、断网补传） | `apps/pad` |
 | 家长端（排课、临时授权、学习记录、兴趣与心愿、设备） | `apps/parent` |
 | 部署说明 | `docs/deploy.md`、`Dockerfile` |
-
-后续：M4 作业判断与重教。
+| Skill：homework-analysis（作业识别、判断、重教需求） | `skills/homework-analysis`（`.claude/skills` 已链接） |
+| 判断校验 J01–J09、重教换机制 V15 | `packages/validator/src/judgment.ts`、`rules.ts` |
+| 作业、判断、掌握状态、重教需求、反馈分源、数据导出与删除 | `apps/server/src/homework.ts`、家长端“作业”“掌握与重教”页 |
 
 ## 使用
 
@@ -38,9 +39,10 @@ pnpm -s dls preview content/lessons/L-PA/1.0   # 生成 preview.html，浏览器
 pnpm e2e                  # 浏览器里走完两节样课并截图（需要本机 Playwright）
 ADW_PIN=2468 pnpm start   # 启动家庭服务器：/pad/ 和 /parent/
 pnpm e2e:apps             # 浏览器全流程：配对 → 排课 → 孩子上课（中途断网）→ 家长看记录
+pnpm e2e:homework         # 作业闭环：上传照片 → Skill 识别 → 家长核对 → 判断 → 重教需求
 ```
 
-在本仓库里用 Claude Code 说“给哥哥做一节课”，会按 Skill 的六个阶段走。
+在本仓库里用 Claude Code 说“给哥哥做一节课”，会按 Skill 的六个阶段走；说“看看今天的作业”，会用 homework-analysis 识别和判断。
 
 ## 写实底线
 

@@ -3,7 +3,8 @@ import { join } from 'node:path';
 import type { LessonSpec } from '../../schema/src/index.js';
 import { RULES, type Ctx, type Issue } from './rules.js';
 
-export { RULES, type Ctx, type Issue } from './rules.js';
+export { RULES, mechanism, type Ctx, type Issue } from './rules.js';
+export { checkJudgment, draftJudgment, validateRecognition, JUDGMENT_RULES, CHECK_BELOW, CHARACTER_WORDS, type JudgmentCtx, type JudgmentReport } from './judgment.js';
 export { evalExpr, exprVars, ExprError } from './expr.js';
 
 export interface RuleResult { id: string; name: string; basis: string; level: 'error' | 'warn'; ok: boolean; issues: Issue[] }
@@ -31,6 +32,7 @@ export function loadContext(root: string, previous?: LessonSpec | null): Ctx {
     concepts: readJson(c('concepts.json')),
     assets: readJson(c('assets/registry.json')),
     interests: existsSync(c('interests.json')) ? readJson(c('interests.json')) : [],
+    reteach: existsSync(c('reteach.json')) ? readJson(c('reteach.json')) : [],
     children: readJson(c('children.json')),
     previous: previous ?? null,
   };

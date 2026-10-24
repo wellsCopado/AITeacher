@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-discovery-world/schemas/recognition-1.0.json",
+  "title": "HomeworkRecognition",
+  "description": "逐题识别结果。由 homework-analysis Skill 看照片写出，家长逐条核对。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["homework_ref", "items"],
+  "properties": {
+    "homework_ref": { "type": "string", "pattern": "^HW-\\d{4,}$" },
+    "recognized_by": { "type": "string" },
+    "items": {
+      "type": "array", "minItems": 1, "maxItems": 60,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["no", "photo", "prompt", "child_answer", "teacher_mark", "confidence"],
+        "properties": {
+          "no": { "type": "string", "minLength": 1, "maxLength": 12 },
+          "photo": { "type": "string" },
+          "prompt": { "type": "string", "minLength": 1 },
+          "child_answer": { "type": "string" },
+          "teacher_mark": { "enum": ["对", "错", "半对", "未批"] },
+          "teacher_note": { "type": ["string", "null"] },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "concept_id": { "type": ["string", "null"] },
+          "observation": { "type": ["string", "null"], "description": "只写看得到的：步骤、涂改、单位，不写原因猜测" }
+        }
+      }
+    }
+  }
+}
