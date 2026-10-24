@@ -6,7 +6,7 @@
 - 实施 Spec：AI Discovery World 实施 Spec V1.0（Claude Doc）
 - 交互原型：`prototype/ai-discovery-world.html`（单文件，浏览器直接打开）
 
-## 当前进度：M1 核心 Skill 与工具 ✓ · M2 组件与预览 ✓
+## 当前进度：M1 核心 Skill 与工具 ✓ · M2 组件与预览 ✓ · M3 服务器、Pad 与家长端 ✓
 
 | 部分 | 位置 |
 | --- | --- |
@@ -19,8 +19,12 @@
 | 写实 3D 组件（PerimeterArea、ArrayMultiplier） | `packages/components` |
 | 课程播放器（语言循环、判题、心愿） | `packages/player` |
 | `dls preview` 单文件预览、浏览器端到端测试 | `packages/cli/src/preview.ts`、`scripts/e2e-preview.mjs` |
+| 家庭服务器（SQLite、PIN 登录、设备配对、当天课程与授权、学习事件） | `apps/server` |
+| Pad 轻 App（选孩子、今天的课、断网补传） | `apps/pad` |
+| 家长端（排课、临时授权、学习记录、兴趣与心愿、设备） | `apps/parent` |
+| 部署说明 | `docs/deploy.md`、`Dockerfile` |
 
-后续：M3 服务器、Pad 与家长端，M4 作业判断与重教。
+后续：M4 作业判断与重教。
 
 ## 使用
 
@@ -32,6 +36,8 @@ pnpm -s dls help
 pnpm -s dls validate content/lessons/L-PA/1.0
 pnpm -s dls preview content/lessons/L-PA/1.0   # 生成 preview.html，浏览器打开
 pnpm e2e                  # 浏览器里走完两节样课并截图（需要本机 Playwright）
+ADW_PIN=2468 pnpm start   # 启动家庭服务器：/pad/ 和 /parent/
+pnpm e2e:apps             # 浏览器全流程：配对 → 排课 → 孩子上课（中途断网）→ 家长看记录
 ```
 
 在本仓库里用 Claude Code 说“给哥哥做一节课”，会按 Skill 的六个阶段走。
