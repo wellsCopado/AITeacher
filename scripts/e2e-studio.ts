@@ -113,13 +113,19 @@ try {
   await page.waitForSelector('#wform');
   const before = await page.locator('.draft').count();
   await page.selectOption('#wform [name=child]', 'gege');
-  await page.fill('#wform [name=wish]', '用大桥做主题');
-  await page.click('#wform button');
+  // Plan in ChatGPT first: the design brief for this child, then the agreed plan pasted back.
+  await page.click('#dbtn');
+  await page.waitForSelector('#dbox:not([hidden])');
+  const designText = await page.inputValue('#dbox textarea');
+  check(designText.includes('【课程方案】') && designText.includes('螳螂虾') && designText.includes('PerimeterArea'), '「复制设计说明」给出带孩子兴趣、可用 3D 组件和方案格式的说明');
+  const brief = '【课程方案】\n孩子：哥哥（4 年级）\n知识点：周长与面积　容易错的地方：单位混用\n组件和主题：PerimeterArea，珊瑚礁样方调查\n参数：长 6、宽 4\n挑战题：1. 用大桥做迁移题…';
+  await page.fill('#wform [name=wish]', brief);
+  await page.click('#wform button.primary');
   await page.waitForFunction(() => document.getElementById('toast')?.textContent?.includes('写好了'), null, { timeout: 30_000 });
   check(await page.locator('.draft').count() === before + 1, '写好的课出现在“等你审核”');
   const card = page.locator('.draft[data-k="L-PA-2@1.0"]');
   check((await card.textContent())?.includes('由 AI 出课 · 家里的测试模型 交来'), '审核卡片写明是哪个模型写的');
-  check(asked.some(a => a.includes('用大桥做主题')) && asked.some(a => a.includes('[V18]')), '家长的要求发给了模型；校验问题自动发回让模型改');
+  check(asked.some(a => a.includes('谈好的课程方案') && a.includes('长 6、宽 4')) && asked.some(a => a.includes('[V18]')), '粘贴的课程方案发给了做课模型；校验问题自动发回让模型改');
   check(!asked.some(a => a.includes('"said"')), '发给模型的内容里没有孩子的原话');
 
   // The parent sends it back with a note; one button has it revised under the same id.
@@ -131,6 +137,25 @@ try {
   check(asked.at(-1)!.includes('第一题数字小一点'), '「让 AI 按意见改」把家长的意见发给模型');
   check((await page.locator('.draft[data-k="L-PA-2@1.0"] .badge').first().textContent()) === '待审核', '改好的课重新回到“待审核”（id 不变）');
   await page.locator('#writer').screenshot({ path: join(shots, 'parent-writer.png') });
+
+  // Codex makes a photoreal picture and sends it through a one-time address; children see it only after the parent confirms.
+  const parentToken = (await (await fetch(`${base}/v1/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pin: PIN }) })).json()).token;
+  const codex = (await (await fetch(`${base}/v1/agents`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${parentToken}` }, body: JSON.stringify({ label: 'Codex 生图' }) })).json()).token;
+  const prep = await (await fetch(`${base}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${codex}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'adw_prepare_image_upload', arguments: {
+    asset_id: 'M-peacock-mantis-shrimp', origin: 'AI 写实图', caption: '依据实拍照片生成的侧面图', credit: 'Codex 生成', license: '家用', references: ['https://commons.wikimedia.org/x', '海洋馆实拍', '图鉴'] } } }) })).json();
+  const { upload_url } = JSON.parse(prep.result.content[0].text);
+  const png = Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010806000000', 'hex');
+  const sent = await fetch(upload_url, { method: 'POST', headers: { 'content-type': 'image/png' }, body: png });
+  check(sent.status === 201, 'Codex 用一次性地址把生成的图传上来');
+  const padSees = async () => ((await (await fetch(`${base}/v1/media?asset=M-peacock-mantis-shrimp`, { headers: { authorization: `Bearer ${parentToken}` } })).json()) as { added_by?: string }[]).some(m => m.added_by === 'Codex 生图');
+  check(!(await padSees()), '家长确认前，孩子那边看不到这张图');
+  await page.click('[data-t="排课"]'); await page.click('[data-t="课程库"]');
+  await page.waitForSelector('.media.pending .confirm');
+  check((await page.textContent('.media.pending'))?.includes('由 Codex 生图 传来') && await page.locator('.media.pending .refs li').count() === 3, '生物素材里显示“等你确认”、谁传的和 3 张参考照片');
+  await page.locator('.media.pending').screenshot({ path: join(shots, 'parent-pending-media.png') });
+  await page.click('.media.pending .confirm');
+  await page.waitForFunction(() => document.getElementById('toast')?.textContent?.includes('已确认'));
+  check(await padSees(), '家长点“确认可用”后孩子在课里能看到');
   check(!errors.length, `页面没有脚本错误${errors.length ? '：' + errors.join('；') : ''}`);
 } finally {
   await browser.close();

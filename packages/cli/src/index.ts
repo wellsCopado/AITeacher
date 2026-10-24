@@ -6,7 +6,7 @@ import type { CheckedItem, InterestObservation, LearningJudgment, LessonSpec, Re
 import { checkJudgment, loadContext, validate, type JudgmentReport, type Report } from '../../validator/src/index.js';
 import { buildPreview } from './preview.js';
 import {
-  assemble, chatWith, childList, createMcp, generateLesson, localBackend, modelFromEnv, readStages, serveStdio,
+  assemble, chatWith, childList, createMcp, designPrompt, generateLesson, localBackend, modelFromEnv, readStages, serveStdio,
   StageError, studioContext, writeStages, PROVIDERS,
 } from '../../studio/src/index.js';
 import { writeFileSync } from 'node:fs';
@@ -375,6 +375,12 @@ const commands: Record<string, (pos: string[], flags: Flags) => number | Promise
     return 0;
   },
 
+  /** What to paste into ChatGPT (or any chat) to plan the next lesson with it; the agreed plan goes to dls generate --wish. */
+  design(_pos, flags) {
+    console.log(designPrompt(studioContext(root, need(str(flags, 'child'), `--child（${childList(root).map(c => c.id).join(' / ')}）`))));
+    return 0;
+  },
+
   /** The built-in lesson writer: any OpenAI-compatible model writes the stage files, the validator checks them. */
   async generate(_pos, flags) {
     const child = need(str(flags, 'child'), '--child');
@@ -486,6 +492,7 @@ const HELP = `dls — discovery-learning-studio 命令行
   dls tickets --server <地址>             重教需求，以及开始重教版的命令
   dls interest [add] --child <孩子> [--topic … --source … --state … --said …]
   dls context --child <孩子> [--json]      做课需要的全部信息（兴趣、可用组件、建议主题、新课 id）
+  dls design --child <孩子>                给 ChatGPT 等聊天模型的设计说明：和它谈好方案，再交给 dls generate --wish
   dls generate --child <孩子> [--wish <要求>] [--component <组件>] [--submit --server <地址>]
                                           用任意大模型自动写课并校验（环境变量 ADW_LLM_PROVIDER / ADW_LLM_API_KEY / ADW_LLM_MODEL / ADW_LLM_BASE_URL）
   dls mcp [--server <地址>]               以 MCP（stdio）提供做课工具，给 Codex、Claude Code、Qoder、Cursor 等 agent 用`;

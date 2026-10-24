@@ -302,8 +302,6 @@ export async function buildApp(o: AppOptions) {
     return { ok: true, expires_on };
   });
 
-  studioRoutes(app, { store, root: o.root, tenant, iso, parent, agentOrParent, issue, vet, fetchImpl: o.fetchImpl });
-
   app.get('/v1/sessions', parent, async (req) => {
     const c = (req.query as { child?: string }).child;
     return store.sessions(c ? childParam(c) : undefined);
@@ -377,7 +375,8 @@ export async function buildApp(o: AppOptions) {
     return reply.header('cache-control', 'private, max-age=2592000').type('audio/wav').send(buf);
   });
 
-  mediaRoutes(app, { store, root: o.root, mediaDir: join(dirname(o.dbPath), 'media'), iso, parent, anyone });
+  const media = mediaRoutes(app, { store, root: o.root, mediaDir: join(dirname(o.dbPath), 'media'), iso, parent, anyone });
+  studioRoutes(app, { store, root: o.root, tenant, iso, parent, agentOrParent, issue, vet, media, fetchImpl: o.fetchImpl });
 
   // ---- static apps ----
   if (o.serveApps) {

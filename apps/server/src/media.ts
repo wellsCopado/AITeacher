@@ -26,7 +26,14 @@ const MAX_BYTES = 48 * 1024 * 1024;
 export const publicMedia = (m: MediaRow) => ({
   id: m.id, asset_id: m.asset_id, kind: m.kind, origin: m.origin ?? '实拍', url: `/v1/media/${m.id}/${m.key}`, credit: m.credit, license: m.license,
   source_url: m.source_url, caption: m.caption, length_cm: m.length_cm, created_at: m.created_at,
+  added_by: m.added_by, pending: !m.confirmed, refs: m.refs ? JSON.parse(m.refs) as string[] : null,
 });
+const IMAGE_MAGIC: Record<string, (b: Buffer) => boolean> = {
+  'image/jpeg': b => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
+  'image/png': b => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
+  'image/webp': b => b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP',
+};
+const UPLOAD_BYTES = 20 * 1024 * 1024, UPLOAD_TTL_MS = 30 * 60_000;
 
 /** Pictures that ship with the program, in content/assets/organisms/<asset>/media.json. */
 interface Builtin { file: string; kind: 'photo' | 'video' | 'cutout'; origin: string; caption?: string; length_cm?: number; width_px_body?: [number, number]; rig?: string; rig_meta?: string }
@@ -54,7 +61,7 @@ export function mediaRoutes(app: FastifyInstance, d: Deps) {
   })));
   app.get('/v1/media', d.anyone, async req => {
     const asset = (req.query as { asset?: string }).asset;
-    return [...builtins(d.root, asset), ...store.mediaFor(asset).map(publicMedia)];
+    return [...builtins(d.root, asset), ...store.mediaFor(asset).filter(m => m.confirmed).map(publicMedia)];
   });
   app.get('/organism-assets/:asset/:file', async (req, reply) => {
     const { asset, file } = req.params as { asset: string; file: string };
@@ -86,8 +93,55 @@ export function mediaRoutes(app: FastifyInstance, d: Deps) {
     writeFileSync(join(d.mediaDir, file), buf);
     return publicMedia(store.addMedia({
       asset_id: asset, kind: t.kind, origin, mime: String(b.mime), file, key, credit, license, source_url: url,
-      caption: b.caption ? String(b.caption).slice(0, 120) : null, length_cm: len, added_by: req.who ?? '家长',
+      caption: b.caption ? String(b.caption).slice(0, 120) : null, length_cm: len, added_by: req.who ?? '家长', confirmed: 1, refs: null,
     }, d.iso()));
+  });
+
+  // AI assistants (Codex can make a photoreal picture on the parent's computer) get a one-time address and send
+  // the file with curl; it waits in 生物素材 until the parent confirms it, and no child sees it before that.
+  const tickets = new Map<string, { asset: string; origin: string; caption: string | null; credit: string; license: string; refs: string[]; length_cm: number | null; by: string; until: number }>();
+  const prepareUpload = (a: Record<string, unknown>, by: string, base: string) => {
+    const asset = String(a.asset_id ?? '');
+    if (!organisms().some(o => o.asset_id === asset)) fail(404, `资产库里没有这个生物：${asset}（可选：${organisms().map(o => o.asset_id).join('、')}）`);
+    const origin = ORIGINS.includes(String(a.origin)) ? String(a.origin) : fail(400, '类型只能是 实拍、标本扫描、AI 写实图');
+    const credit = String(a.credit ?? '').trim().slice(0, 200), license = String(a.license ?? '').trim().slice(0, 100);
+    if (!credit || !license) fail(400, '要写作者或来源（credit）和授权（license）');
+    const refs = (Array.isArray(a.references) ? a.references : []).map(x => String(x).trim().slice(0, 300)).filter(Boolean).slice(0, 10);
+    if (origin === 'AI 写实图' && refs.length < 3) fail(400, 'AI 写实图要写至少 3 张参考的实拍照片（链接或出处），家长核对形态时要用');
+    const len = a.length_cm == null || a.length_cm === '' ? null : Number(a.length_cm);
+    if (len !== null && !(len > 0 && len < 1000)) fail(400, '身长按厘米填，例如 16');
+    const t = randomBytes(18).toString('base64url');
+    for (const [k, v] of tickets) if (v.until < Date.now()) tickets.delete(k);
+    tickets.set(t, { asset, origin, caption: a.caption ? String(a.caption).slice(0, 120) : null, credit, license, refs, length_cm: len, by, until: Date.now() + UPLOAD_TTL_MS });
+    const url = `${base}/v1/uploads/${t}`;
+    return {
+      upload_url: url, expires_in_minutes: UPLOAD_TTL_MS / 60_000,
+      curl: `curl -sS -X POST --data-binary @<图片文件路径> -H "content-type: image/png" ${url}`,
+      note: 'content-type 按文件换成 image/jpeg、image/png 或 image/webp，20 MB 以内。地址只能用一次。上传后家长在“生物素材”里确认，孩子才看得到。',
+    };
+  };
+  app.addContentTypeParser(/^image\//, { parseAs: 'buffer', bodyLimit: UPLOAD_BYTES }, (_req, body, done) => done(null, body));
+  app.post('/v1/uploads/:ticket', { bodyLimit: UPLOAD_BYTES }, async (req, reply) => {
+    const t = (req.params as { ticket: string }).ticket, tk = tickets.get(t);
+    if (!tk || tk.until < Date.now()) { tickets.delete(t); fail(404, '上传地址无效或已过期，请重新获取'); }
+    const mime = String(req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
+    const buf = req.body as Buffer;
+    if (!IMAGE_MAGIC[mime]) fail(400, '只收 jpg、png、webp 图片（content-type 写 image/jpeg、image/png 或 image/webp）');
+    if (!Buffer.isBuffer(buf) || !IMAGE_MAGIC[mime](buf)) fail(400, '收到的不是这种格式的图片文件');
+    tickets.delete(t);
+    const key = randomBytes(18).toString('base64url'), file = `${tk!.asset}-${key}.${MEDIA_TYPES[mime].ext}`;
+    mkdirSync(d.mediaDir, { recursive: true });
+    writeFileSync(join(d.mediaDir, file), buf);
+    const m = store.addMedia({
+      asset_id: tk!.asset, kind: 'photo', origin: tk!.origin, mime, file, key, credit: tk!.credit, license: tk!.license, source_url: null,
+      caption: tk!.caption, length_cm: tk!.length_cm, added_by: tk!.by, confirmed: 0, refs: tk!.refs.length ? JSON.stringify(tk!.refs) : null,
+    }, d.iso());
+    return reply.code(201).send({ ...publicMedia(m), status: '已上传，等家长在“课程库 → 生物素材”里确认' });
+  });
+  app.post('/v1/media/:id/confirm', d.parent, async req => {
+    const m = store.media((req.params as { id: string }).id) ?? fail(404, '没有这个素材');
+    store.confirmMedia(m.id);
+    return publicMedia(store.media(m.id)!);
   });
 
   app.delete('/v1/media/:id', d.parent, async req => {
@@ -113,4 +167,5 @@ export function mediaRoutes(app: FastifyInstance, d: Deps) {
     return reply.code(206).header('content-range', `bytes ${start}-${end}/${size}`).header('content-length', end - start + 1)
       .send(readFileSync(path).subarray(start, end + 1));
   });
+  return { prepareUpload, organismIds: () => organisms().map(a => a.asset_id) };
 }

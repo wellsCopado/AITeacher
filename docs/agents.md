@@ -2,13 +2,14 @@
 
 做课的规则只有一份：`skills/discovery-learning-studio/`（Skill）。不管谁来做课，都读这份 Skill、用同一个校验器（V01–V18），做好的课都进家长端「课程库 → 等你审核」，只有家长点按钮才发布。
 
-## 三种方式，选一种
+## 四种方式，选一种
 
 | 方式 | 适合 | 要准备什么 |
 | --- | --- | --- |
 | A. 家长端一键出课 | 不想开电脑终端，点一下就出一节课 | 一个大模型的 API Key（DeepSeek、通义千问、Kimi、智谱、豆包、GPT、Claude、Gemini 都行），或家里电脑上的 Ollama |
 | B. AI 助手通过 MCP 做课 | 用 Codex、Claude Code、Qoder、Cursor 等工具，边聊边做 | 家长端生成一个接入令牌，把配置贴进工具里 |
 | C. 在仓库里用命令行 | 要改代码、加组件、调规则 | 克隆仓库，`pnpm install`，AI 助手会自动读 `AGENTS.md` |
+| D. ChatGPT 谈方案、生图，DeepSeek 做课 | 有 ChatGPT Plus，想用云端 GPT 商量方案、出图，再让便宜的模型做完 | A 里配好做课模型；Codex 还要按 B 接入 |
 
 ## A. 家长端一键出课（任意大模型，随时切换）
 
@@ -77,6 +78,8 @@ ADW_LLM_PROVIDER=deepseek ADW_LLM_API_KEY=sk-… pnpm -s dls generate --child ge
    | `adw_check_lesson` | 校验，返回每个问题的位置和改法 |
    | `adw_submit_for_review` | 交给家长审核 |
    | `adw_list_lessons` / `adw_get_lesson` | 看已有的课、取回退回的课来改 |
+   | `adw_write_with_model` / `adw_job_status` | 把谈好的方案交给你在家长端配置的模型去写课、看进度 |
+   | `adw_prepare_image_upload` | 拿一次性地址上传写实图，等你确认后孩子才看得到 |
 
    没有发布工具；令牌也打不开学习记录、作业和照片。不用了就在家长端点“移除”，令牌马上失效。
 
@@ -91,6 +94,25 @@ ADW_LLM_PROVIDER=deepseek ADW_LLM_API_KEY=sk-… pnpm -s dls generate --child ge
   - Claude Code：DeepSeek 提供 Anthropic 兼容接口，设置 `ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic` 和 `ANTHROPIC_AUTH_TOKEN=<DeepSeek 的 Key>`，再用 `ANTHROPIC_MODEL` 选模型。详见 [DeepSeek：接入 Claude Code](https://api-docs.deepseek.com/quick_start/agent_integrations/claude_code/)、[Anthropic 兼容接口](https://api-docs.deepseek.com/guides/anthropic_api)。
   - Codex：按 [DeepSeek：接入 Codex](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/) 配置模型提供方。
   - Qoder、Cursor：在各自的模型设置里选。
+
+## D. ChatGPT 谈方案、生图，DeepSeek 做课
+
+两个模型分工：GPT（用 ChatGPT Plus 的额度）负责和你商量、出图；你在 A 里配置的模型（例如 DeepSeek）按 Skill 把方案做成完整的课。
+
+**在 ChatGPT 网页或手机 App 里谈（什么都不用装）**
+
+1. 家长端「课程库 → AI 出一节课」，选孩子，点“复制设计说明（发给 ChatGPT）”。这段说明里有孩子的年级、兴趣、3D 能做什么、规则和方案格式，不含姓名和隐私。
+2. 粘到 ChatGPT，和它聊这节课：想练什么、用什么主题、题目难度。谈好后它会输出以【课程方案】开头的一段。
+3. 把这段整段粘回「AI 出一节课」的框里，点“开始写课”。写好进“等你审核”。
+4. 要图片：在 ChatGPT 里让它依据实拍照片生成写实图，下载后在「课程库 → 生物素材」里上传，类型选“AI 写实图”，写上参考了哪些照片。
+
+**在 Codex 里谈（Plus 套餐包含 Codex，能直接连家里的服务器）**
+
+1. 按 B 生成令牌，把配置贴进 Codex。
+2. 对 Codex 说：“用 adw 和我商量哥哥的下一节课，谈好后交给家里的模型去做”。它会读孩子的上下文，和你谈方案，然后调用 `adw_write_with_model`，让你在家长端选中的模型（例如 DeepSeek）写课，写好进“等你审核”。
+3. 要图片：让 Codex 依据实拍照片生成写实图，再调用 `adw_prepare_image_upload` 上传。图会出现在「生物素材」里标着“等你确认”，你对照参考照片核对后点“确认可用”，孩子才看得到。
+
+为什么不直接让网页版 ChatGPT 连家里服务器：ChatGPT 连 MCP 要公网 HTTPS 地址，得把家里服务器暴露到外网；而且 OpenAI 帮助中心写的是能写入的完整 MCP 只给企业版和教育版，Plus 能不能用，各页面说法不一致（[帮助中心](https://help.openai.com/articles/12584461)、[开发者文档](https://developers.openai.com/api/docs/guides/developer-mode.md)）。Codex 包含在 Plus 里，能聊天也能生图（[Codex 价格说明](https://learn.chatgpt.com/docs/pricing)），装在家里电脑上就能连局域网，所以推荐用 Codex。
 
 ## 参考
 

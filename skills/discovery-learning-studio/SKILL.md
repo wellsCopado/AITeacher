@@ -154,6 +154,14 @@ pnpm -s dls publish content/lessons/L-XXX/1.0
    5. `adw_submit_for_review` 交给家长审核。没有发布工具。
 3. **家长端一键出课**：「课程库 → AI 出一节课」，或命令行 `dls generate --child gege [--wish "…"]`（模型用环境变量 `ADW_LLM_PROVIDER`、`ADW_LLM_API_KEY`、`ADW_LLM_MODEL`、`ADW_LLM_BASE_URL` 设置）。这份 Skill 会作为模型的系统提示，校验问题自动发回给模型修改，最多 4 轮。
 
+## 一个模型谈方案、另一个模型做课
+
+可以让云端聊天模型（ChatGPT、Codex 里的 GPT 等）先和家长谈方案、出图，再交给家长配置的模型（例如 DeepSeek）按这份 Skill 做成完整的课：
+
+- **设计说明**：`dls design --child gege`，或家长端「AI 出一节课 → 复制设计说明」。里面有孩子的年级、兴趣、可用 3D 组件和参数范围、规则摘要和方案格式（开头是 `【课程方案】`），不含姓名和隐私。
+- **方案交给做课模型**：方案全文作为要求传进去：家长端粘到「AI 出一节课」的框里；MCP 用 `adw_write_with_model`（`adw_job_status` 看进度）；命令行 `dls generate --child gege --wish "<方案全文>"`。方案和本 Skill 冲突时以 Skill 为准，组件、参数、主题、素材以上下文为准，改了什么写进 `parent_tip`。
+- **图片**：只能是写实图。AI 生成的生物图要依据至少 3 张实拍照片，写清参考来源。通过 MCP 用 `adw_prepare_image_upload` 拿一次性地址上传，进家长端「生物素材」等家长确认，确认前孩子看不到。
+
 ## 校验常见错误和改法
 
 | 报错 | 原因 | 改法 |

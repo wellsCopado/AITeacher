@@ -24,13 +24,20 @@ export async function writerCard(c: Ctx, onDone: () => Promise<void>): Promise<s
   const active = m.models.find(x => x.id === m.active) ?? m.models[0];
   const needConsent = !m.consent && !isLocal(active);
   return `<div class="card" id="writer"><h3>AI 出一节课</h3>
-    <p class="muted small">选孩子，写一句想要什么（可以不写）。AI 按 Skill 写课、自己校验并修改，通过后放到下面“等你审核”。发布还是要你看过、勾完再点。</p>
-    <form id="wform" class="row"><select name="child">${c.kids.map(k => `<option value="${esc(k.id)}">${esc(k.name)}</option>`).join('')}</select>
-      <input name="wish" maxlength="200" placeholder="想要什么，例如：用大桥做主题、再难一点、练周长" style="flex:1;min-width:220px">
+    <p class="muted small">直接写一句要求就行。想先和 ChatGPT 商量方案：点“复制设计说明”发给 ChatGPT（网页、手机都行），谈好后把它给的【课程方案】整段粘到下面。AI 按 Skill 写课、自己校验并修改，通过后放到“等你审核”，发布还是要你看过、勾完再点。</p>
+    <form id="wform"><div class="row"><select name="child">${c.kids.map(k => `<option value="${esc(k.id)}">${esc(k.name)}</option>`).join('')}</select>
       <select name="model">${m.models.map(x => `<option value="${esc(x.id)}" ${x.id === active.id ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select>
-      <button class="btn primary" ${running ? 'disabled' : ''}>开始写课</button></form>
+      <button type="button" class="btn" id="dbtn">复制设计说明（发给 ChatGPT）</button></div>
+      <textarea name="wish" rows="3" maxlength="8000" placeholder="一句要求，例如：用大桥做主题、再难一点；或者粘贴在 ChatGPT 里谈好的【课程方案】"></textarea>
+      <div class="row"><button class="btn primary" ${running ? 'disabled' : ''}>开始写课</button></div></form>
+    <div id="dbox" hidden><p class="small">把下面这段发给 ChatGPT，和它谈这节课的方案。谈好后它会输出【课程方案】，整段复制粘到上面的框里，点“开始写课”。</p><textarea readonly rows="8"></textarea></div>
     ${needConsent ? '<p class="toast bad small">还没有同意把年级和兴趣主题发给大模型：到「设备与数据 → 大模型」勾选后才能出课。</p>' : ''}
     <ol id="wlog" class="log small"></ol>${!running && jobs[0] ? `<p class="small muted" id="wlast">上一次（${esc(jobs[0].model)}）：${jobs[0].status === 'done' ? `写好了「${esc(jobs[0].title)}」，在下面等你审核` : `没写成：${esc(jobs[0].error)}`}</p>` : ''}</div>`;
+}
+
+/** Copy text, falling back to selecting it (the home server is plain http, where the clipboard API is off). */
+async function copyText(t: HTMLTextAreaElement) {
+  try { await navigator.clipboard.writeText(t.value); return true; } catch { t.focus(); t.select(); return document.execCommand('copy'); }
 }
 
 function wireWriter(c: Ctx) {
@@ -41,6 +48,14 @@ function wireWriter(c: Ctx) {
     const f = Object.fromEntries(new FormData(form)) as Record<string, string>;
     c.guard(async () => { const r = await c.api<{ job: string }>('/v1/studio/generate', { method: 'POST', body: JSON.stringify(f) }); follow(c, r.job, onDone); })();
   };
+  const dbtn = document.getElementById('dbtn');
+  if (form && dbtn) dbtn.onclick = c.guard(async () => {
+    const child = (form.elements.namedItem('child') as HTMLSelectElement).value;
+    const r = await c.api<{ text: string }>(`/v1/studio/design-prompt?child=${encodeURIComponent(child)}`);
+    const box = document.getElementById('dbox')!, t = box.querySelector('textarea')!;
+    t.value = r.text; box.hidden = false;
+    c.toast(await copyText(t) ? '设计说明已复制，粘到 ChatGPT 里开始聊' : '设计说明在下面，全选后复制到 ChatGPT');
+  });
   if (shown.running && document.getElementById('wlog')) follow(c, shown.running.id, onDone);
 }
 
@@ -55,7 +70,7 @@ export function follow(c: Ctx, id: string, onDone: () => Promise<void>) {
     if (!box) { following.delete(id); return; } // the parent left the page; the server keeps writing
     box.innerHTML = (j.log ?? []).map(l => `<li>${esc(l.at.slice(11, 19))} ${esc(l.msg)}</li>`).join('')
       + (j.status === 'failed' ? `<li class="toast bad">没写成：${esc(j.error)}${j.issues?.length ? `<ul>${j.issues.map(i => `<li>${esc(i.rule)} ${esc(i.msg)}</li>`).join('')}</ul>` : ''}</li>` : '');
-    document.querySelector<HTMLButtonElement>('#wform button')?.toggleAttribute('disabled', j.status === 'running');
+    document.querySelector<HTMLButtonElement>('#wform button.primary')?.toggleAttribute('disabled', j.status === 'running');
     if (j.status === 'running') { setTimeout(tick, 1500); return; }
     following.delete(id);
     if (j.status === 'done') { await onDone(); c.toast(`写好了：${j.title}。在“等你审核”里先预览，再勾选审核。`); }
@@ -181,7 +196,7 @@ function snippets(label: string, token: string) {
 function wireCopy() {
   document.querySelectorAll<HTMLButtonElement>('#asnip .copy').forEach(b => b.onclick = async () => {
     const t = b.closest('.snip')!.querySelector('textarea')!;
-    try { await navigator.clipboard.writeText(t.value); } catch { t.select(); document.execCommand('copy'); }
+    await copyText(t);
     b.textContent = '已复制'; setTimeout(() => { b.textContent = '复制'; }, 1500);
   });
 }

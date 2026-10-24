@@ -19,6 +19,13 @@ export interface StudioBackend {
   lessons(child?: string): unknown;
   /** One lesson as stage files (to revise a lesson the parent sent back), with its status and the parent's note. */
   lesson(key: string): unknown;
+  /** Family server only: the model the parent set up writes a lesson from an agreed plan (a job). */
+  models?(): string[];
+  writeWithModel?(a: { child: string; brief: string; model?: string }): unknown;
+  jobStatus?(id: string): unknown;
+  /** Family server only: a one-time address to send one picture to (it waits for the parent's confirmation). */
+  organisms?(): string[];
+  prepareImageUpload?(a: Record<string, unknown>): unknown;
 }
 
 const PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
@@ -34,6 +41,8 @@ const stagesSchema = {
 export const INSTRUCTIONS = `AI Discovery World 做课工具。给哥哥（四年级）或妹妹（二年级）写以数学为主、包在孩子自己兴趣里的写实 3D 互动课。
 顺序：1) adw_read_guide 读 Skill（topic=all），2) adw_get_context 拿这个孩子的兴趣、可用组件、建议主题、新课 id，3) adw_get_example 看一节完整的示例课，
 4) 写 target / director / assets 三部分，用 adw_check_lesson 校验，按每条问题的 fix 改到全部通过，5) adw_submit_for_review 交给家长审核。
+只想谈方案、不自己写课时：和家长谈好方案后，用 adw_write_with_model 交给家长配置的大模型（例如 DeepSeek）按 Skill 写成完整的课，用 adw_job_status 看进度。
+生成了写实的生物图片时：用 adw_prepare_image_upload 拿一次性上传地址，按返回的 curl 命令上传，家长确认后孩子才看得到。
 家长退回的课：adw_list_lessons 里状态是“已退回”，note 是家长的意见；用 adw_get_lesson 取回三部分，按意见改，校验通过后再交（id 和版本不变）。
 发布只能由家长在家长端点按钮完成，这里没有发布工具。不要编造事实，不确定写“待科学审核”。`;
 
@@ -59,6 +68,28 @@ export function createMcp(b: StudioBackend, info = { name: 'adw-lesson-studio', 
       inputSchema: { type: 'object', required: ['key'], properties: { key: { type: 'string', description: '课的 id@版本，例如 L-PA-2@1.0' } } },
       run: a => b.lesson(String(a?.key ?? '')) },
   ];
+  if (b.writeWithModel && b.jobStatus) tools.push(
+    { name: 'adw_write_with_model', description: `把和家长谈好的课程方案交给家长在家长端配置的大模型，按 Skill 写成完整的课、自动校验和修改，通过后进家长端“等你审核”。返回任务 id，用 adw_job_status 查进度（一般 1–5 分钟）。可用模型：${b.models?.().join('、') || '家长还没有配置'}（不填用当前选中的）。`,
+      inputSchema: { type: 'object', required: ['child', 'brief'], properties: {
+        child: { type: 'string', description: '孩子 id' },
+        brief: { type: 'string', description: '谈好的课程方案全文（知识点、主题、参数、孩子要做的事、挑战题和答案、鼓励的话、需要的图片）' },
+        model: { type: 'string', description: '模型名字（可选）' },
+      } }, run: a => b.writeWithModel!({ child: String(a?.child ?? ''), brief: String(a?.brief ?? ''), model: a?.model ? String(a.model) : undefined }) },
+    { name: 'adw_job_status', description: '查 adw_write_with_model 的进度和结果。', inputSchema: { type: 'object', required: ['job'], properties: { job: { type: 'string' } } },
+      run: a => b.jobStatus!(String(a?.job ?? '')) },
+  );
+  if (b.prepareImageUpload) tools.push(
+    { name: 'adw_prepare_image_upload', description: `给一张写实的生物图片（照片或依据实拍照片生成的 AI 写实图）拿一次性上传地址，30 分钟内有效。返回 curl 命令，把本机的图片文件（jpg / png / webp）传上去。上传后在家长端“生物素材”里等家长确认，确认前孩子看不到。只能传写实图，不能传卡通或绘画。可用的生物：${b.organisms?.().join('、') || '无'}。`,
+      inputSchema: { type: 'object', required: ['asset_id', 'origin', 'caption', 'credit', 'license'], properties: {
+        asset_id: { type: 'string', description: '生物的资产 id' },
+        origin: { type: 'string', enum: ['实拍', '标本扫描', 'AI 写实图'] },
+        caption: { type: 'string', description: '一句说明，例如 洞口探出头的孔雀螳螂虾' },
+        credit: { type: 'string', description: '作者或来源，例如 Codex 生成（GPT 图像）' },
+        license: { type: 'string', description: '授权，例如 家用' },
+        references: { type: 'array', items: { type: 'string' }, description: 'AI 写实图必填：至少 3 张参考的实拍照片（链接或出处）' },
+        length_cm: { type: 'number', description: '图中生物的真实身长（厘米，可选）' },
+      } }, run: a => b.prepareImageUpload!(a ?? {}) },
+  );
 
   const ok = (id: unknown, result: unknown) => ({ jsonrpc: '2.0', id, result });
   const err = (id: unknown, code: number, message: string) => ({ jsonrpc: '2.0', id, error: { code, message } });

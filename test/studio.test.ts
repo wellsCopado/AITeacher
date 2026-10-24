@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { buildApp } from '../apps/server/src/app.js';
 import {
-  checkStages, createMcp, exampleStages, generateLesson, guide, localBackend, modelFromEnv, normalize, parseJsonReply, serveStdio, studioContext,
-  type Message, type Stages,
+  authorMessages, BRIEF_HEADER, checkStages, createMcp, designPrompt, exampleStages, generateLesson, guide, localBackend, modelFromEnv, normalize, parseJsonReply,
+  serveStdio, studioContext, type Message, type Stages,
 } from '../packages/studio/src/index.js';
 
 const root = join(import.meta.dirname, '..');
@@ -67,6 +67,18 @@ describe('lesson studio core', () => {
     expect(s.director.theme.id).toBe(ctx.components.find(c => c.name === 'PerimeterArea')!.suggested_theme.id);
     expect(s.director.end_chat.questions.at(-1).kind).toBe('next_lesson_wish');
     expect(normalize(example(), ctx, { lesson_id: 'L-PA-7', version: '1.1' }).target).toMatchObject({ lesson_id: 'L-PA-7', version: '1.1' });
+  });
+
+  it('gives a cloud chat model a design brief to plan with, and hands the agreed plan to the writer', () => {
+    const ctx = studioContext(root, 'gege');
+    const text = designPrompt(ctx);
+    expect(text).toContain(BRIEF_HEADER);
+    expect(text).toContain('螳螂虾（近期最喜欢');
+    expect(text).toContain('a 是 1–10 的整数');
+    expect(text).not.toMatch(/"said"|IO-\d/);
+    const brief = `${BRIEF_HEADER}\n孩子：哥哥\n知识点：周长与面积\n挑战题：1. …`;
+    expect(authorMessages(root, ctx, { wish: brief })[1].content).toContain('谈好的课程方案，照它做');
+    expect(authorMessages(root, ctx, { wish: '难一点' })[1].content).toContain('家长的要求：难一点');
   });
 
   it('writes a lesson with any chat model and feeds the validator\'s problems back', async () => {
@@ -248,5 +260,54 @@ describe('server: models, AI lesson writer, MCP for agents', () => {
     expect((await req('GET', '/v1/studio/models', token)).status).toBe(403);
     await req('DELETE', '/v1/agents/Codex', p);
     expect((await rpc(token, 'ping')).status).toBe(401);
+  });
+
+  it('lets an assistant plan with the parent and hand the plan to the parent\'s own model', async () => {
+    const p = await login();
+    const { token } = (await req('POST', '/v1/agents', p, { label: 'Codex' })).body;
+    const tool = async (name: string, args: unknown) => (await req('POST', '/mcp', token, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } })).body.result;
+    const names = (await req('POST', '/mcp', token, { jsonrpc: '2.0', id: 1, method: 'tools/list' })).body.result.tools.map((t: { name: string }) => t.name);
+    expect(names).toEqual(expect.arrayContaining(['adw_write_with_model', 'adw_job_status', 'adw_prepare_image_upload']));
+    expect((await req('GET', '/v1/studio/design-prompt?child=gege', p)).body.text).toContain(BRIEF_HEADER);
+    expect((await req('GET', '/v1/studio/design-prompt?child=gege', token)).status).toBe(403);
+
+    const brief = `${BRIEF_HEADER}\n孩子：哥哥（4 年级）\n知识点：周长与面积\n组件和主题：PerimeterArea，珊瑚礁\n挑战题：1. 长 5 宽 3…`;
+    expect((await tool('adw_write_with_model', { child: 'gege', brief })).isError).toBe(true); // no model set up yet
+    await req('POST', '/v1/studio/models', p, { provider: 'deepseek', base_url: 'https://api.deepseek.com', model: 'deepseek-v4-pro', api_key: 'sk-1' });
+    expect((await tool('adw_write_with_model', { child: 'gege', brief })).content[0].text).toContain('勾选同意'); // consent first
+    await req('PUT', '/v1/studio/settings', p, { consent: true });
+    const started = JSON.parse((await tool('adw_write_with_model', { child: 'gege', brief })).content[0].text);
+    let job: any;
+    for (let i = 0; i < 200; i++) { job = JSON.parse((await tool('adw_job_status', { job: started.job })).content[0].text); if (job.status !== 'running') break; await new Promise(r => setTimeout(r, 10)); }
+    expect(job).toMatchObject({ status: 'done', key: 'L-PA-2@1.0', planner: 'Codex' });
+    expect(JSON.stringify(calls.at(-1)!.body)).toContain('谈好的课程方案');
+    expect((await req('GET', '/v1/drafts', p)).body.find((x: { key: string }) => x.key === 'L-PA-2@1.0').submitted_by).toBe('AI 出课 · DeepSeek · deepseek-v4-pro · 方案：Codex');
+  });
+
+  it('takes a picture from an assistant only through a one-time address, and shows it to children only after the parent confirms', async () => {
+    const p = await login();
+    const { token } = (await req('POST', '/v1/agents', p, { label: 'Codex' })).body;
+    const tool = async (args: unknown) => (await req('POST', '/mcp', token, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'adw_prepare_image_upload', arguments: args } })).body.result;
+    const base = { asset_id: 'M-peacock-mantis-shrimp', origin: 'AI 写实图', caption: '洞口的孔雀螳螂虾', credit: 'Codex 生成', license: '家用' };
+    expect((await tool({ ...base, references: ['a', 'b'] })).content[0].text).toContain('至少 3 张');
+    expect((await tool({ ...base, asset_id: 'cartoon-shrimp', references: ['a', 'b', 'c'] })).isError).toBe(true);
+    const ok = JSON.parse((await tool({ ...base, references: ['https://commons.wikimedia.org/a', '图鉴 p.12', '水族馆实拍'] })).content[0].text);
+    expect(ok.curl).toContain('--data-binary');
+    const path = new URL(ok.upload_url).pathname;
+    const PNG = Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010806000000', 'hex');
+    const up = (body: Buffer, type = 'image/png') => app.inject({ method: 'POST', url: path, headers: { 'content-type': type }, payload: body });
+    expect((await up(Buffer.from('not a picture'))).statusCode).toBe(400);
+    const r = await up(PNG);
+    expect(r.statusCode).toBe(201);
+    expect(JSON.parse(r.body)).toMatchObject({ pending: true, added_by: 'Codex', origin: 'AI 写实图' });
+    expect((await up(PNG)).statusCode).toBe(404); // one time only
+    const id = JSON.parse(r.body).id;
+    const onPad = async () => (await req('GET', '/v1/media?asset=M-peacock-mantis-shrimp', p)).body.map((m: { id: string }) => m.id);
+    expect(await onPad()).not.toContain(id);
+    const shrimp = (await req('GET', '/v1/organisms', p)).body.find((o: { asset_id: string }) => o.asset_id === 'M-peacock-mantis-shrimp');
+    expect(shrimp.media.find((m: { id: string }) => m.id === id)).toMatchObject({ pending: true, refs: ['https://commons.wikimedia.org/a', '图鉴 p.12', '水族馆实拍'] });
+    expect((await req('POST', `/v1/media/${id}/confirm`, token)).status).toBe(403); // only the parent confirms
+    await req('POST', `/v1/media/${id}/confirm`, p);
+    expect(await onPad()).toContain(id);
   });
 });

@@ -15,7 +15,7 @@ interface Draft {
 }
 interface Organism {
   asset_id: string; name: string; status: string; real_scale: string | null;
-  media: { id: string; kind: 'photo' | 'video' | 'model' | 'cutout'; origin: string; builtin?: boolean; url: string; credit: string; license: string; source_url: string | null; caption: string | null; length_cm: number | null }[];
+  media: { id: string; kind: 'photo' | 'video' | 'model' | 'cutout'; origin: string; builtin?: boolean; url: string; credit: string; license: string; source_url: string | null; caption: string | null; length_cm: number | null; pending?: boolean; refs?: string[] | null; added_by?: string }[];
 }
 interface Interest { id: string; child: string; topic: string; source: string; said: string | null; observed_on: string; state: string; lesson_ref: string | null }
 
@@ -118,9 +118,10 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
       <h3>授权记录</h3><ul>${grants.map(g => `<li>${esc(name(g.child))} · ${esc(title(g.lesson_key))} · 到 ${esc(g.expires_on)}${g.expires_on < today ? '（已过期）' : ''}</li>`).join('') || '<li class="muted">没有</li>'}</ul>
       <h3>生物素材</h3><p class="muted">写实模型还没到位的动物，课里会打开“实拍观察窗”，放这里加的照片或视频。只能用实拍、标本扫描，或依据实拍照片做的写实模型，不用卡通和绘画。每条都写上作者和授权。</p>
       ${organisms.map(o => `<div class="card organism" data-a="${esc(o.asset_id)}"><h3>${esc(o.name)} <span class="badge">${esc(o.status)}</span></h3>
-        <div class="media-list">${o.media.map(m => `<figure class="media">${m.kind === 'video' ? `<video src="${esc(m.url)}" muted playsinline controls preload="metadata"></video>` : m.kind === 'model' ? '<div class="glb">三维扫描 .glb</div>' : `<img src="${esc(m.url)}" alt="" ${m.kind === 'cutout' ? 'class="cutout"' : ''}>`}
+        ${o.media.some(m => m.pending) ? '<p class="small toast bad">有 AI 助手传来的图片等你确认：对照参考照片核对形态，没问题点“确认可用”，孩子才看得到。</p>' : ''}
+        <div class="media-list">${o.media.map(m => `<figure class="media${m.pending ? ' pending' : ''}">${m.kind === 'video' ? `<video src="${esc(m.url)}" muted playsinline controls preload="metadata"></video>` : m.kind === 'model' ? '<div class="glb">三维扫描 .glb</div>' : `<img src="${esc(m.url)}" alt="" ${m.kind === 'cutout' ? 'class="cutout"' : ''}>`}
           <figcaption class="small"><span class="badge">${esc(m.kind === 'cutout' ? `${m.origin} · 放进三维海底` : m.origin)}</span> ${esc(m.caption ?? '')}${m.length_cm ? ` · 约 ${esc(m.length_cm)} 厘米` : ''}<br><span class="muted">${esc(m.credit)} · ${esc(m.license)}</span>${m.source_url ? ` · <a href="${esc(m.source_url)}" target="_blank" rel="noopener">来源</a>` : ''}</figcaption>
-          ${m.builtin ? '<span class="muted small">随程序自带</span>' : `<button class="btn sm del" data-id="${esc(m.id)}">删除</button>`}</figure>`).join('') || '<p class="muted small">还没有素材，孩子在课里只能看到洞口和讲解。</p>'}</div>
+          ${m.pending ? `<div class="small"><span class="badge warn">等你确认</span> 由 ${esc(m.added_by)} 传来${m.refs?.length ? `，参考照片：<ol class="refs">${m.refs.map(r => `<li>${/^https?:\/\//.test(r) ? `<a href="${esc(r)}" target="_blank" rel="noopener">${esc(r)}</a>` : esc(r)}</li>`).join('')}</ol>` : ''}</div><button class="btn sm primary confirm" data-id="${esc(m.id)}">确认可用</button> ` : ''}${m.builtin ? '<span class="muted small">随程序自带</span>' : `<button class="btn sm del" data-id="${esc(m.id)}">删除</button>`}</figure>`).join('') || '<p class="muted small">还没有素材，孩子在课里只能看到洞口和讲解。</p>'}</div>
         <form class="addmedia"><label>文件 <input type="file" name="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,.glb" required></label>
           <label>类型 <select name="origin"><option>实拍</option><option>标本扫描</option><option>AI 写实图</option></select></label>
           <label>说明 <input name="caption" maxlength="120" placeholder="例如 洞口探出头的孔雀螳螂虾"></label>
@@ -132,6 +133,9 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
           <button class="btn primary">加到素材</button></form></div>`).join('')}`;
     view().querySelectorAll<HTMLElement>('.organism').forEach(card => {
       const asset = card.dataset.a!;
+      card.querySelectorAll<HTMLButtonElement>('.confirm').forEach(b => b.onclick = guard(async () => {
+        await api(`/v1/media/${encodeURIComponent(b.dataset.id!)}/confirm`, { method: 'POST' }); await VIEWS.课程库(); toast('已确认，孩子在课里能看到了');
+      }));
       card.querySelectorAll<HTMLButtonElement>('.del').forEach(b => b.onclick = guard(async () => {
         if (!confirm('删除这条素材？')) return;
         await api(`/v1/media/${encodeURIComponent(b.dataset.id!)}`, { method: 'DELETE' }); await VIEWS.课程库(); toast('已删除');

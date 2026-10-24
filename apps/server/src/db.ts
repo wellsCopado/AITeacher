@@ -35,7 +35,7 @@ create table if not exists feedback (id text primary key, tenant_id text not nul
   context text, kind text not null, ref text, created_at text not null);
 create table if not exists media (id text primary key, tenant_id text not null, asset_id text not null, kind text not null, origin text not null default '实拍', mime text not null,
   file text not null, key text not null, credit text not null, license text not null, source_url text, caption text, length_cm real,
-  added_by text not null, created_at text not null);
+  added_by text not null, created_at text not null, confirmed integer not null default 1, refs text);
 create table if not exists settings (tenant_id text not null, k text not null, v text not null, primary key (tenant_id, k));
 `;
 
@@ -46,6 +46,10 @@ export interface JudgmentRow { id: string; child: string; homework_ref: string; 
 export interface MediaRow {
   id: string; asset_id: string; kind: 'photo' | 'video' | 'model'; origin: string; mime: string; file: string; key: string; credit: string; license: string;
   source_url: string | null; caption: string | null; length_cm: number | null; added_by: string; created_at: string;
+  /** 0 until the parent confirms it (pictures from AI assistants); children only see confirmed media. */
+  confirmed: number;
+  /** JSON list of the real photos an AI picture was made from. */
+  refs: string | null;
 }
 export interface EventIn { id: string; at: string; type: string; [k: string]: unknown }
 
@@ -56,7 +60,11 @@ export class Store {
     this.db.exec('pragma journal_mode = wal; pragma foreign_keys = on;');
     this.db.exec(SCHEMA);
     // media.origin came after the first media release
-    if (!this.all<{ name: string }>('pragma table_info(media)').some(c => c.name === 'origin')) this.db.exec("alter table media add column origin text not null default '实拍'");
+    const cols = this.all<{ name: string }>('pragma table_info(media)').map(c => c.name);
+    if (!cols.includes('origin')) this.db.exec("alter table media add column origin text not null default '实拍'");
+    // pictures an AI assistant sends wait for the parent's confirmation; earlier ones were all added by the parent
+    if (!cols.includes('confirmed')) this.db.exec('alter table media add column confirmed integer not null default 1');
+    if (!cols.includes('refs')) this.db.exec('alter table media add column refs text');
   }
   private all<T>(sql: string, ...p: (string | number | null)[]): T[] { return this.db.prepare(sql).all(...p) as T[]; }
   private get<T>(sql: string, ...p: (string | number | null)[]): T | undefined { return this.db.prepare(sql).get(...p) as T | undefined; }
@@ -236,13 +244,14 @@ export class Store {
   // real photos, videos and scans of organisms (BL14), shown until a photoreal model is in the component
   addMedia(m: Omit<MediaRow, 'id' | 'created_at'>, now: string): MediaRow {
     const id = this.nextId('media', 'MD');
-    this.run('insert into media (id, tenant_id, asset_id, kind, origin, mime, file, key, credit, license, source_url, caption, length_cm, added_by, created_at) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-      id, this.tenant, m.asset_id, m.kind, m.origin, m.mime, m.file, m.key, m.credit, m.license, m.source_url, m.caption, m.length_cm, m.added_by, now);
+    this.run('insert into media (id, tenant_id, asset_id, kind, origin, mime, file, key, credit, license, source_url, caption, length_cm, added_by, created_at, confirmed, refs) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      id, this.tenant, m.asset_id, m.kind, m.origin, m.mime, m.file, m.key, m.credit, m.license, m.source_url, m.caption, m.length_cm, m.added_by, now, m.confirmed, m.refs);
     return this.media(id)!;
   }
   media(id: string) { return this.get<MediaRow>('select * from media where tenant_id=? and id=?', this.tenant, id); }
   mediaFor(asset?: string) { return this.all<MediaRow>(`select * from media where tenant_id=? ${asset ? 'and asset_id=?' : ''} order by id`, ...(asset ? [this.tenant, asset] : [this.tenant])); }
   deleteMedia(id: string) { this.run('delete from media where tenant_id=? and id=?', this.tenant, id); }
+  confirmMedia(id: string) { this.run('update media set confirmed=1 where tenant_id=? and id=?', this.tenant, id); }
 
   // family settings (e.g. which voice reads the lessons)
   setting(k: string) { return this.get<{ v: string }>('select v from settings where tenant_id=? and k=?', this.tenant, k)?.v; }

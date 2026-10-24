@@ -7,10 +7,11 @@ import type { Ctx } from '../../validator/src/index.js';
 import { checkStages, issues, type Stages } from './lesson.js';
 import { exampleStages, guide } from './guide.js';
 import type { StudioContext } from './context.js';
+import { BRIEF_HEADER } from './design.js';
 import { ModelError, parseJsonReply, type Chat, type Message } from './llm.js';
 
 export interface LessonRequest {
-  /** What the parent wants, in their words: a topic, a concept, a difficulty… Optional. */
+  /** What the parent wants, in their words (a topic, a difficulty…), or a whole 课程方案 agreed with a cloud model. Optional. */
   wish?: string;
   /** Component to use (PerimeterArea, ArrayMultiplier…). Optional: the model picks from the child's grade. */
   component?: string;
@@ -37,7 +38,10 @@ export function authorMessages(root: string, ctx: StudioContext, req: LessonRequ
   const want = [
     `孩子：${ctx.child.label}（${ctx.child.id}），${ctx.child.grade} 年级。`,
     req.component ? `用组件：${req.component}。` : '从 components 里选适合这个年级的组件。',
-    req.wish ? `家长的要求：${req.wish}` : '家长没有额外要求：主题按 suggested_theme，难度按年级。',
+    !req.wish ? '家长没有额外要求：主题按 suggested_theme，难度按年级。'
+      : req.wish.includes(BRIEF_HEADER) || req.wish.length > 200
+        ? `家长和设计顾问谈好的课程方案，照它做；方案和 Skill 规则冲突时以规则为准（组件、参数范围、主题、素材以上下文为准），并在 parent_tip 里说明改了哪里：\n${req.wish}`
+        : `家长的要求：${req.wish}`,
   ].join('\n');
   return [
     system,

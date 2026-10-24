@@ -37,3 +37,5 @@ table{width:100%;border-collapse:collapse;background:var(--surface);border-radiu
 .mform{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px 12px;margin-top:10px;border-top:1px dashed var(--line);padding-top:10px}
 .mform label{display:flex;flex-direction:column;gap:3px;font-size:13px}.mform label:has(input[type=checkbox]){flex-direction:row;align-items:center}.mform .wide{grid-column:1/-1}
 .snip{margin:8px 0}.snip textarea{display:block;width:100%;font:12px/1.5 ui-monospace,Menlo,monospace;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:inherit;resize:vertical}
+#wform textarea,#dbox textarea{display:block;width:100%;margin:8px 0;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:inherit;resize:vertical}#dbox textarea{font-size:12px;background:var(--bg)}
+.media.pending{border-color:#c98a1a;background:color-mix(in srgb,#f2b43a 10%,transparent)}.media .refs{margin:4px 0;padding-left:16px}

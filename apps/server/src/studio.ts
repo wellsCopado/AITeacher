@@ -7,7 +7,7 @@ import { randomBytes } from 'node:crypto';
 import type { LessonSpec, ReteachTicket } from '../../../packages/schema/src/index.js';
 import type { Ctx, Report } from '../../../packages/validator/src/index.js';
 import {
-  PROVIDERS, chatWith, checkStages, createMcp, disassemble, exampleStages, generateLesson, guide, listModels, outcome, studioContext,
+  PROVIDERS, chatWith, checkStages, createMcp, designPrompt, disassemble, exampleStages, generateLesson, guide, listModels, outcome, studioContext,
   type Chat, type GuideTopic, type LessonRequest, type ModelConfig, type Stages, type StudioBackend,
 } from '../../../packages/studio/src/index.js';
 import type { Role, Store } from './db.js';
@@ -19,12 +19,14 @@ interface Deps {
   parent: RouteShorthandOptions; agentOrParent: RouteShorthandOptions;
   issue: (role: Role, label: string) => string;
   vet: (sp: LessonSpec) => { key: string; ticket?: ReteachTicket; report: Report };
+  /** Pictures from AI assistants (one-time upload addresses) and which organisms they can be of. */
+  media: { prepareUpload: (a: Record<string, unknown>, by: string, base: string) => unknown; organismIds: () => string[] };
   /** Tests swap the network out. */
   fetchImpl?: typeof fetch;
 }
 
 const MODELS = 'studio.models', ACTIVE = 'studio.active', CONSENT = 'studio.consent';
-type Job = { id: string; child: string; model: string; status: 'running' | 'done' | 'failed'; started_at: string; log: { at: string; msg: string }[]; key?: string; title?: string; error?: string; issues?: { rule: string; path: string; msg: string }[] };
+type Job = { id: string; child: string; model: string; planner?: string; status: 'running' | 'done' | 'failed'; started_at: string; log: { at: string; msg: string }[]; key?: string; title?: string; error?: string; issues?: { rule: string; path: string; msg: string }[] };
 /** A model on this machine (Ollama, LM Studio…): nothing leaves the house, so no consent is needed. */
 const isLocal = (m: ModelConfig) => { try { return ['localhost', '127.0.0.1', '[::1]'].includes(new URL(m.base_url).hostname); } catch { return false; } };
 
@@ -113,8 +115,51 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
     return { key, report };
   };
 
+  // ---- the built-in lesson writer (a job): 课程库 → AI 出一节课, or an assistant handing over an agreed plan ----
+  const jobs = new Map<string, Job>();
+  const startJob = (b: { child?: string; wish?: string; component?: string; model?: string; revise?: string }, planner?: string): Job => {
+    const m = b.model ? models().find(x => x.id === b.model || x.label === b.model) : active();
+    if (!m) fail(400, b.model ? `没有这个模型：${b.model}（可选：${models().map(x => x.label).join('、')}）` : '还没有设置大模型：设备与数据 → 大模型');
+    if (!isLocal(m!) && !consent()) fail(403, '先在“设备与数据 → 大模型”里勾选同意：会把年级、兴趣主题发给所选模型（不含姓名、照片和学习记录）');
+    if ([...jobs.values()].some(j => j.status === 'running')) fail(409, '上一节课还在写，写完再开始下一节');
+    const request: LessonRequest = { wish: b.wish ? String(b.wish).slice(0, 8000) : undefined, component: b.component || undefined };
+    let child = String(b.child ?? '');
+    if (b.revise) {
+      const draft = store.draft(b.revise) ?? fail(404, '没有这节待审核的课');
+      const row = store.drafts().find(x => x.key === b.revise)!;
+      if (row.status !== '已退回' || !row.note) fail(400, '这节课没有被退回，没有修改意见');
+      request.revise = { stages: disassemble(draft), note: row.note! };
+      child = draft.for_child;
+    }
+    const ctx = context(child);
+    const job: Job = { id: randomBytes(6).toString('hex'), child, model: m!.label, status: 'running', started_at: iso(), log: [], ...(planner ? { planner } : {}) };
+    jobs.set(job.id, job);
+    for (const old of [...jobs.keys()].slice(0, -10)) jobs.delete(old);
+    const log = (msg: string) => job.log.push({ at: iso(), msg });
+    log(b.revise ? `按家长意见修改 ${b.revise}（${m!.label}）` : `用 ${m!.label} 给${ctx.child.label}写课${planner ? `（方案来自 ${planner}）` : request.wish && request.wish.length > 200 ? '（按粘贴的课程方案）' : ''}`);
+    void (async () => {
+      try {
+        const r = await generateLesson({ root, ctx, request, chat: chatFor(m!), validatorCtx: valCtx(request.revise?.stages ?? ({} as Stages)), onLog: log });
+        if (!r.ok || !r.spec) {
+          job.status = 'failed';
+          job.error = r.report ? `写了 ${r.rounds} 轮还有问题没改好` : '模型没有给出能用的课';
+          job.issues = (r.report?.results ?? []).filter(x => !x.ok && x.level === 'error').flatMap(x => x.issues.map(i => ({ rule: x.id, path: i.path, msg: i.msg }))).slice(0, 20);
+          return;
+        }
+        const s = submit(r.spec, `AI 出课 · ${m!.label}${planner ? ` · 方案：${planner}` : ''}`);
+        if (!s.report.ok) { job.status = 'failed'; job.error = '服务器校验没通过'; return; }
+        Object.assign(job, { status: 'done', key: s.key, title: r.spec.title });
+        log(`已放进“课程库 → 等你审核”：${r.spec.title}`);
+      } catch (e) { job.status = 'failed'; job.error = (e as Error).message; log(`出错：${(e as Error).message}`); }
+    })();
+    return job;
+  };
+  app.post('/v1/studio/generate', d.parent, async (req, reply) => reply.code(202).send({ job: startJob((req.body ?? {}) as Record<string, string>).id }));
+  /** What to paste into ChatGPT (or any chat) to plan the next lesson with it; the plan comes back to 课程方案. */
+  app.get('/v1/studio/design-prompt', d.parent, async (req) => ({ text: designPrompt(context(String((req.query as { child?: string }).child ?? ''))) }));
+
   // ---- AI assistants over MCP (Streamable HTTP, JSON replies) ----
-  const backend = (who: string): StudioBackend => ({
+  const backend = (who: string, base: string): StudioBackend => ({
     where: 'server',
     children: () => store.children().map(c => ({ id: c.id, label: c.name, grade: c.grade })),
     context,
@@ -137,9 +182,18 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
       if (!sp) throw new Error(`没有这节课：${key}`);
       return { key, status: '已发布（已冻结，修改请升版本号）', stages: disassemble(sp) };
     },
+    models: () => models().map(m => m.label),
+    writeWithModel(a) {
+      if (a.brief.trim().length < 20) fail(400, 'brief 要写谈好的课程方案全文');
+      const j = startJob({ child: a.child, wish: a.brief, model: a.model }, who);
+      return { job: j.id, model: j.model, status: '开始写课了。用 adw_job_status 查进度，写好后在家长端“课程库 → 等你审核”。' };
+    },
+    jobStatus: id => jobs.get(id) ?? fail(404, '没有这个任务'),
+    organisms: d.media.organismIds,
+    prepareImageUpload: a => d.media.prepareUpload(a, who, base),
   });
   app.post('/mcp', d.agentOrParent, async (req: FastifyRequest, reply) => {
-    const out = await createMcp(backend(req.role === 'agent' ? req.who ?? 'AI 助手' : '家长')).handle(req.body);
+    const out = await createMcp(backend(req.role === 'agent' ? req.who ?? 'AI 助手' : '家长', `${req.protocol}://${req.headers.host}`)).handle(req.body);
     return out ? reply.type('application/json').send(out) : reply.code(202).send();
   });
   const noStream = async (_req: FastifyRequest, reply: FastifyReply) =>
@@ -157,46 +211,6 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
   });
   app.delete('/v1/agents/:label', d.parent, async (req) => { store.revokeAgent((req.params as { label: string }).label); return { ok: true }; });
 
-  // ---- the built-in lesson writer: one button in 课程库 ----
-  const jobs = new Map<string, Job>();
-  app.post('/v1/studio/generate', d.parent, async (req, reply) => {
-    const b = (req.body ?? {}) as { child?: string; wish?: string; component?: string; model?: string; revise?: string };
-    const m = b.model ? models().find(x => x.id === b.model) : active();
-    if (!m) fail(400, '还没有设置大模型：设备与数据 → 大模型');
-    if (!isLocal(m!) && !consent()) fail(403, '先在“设备与数据 → 大模型”里勾选同意：会把年级、兴趣主题发给所选模型（不含姓名、照片和学习记录）');
-    if ([...jobs.values()].some(j => j.status === 'running')) fail(409, '上一节课还在写，写完再开始下一节');
-    const request: LessonRequest = { wish: b.wish ? String(b.wish).slice(0, 500) : undefined, component: b.component || undefined };
-    let child = String(b.child ?? '');
-    if (b.revise) {
-      const draft = store.draft(b.revise) ?? fail(404, '没有这节待审核的课');
-      const row = store.drafts().find(x => x.key === b.revise)!;
-      if (row.status !== '已退回' || !row.note) fail(400, '这节课没有被退回，没有修改意见');
-      request.revise = { stages: disassemble(draft), note: row.note! };
-      child = draft.for_child;
-    }
-    const ctx = context(child);
-    const job: Job = { id: randomBytes(6).toString('hex'), child, model: `${m!.label}`, status: 'running', started_at: iso(), log: [] };
-    jobs.set(job.id, job);
-    for (const old of [...jobs.keys()].slice(0, -10)) jobs.delete(old);
-    const log = (msg: string) => job.log.push({ at: iso(), msg });
-    log(b.revise ? `按家长意见修改 ${b.revise}（${m!.label}）` : `用 ${m!.label} 给${ctx.child.label}写课`);
-    void (async () => {
-      try {
-        const r = await generateLesson({ root, ctx, request, chat: chatFor(m!), validatorCtx: request.revise ? valCtx(request.revise.stages) : valCtx({} as Stages), onLog: log });
-        if (!r.ok || !r.spec) {
-          job.status = 'failed';
-          job.error = r.report ? `写了 ${r.rounds} 轮还有问题没改好` : '模型没有给出能用的课';
-          job.issues = (r.report?.results ?? []).filter(x => !x.ok && x.level === 'error').flatMap(x => x.issues.map(i => ({ rule: x.id, path: i.path, msg: i.msg }))).slice(0, 20);
-          return;
-        }
-        const s = submit(r.spec, `AI 出课 · ${m!.label}`);
-        if (!s.report.ok) { job.status = 'failed'; job.error = '服务器校验没通过'; return; }
-        Object.assign(job, { status: 'done', key: s.key, title: r.spec.title });
-        log(`已放进“课程库 → 等你审核”：${r.spec.title}`);
-      } catch (e) { job.status = 'failed'; job.error = (e as Error).message; log(`出错：${(e as Error).message}`); }
-    })();
-    return reply.code(202).send({ job: job.id });
-  });
   app.get('/v1/studio/jobs', d.parent, async () => [...jobs.values()].reverse().map(({ log: _l, ...j }) => j));
   app.get('/v1/studio/jobs/:id', d.parent, async (req) => jobs.get((req.params as { id: string }).id) ?? fail(404, '没有这个任务'));
 }
