@@ -74,6 +74,9 @@ export function create(stage, kind, params, onPick, hooks){
   const world = new THREE.Group(); scene.add(world);
   const orbit = {az:-0.55, el:garden?0.62:0.78, dist:14, min:reef?0.3:garden?4:5, max:garden?40:26, elMin:garden?0.1:0.2, elMax:1.35, target:new THREE.Vector3()};
   let def = null;
+  // Camera moves glide to a goal instead of jumping; a drag or pinch cancels the glide.
+  let goal = null, follow = false;
+  const glide = (g)=>{ goal = {az:g.az??orbit.az, el:g.el??orbit.el, dist:g.dist??orbit.dist, target:(g.target??orbit.target).clone()}; if(reduced()){ Object.assign(orbit,{az:goal.az,el:goal.el,dist:goal.dist}); orbit.target.copy(goal.target); goal=null; } };
   const st = {params:{...params}, pickables:[], anchors:{}, labels:{}, dims:[], hideLabels:false, anim:[], walk:null, fill:null, reveal:null, rotTarget:0, raf:0, dead:false};
 
   /* ---------- shared materials ---------- */
@@ -96,6 +99,17 @@ export function create(stage, kind, params, onPick, hooks){
     const n=900, pos=new Float32Array(n*3); for(let i=0;i<n;i++){pos[i*3]=(Math.random()-.5)*30;pos[i*3+1]=Math.random()*6;pos[i*3+2]=(Math.random()-.5)*30}
     const pg=new THREE.BufferGeometry(); pg.setAttribute('position',new THREE.BufferAttribute(pos,3));
     st.snow=new THREE.Points(pg,new THREE.PointsMaterial({color:0xdff4f2,size:0.025,transparent:true,opacity:0.55,depthWrite:false})); scene.add(st.snow);
+    // sunlight shafts from the surface: soft additive sheets that sway slowly
+    { const c=document.createElement('canvas'); c.width=64; c.height=256; const g=c.getContext('2d'); const gr=g.createLinearGradient(0,0,0,256);
+      gr.addColorStop(0,'rgba(255,255,255,.9)'); gr.addColorStop(0.55,'rgba(255,255,255,.25)'); gr.addColorStop(1,'rgba(255,255,255,0)'); g.fillStyle=gr; g.fillRect(0,0,64,256);
+      const hg=g.getImageData(0,0,64,256); for(let y=0;y<256;y++)for(let x=0;x<64;x++){const k=Math.sin(x/63*Math.PI); hg.data[(y*64+x)*4+3]*=k*k;} g.putImageData(hg,0,0);
+      const t=new THREE.CanvasTexture(c); st.rays=[];
+      for(let k=0;k<9;k++){ const m=new THREE.Mesh(new THREE.PlaneGeometry(0.6+(k%3)*0.35,9), new THREE.MeshBasicMaterial({map:t,transparent:true,opacity:0.05+((k*7)%5)*0.012,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,color:0xd8f6ff,fog:false}));
+        m.position.set(-5+k*1.3+((k*37)%10)/10, 4.2, -3+((k*53)%60)/10); m.rotation.set(0.0, k*0.7, 0.22+((k*13)%7)*0.02); m.userData.ph=k*1.7; scene.add(m); st.rays.push(m); } }
+    // sand kicked up when something lands on the sea floor
+    { const n=360, pos=new Float32Array(n*3).fill(-99); const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(pos,3));
+      st.puff={pts:new THREE.Points(g,new THREE.PointsMaterial({color:0xcfc2a2,size:0.018,transparent:true,opacity:0.8,depthWrite:false})), v:new Float32Array(n*3), life:new Float32Array(n), next:0};
+      scene.add(st.puff.pts); }
     // rocks & rubble outside the survey area
     const rg=new THREE.IcosahedronGeometry(1,3); const rp=rg.attributes.position;
     for(let k=0;k<34;k++){ const g=rg.clone(), q=g.attributes.position; const seed=k*12.9898;
@@ -253,6 +267,10 @@ export function create(stage, kind, params, onPick, hooks){
     orbit.target.set(0,0.6,0); const k=r+'x'+c; if(st.lastAB!==k){st.lastAB=k; orbit.dist=clamp(Math.max(W,D)*1.25+5,orbit.min,orbit.max);}
     buildLabels();
   }
+  function puff(x,z,count,spread,up){ if(!st.puff||reduced()) return; const p=st.puff, a=p.pts.geometry.attributes.position, n=st.puff.life.length;
+    for(let i=0;i<count;i++){ const k=p.next=(p.next+1)%n, ang=Math.random()*Math.PI*2, r=Math.random()*spread;
+      a.setXYZ(k,x+Math.cos(ang)*r*0.3,0.01,z+Math.sin(ang)*r*0.3); p.v[k*3]=Math.cos(ang)*r; p.v[k*3+1]=up*(0.4+Math.random()); p.v[k*3+2]=Math.sin(ang)*r; p.life[k]=1.2+Math.random()*1.4; }
+    a.needsUpdate=true; }
   function build(){ reef ? buildReef() : garden ? buildGarden() : buildArray(); if(!def) def={az:orbit.az,el:orbit.el,dist:orbit.dist}; }
 
   /* ---------- labels ---------- */
@@ -270,11 +288,11 @@ export function create(stage, kind, params, onPick, hooks){
 
   /* ---------- input: drag rotate, pinch/wheel zoom, tap pick ---------- */
   const cv = renderer.domElement, ptrs=new Map(); let down=null, pinch0=null;
-  cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});if(ptrs.size===1)down={x:e.clientX,y:e.clientY,t:performance.now(),moved:false};if(ptrs.size===2){const [p,q]=[...ptrs.values()];pinch0={d:Math.hypot(p.x-q.x,p.y-q.y),dist:orbit.dist};if(down)down.moved=true}});
+  cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});if(ptrs.size===1)down={x:e.clientX,y:e.clientY,t:performance.now(),moved:false};if(ptrs.size===2){goal=null;const [p,q]=[...ptrs.values()];pinch0={d:Math.hypot(p.x-q.x,p.y-q.y),dist:orbit.dist};if(down)down.moved=true}});
   cv.addEventListener('pointermove',e=>{if(!ptrs.has(e.pointerId))return;const p=ptrs.get(e.pointerId),dx=e.clientX-p.x,dy=e.clientY-p.y;ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
     if(ptrs.size===2&&pinch0){const [u,v]=[...ptrs.values()];orbit.dist=clamp(pinch0.dist*pinch0.d/Math.max(1,Math.hypot(u.x-v.x,u.y-v.y)),orbit.min,orbit.max);return}
     if(down&&Math.hypot(e.clientX-down.x,e.clientY-down.y)>6)down.moved=true;
-    if(down&&down.moved){orbit.az-=dx*0.008;orbit.el=clamp(orbit.el+dy*0.006,orbit.elMin,orbit.elMax)}});
+    if(down&&down.moved){goal=null;follow=false;orbit.az-=dx*0.008;orbit.el=clamp(orbit.el+dy*0.006,orbit.elMin,orbit.elMax)}});
   const ray=new THREE.Raycaster();
   cv.addEventListener('pointerup',e=>{ptrs.delete(e.pointerId);if(ptrs.size<2)pinch0=null;
     if(ptrs.size===0&&down){ if(!down.moved&&performance.now()-down.t<450){const r=cv.getBoundingClientRect();ray.setFromCamera(new THREE.Vector2(((e.clientX-r.left)/r.width)*2-1,-((e.clientY-r.top)/r.height)*2+1),cam);
@@ -290,19 +308,32 @@ export function create(stage, kind, params, onPick, hooks){
     if(st.dead) return; st.raf=requestAnimationFrame(frame); const dt=Math.min(0.05,clock.getDelta()), now=performance.now();
     if(reef){
       st.caus.forEach((m,i)=>{m.map.offset.x+=dt*(i?0.011:-0.007);m.map.offset.y+=dt*(i?0.006:0.009)});
+      st.rays.forEach(m=>{ m.rotation.z=0.24+Math.sin(now*0.00021+m.userData.ph)*0.05; m.material.opacity=Math.max(0.02,m.material.opacity+Math.sin(now*0.0004+m.userData.ph)*0.0004); });
+      { const p=st.puff, a=p.pts.geometry.attributes.position; let live=false;
+        for(let k=0;k<p.life.length;k++){ if(p.life[k]<=0) continue; live=true; p.life[k]-=dt; const drag=Math.exp(-dt*2.2);
+          p.v[k*3]*=drag; p.v[k*3+2]*=drag; p.v[k*3+1]=p.v[k*3+1]*drag-dt*0.12;
+          let y=a.getY(k)+p.v[k*3+1]*dt; if(y<0.003){y=0.003;p.v[k*3+1]=0}
+          a.setXYZ(k,a.getX(k)+p.v[k*3]*dt,y,a.getZ(k)+p.v[k*3+2]*dt); if(p.life[k]<=0) a.setY(k,-99); }
+        if(live) a.needsUpdate=true; }
+      // a few grains trickle out of the burrow now and then: something lives in there
+      if(st.burrow && Math.random()<dt*0.6) puff(st.burrow.x,st.burrow.z,4,0.08,0.05);
       const sp=st.snow.geometry.attributes.position; for(let i=0;i<sp.count;i++){let y=sp.getY(i)-dt*0.04; if(y<0)y=6; sp.setY(i,y); sp.setX(i,sp.getX(i)+Math.sin(now*0.0003+i)*dt*0.03)} sp.needsUpdate=true;
-      if(st.walk){ const P=2*(st.params.a+st.params.b); st.walk.d=Math.min(P, st.walk.d+(reduced()?P:dt*0.9));
-        const p=pathAt(st.walk.d,0); st.reel.position.set(p.x,0.25,p.z); st.reel.rotation.y=p.yaw-Math.PI/2; st.reel.children[0].rotation.y=st.walk.d*8;
+      if(st.walk){ const P=2*(st.params.a+st.params.b); st.walk.d=Math.min(P, st.walk.d+(reduced()?P:dt*1.3));
+        const p=pathAt(st.walk.d,0); st.reel.position.set(p.x,0.25+Math.sin(now*0.004)*0.02,p.z);
+        if(follow){ orbit.target.lerp(new THREE.Vector3(p.x*0.55,0,p.z*0.55),Math.min(1,dt*1.5)); }
+        if(Math.random()<dt*6) puff(p.x,p.z,2,0.12,0.06); st.reel.rotation.y=p.yaw-Math.PI/2; st.reel.children[0].rotation.y=st.walk.d*8;
         st.tape.forEach(m=>{m.visible=m.userData.d<st.walk.d});
-        hooks.onWalk && hooks.onWalk(st.walk.d); if(st.walk.d>=P){ st.walk=null; hooks.onWalkDone&&hooks.onWalkDone(); } }
+        hooks.onWalk && hooks.onWalk(st.walk.d); if(st.walk.d>=P){ st.walk=null; if(follow){ follow=false; glide({target:new THREE.Vector3(0,reef?0:0.2,0)}); } hooks.onWalkDone&&hooks.onWalkDone(); } }
       if(st.fill){ const f=st.fill, n=st.tiles.length, per=reduced()?0:0.22;
         while(f.next<n && (now-f.t0)/1000 >= f.next*per){ const m=st.tiles[f.next]; m.visible=true; m.userData.t0=now; f.next++; hooks.onFill&&hooks.onFill(f.next); }
-        st.tiles.forEach(m=>{ if(m.visible&&m.userData.t0){ const t=(now-m.userData.t0)/900; const e=Math.min(1,t); m.position.y=0.012+0.8*(1-easeOut(e)); m.rotation.z=(1-e)*0.25*Math.sin(t*9); m.rotation.x=(1-e)*0.18*Math.cos(t*7); if(t>=1){m.userData.t0=0;m.rotation.set(0,0,0)} } });
+        // quadrats sink through water: slow fall with drag, a little rocking, then a puff of sand on landing
+        st.tiles.forEach(m=>{ if(m.visible&&m.userData.t0){ const t=(now-m.userData.t0)/1100; const e=Math.min(1,t); m.position.y=0.012+0.9*Math.pow(1-e,1.6); m.rotation.z=(1-e)*0.22*Math.sin(t*7.5); m.rotation.x=(1-e)*0.16*Math.cos(t*6.1); if(t>=1){m.userData.t0=0;m.rotation.set(0,0,0); puff(m.position.x,m.position.z,26,0.55,0.18);} } });
         if(f.next>=n && st.tiles.every(m=>!m.userData.t0)){ st.fill=null; hooks.onFillDone&&hooks.onFillDone(); } }
     } else if(garden){
       if(st.walk){ const P=2*(st.params.a+st.params.b); st.walk.d=Math.min(P, st.walk.d+(reduced()?P:dt*1.3)); placeWheel(st.walk.d);
+        if(follow){ const p=pathAt(st.walk.d); orbit.target.lerp(new THREE.Vector3(p.x*0.5,0.2,p.z*0.5),Math.min(1,dt*1.5)); }
         const m=Math.floor(st.walk.d+1e-6); while(st.walk.marks<m){ st.walk.marks++; const p=pathAt(st.walk.marks); const dot=new THREE.Mesh(new THREE.CircleGeometry(0.035,20),M.chalk); dot.rotation.x=-Math.PI/2; dot.position.set(p.x,0.006,p.z); st.chalk.add(dot); }
-        hooks.onWalk && hooks.onWalk(st.walk.d); if(st.walk.d>=P){ st.walk=null; hooks.onWalkDone&&hooks.onWalkDone(); } }
+        hooks.onWalk && hooks.onWalk(st.walk.d); if(st.walk.d>=P){ st.walk=null; if(follow){ follow=false; glide({target:new THREE.Vector3(0,reef?0:0.2,0)}); } hooks.onWalkDone&&hooks.onWalkDone(); } }
       if(st.fill){ const f=st.fill; const n=st.tiles.length; const per=reduced()?0:0.16;
         while(f.next<n && (now-f.t0)/1000 >= f.next*per){ const m=st.tiles[f.next]; m.visible=true; m.userData.t0=now; f.next++; hooks.onFill&&hooks.onFill(f.next); }
         st.tiles.forEach(m=>{ if(m.visible&&m.userData.t0){ const t=(now-m.userData.t0)/420; m.position.y=0.085+0.6*settle(t); if(t>=1)m.userData.t0=0; } });
@@ -315,7 +346,12 @@ export function create(stage, kind, params, onPick, hooks){
         if(f.rows>=r && st.cubes.every(m=>!m.userData.t0 || now-m.userData.t0>500)){ st.reveal=null; st.cubes.forEach(m=>{m.userData.t0=0;m.position.y=m.userData.baseY}); hooks.onRevealDone&&hooks.onRevealDone(); } }
       st.cubes && st.cubes.forEach(m=>{ if(m.userData.t0){ const t=(now-m.userData.t0)/450; if(t<0){m.position.y=m.userData.baseY+1.6;return} m.position.y=m.userData.baseY+1.6*settle(t); } });
     }
+    if(goal){ const k=Math.min(1,dt*2.4); let da=goal.az-orbit.az; while(da>Math.PI)da-=2*Math.PI; while(da<-Math.PI)da+=2*Math.PI;
+      orbit.az+=da*k; orbit.el+=(goal.el-orbit.el)*k; orbit.dist+=(goal.dist-orbit.dist)*k; orbit.target.lerp(goal.target,k);
+      if(Math.abs(da)+Math.abs(goal.el-orbit.el)+Math.abs(goal.dist-orbit.dist)+orbit.target.distanceTo(goal.target)<0.002) goal=null; }
     const o=orbit; cam.position.set(o.target.x+o.dist*Math.cos(o.el)*Math.sin(o.az), o.target.y+o.dist*Math.sin(o.el), o.target.z+o.dist*Math.cos(o.el)*Math.cos(o.az)); cam.lookAt(o.target);
+    // underwater the viewer drifts very slightly, like a diver holding position
+    if(reef && !reduced()){ cam.position.y+=Math.sin(now*0.0007)*0.015*o.dist/6; cam.rotation.z+=Math.sin(now*0.00043)*0.004; }
     renderer.render(scene,cam); placeLabels();
   }
   build(); frame();
@@ -323,13 +359,13 @@ export function create(stage, kind, params, onPick, hooks){
   return {
     get params(){return st.params},
     setParams(p){ st.params={...p}; st.walk=null; st.fill=null; st.reveal=null; build(); },
-    walk(){ if(!garden)return; if(reef){st.tape.forEach(m=>m.visible=false)} else st.chalk.clear(); st.walk={d:0,marks:0}; },
-    focusShrimp(){ if(!st.burrow)return; orbit.target.copy(st.burrow); orbit.dist=1.1; orbit.el=0.75; },
+    walk(){ if(!garden)return; if(reef){st.tape.forEach(m=>m.visible=false)} else st.chalk.clear(); st.walk={d:0,marks:0}; follow=true; },
+    focusShrimp(){ if(!st.burrow)return; follow=false; glide({target:st.burrow, dist:1.1, el:0.62}); puff(st.burrow.x,st.burrow.z,30,0.25,0.12); },
     fill(){ if(!garden)return; st.tiles.forEach(m=>{m.visible=false;m.userData.t0=0}); st.fill={next:0,t0:performance.now()}; },
     reveal(){ if(garden)return; st.cubes.forEach(m=>{m.visible=false;m.userData.t0=0}); st.reveal={rows:0,t0:performance.now()}; },
     setRot(on){ st.rotTarget = on? Math.PI/2 : 0; },
     showAllTiles(n){ if(garden) st.tiles.forEach((m,i)=>{m.visible=i<n;m.position.y=0.085}); },
-    reset(){ if(def){ Object.assign(orbit,def); if(garden) orbit.target.set(0,reef?0:0.2,0); } },
+    reset(){ if(def){ follow=false; glide({...def, target:new THREE.Vector3(0,reef?0:garden?0.2:0.6,0)}); } },
     zoom(f){ orbit.dist=clamp(orbit.dist*f,orbit.min,orbit.max); },
     toggleLabels(){ st.hideLabels=!st.hideLabels; },
     dispose(){ st.dead=true; cancelAnimationFrame(st.raf); ro.disconnect(); stage.querySelectorAll('.hs,.dimlab').forEach(n=>n.remove());

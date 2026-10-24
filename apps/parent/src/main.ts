@@ -2,6 +2,7 @@
 // next-lesson wishes, and approve Pads. Everything here calls the family server; nothing is stored locally but the login.
 import { summarize, type Ev } from './summary.js';
 import { dataSection, homeworkView, masteryView, type Ctx } from './homework.js';
+import { downscale } from './image.js';
 
 interface Child { id: string; name: string; grade: number }
 interface Lesson { key: string; for_child: string; title: string; content_hash: string; published_at: string }
@@ -10,6 +11,10 @@ interface Draft {
   key: string; title: string; child: string; status: string; note: string | null; concept: string; theme: { name: string; why: string };
   challenges: { prompt: string; with_theme: boolean; answers: string[] }[]; pending_assets: string[]; offscreen: string | null;
   ok: boolean; issues: { rule: string; level: string; msg: string }[];
+}
+interface Organism {
+  asset_id: string; name: string; status: string; real_scale: string | null;
+  media: { id: string; kind: 'photo' | 'video' | 'model'; url: string; credit: string; license: string; source_url: string | null; caption: string | null; length_cm: number | null }[];
 }
 interface Interest { id: string; child: string; topic: string; source: string; said: string | null; observed_on: string; state: string; lesson_ref: string | null }
 
@@ -84,10 +89,11 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
   },
 
   async 课程库() {
-    const [grants, drafts, checklist] = await Promise.all([
+    const [grants, drafts, checklist, organisms] = await Promise.all([
       api<{ child: string; lesson_key: string; expires_on: string; granted_by: string }[]>('/v1/grants'),
       api<Draft[]>('/v1/drafts'),
       api<Record<string, string[]>>('/v1/review-checklist'),
+      api<Organism[]>('/v1/organisms'),
     ]);
     const preview = (key: string) => `/pad/preview.html#key=${encodeURIComponent(key)}&t=${encodeURIComponent(token ?? '')}`;
     view().innerHTML = `
@@ -106,7 +112,42 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
       <h3>已发布</h3><p class="muted">发布后内容冻结，改动要升版本号重新审核。</p>
       <table><tr><th>课程</th><th>给谁</th><th>发布时间</th><th>临时授权</th></tr>${lessons.map(l => `<tr><td>${esc(l.title)}<div class="muted small">${esc(l.key)} · <a href="${preview(l.key)}" target="_blank" rel="noopener">预览</a></div></td><td>${esc(name(l.for_child))}</td><td>${esc(l.published_at.slice(0, 16).replace('T', ' '))}</td>
         <td><select data-k="${esc(l.key)}"><option value="1">今天</option><option value="3">3 天</option><option value="7">7 天</option></select> <button class="btn grant" data-k="${esc(l.key)}" data-c="${esc(l.for_child)}">授权</button></td></tr>`).join('') || '<tr><td colspan="4" class="muted">还没有发布的课</td></tr>'}</table>
-      <h3>授权记录</h3><ul>${grants.map(g => `<li>${esc(name(g.child))} · ${esc(title(g.lesson_key))} · 到 ${esc(g.expires_on)}${g.expires_on < today ? '（已过期）' : ''}</li>`).join('') || '<li class="muted">没有</li>'}</ul>`;
+      <h3>授权记录</h3><ul>${grants.map(g => `<li>${esc(name(g.child))} · ${esc(title(g.lesson_key))} · 到 ${esc(g.expires_on)}${g.expires_on < today ? '（已过期）' : ''}</li>`).join('') || '<li class="muted">没有</li>'}</ul>
+      <h3>生物素材</h3><p class="muted">写实模型还没到位的动物，课里会打开“实拍观察窗”，放这里加的照片或视频。只能用实拍、标本扫描，或依据实拍照片做的写实模型，不用卡通和绘画。每条都写上作者和授权。</p>
+      ${organisms.map(o => `<div class="card organism" data-a="${esc(o.asset_id)}"><h3>${esc(o.name)} <span class="badge">${esc(o.status)}</span></h3>
+        <div class="media-list">${o.media.map(m => `<figure class="media">${m.kind === 'video' ? `<video src="${esc(m.url)}" muted playsinline controls preload="metadata"></video>` : m.kind === 'photo' ? `<img src="${esc(m.url)}" alt="">` : '<div class="glb">三维扫描 .glb</div>'}
+          <figcaption class="small">${esc(m.caption ?? '')}${m.length_cm ? ` · 约 ${esc(m.length_cm)} 厘米` : ''}<br><span class="muted">${esc(m.credit)} · ${esc(m.license)}</span>${m.source_url ? ` · <a href="${esc(m.source_url)}" target="_blank" rel="noopener">来源</a>` : ''}</figcaption>
+          <button class="btn sm del" data-id="${esc(m.id)}">删除</button></figure>`).join('') || '<p class="muted small">还没有素材，孩子在课里只能看到洞口和讲解。</p>'}</div>
+        <form class="addmedia"><label>文件 <input type="file" name="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,.glb" required></label>
+          <label>说明 <input name="caption" maxlength="120" placeholder="例如 洞口探出头的孔雀螳螂虾"></label>
+          <label>身长（厘米） <input name="length_cm" inputmode="decimal" size="5" placeholder="${esc((o.real_scale ?? '').replace(/[^\d.]/g, ''))}"></label>
+          <label>作者或来源 <input name="credit" required maxlength="200" placeholder="例如 维基共享资源 · 拍摄者名字"></label>
+          <label>授权 <input name="license" required maxlength="100" placeholder="例如 CC BY-SA 4.0 / 自己拍的"></label>
+          <label>来源链接 <input name="source_url" type="url" placeholder="https://…"></label>
+          <label class="wide"><input type="checkbox" name="real" required> 我确认这是实拍、标本扫描，或依据实拍照片做的写实模型，不是卡通或绘画</label>
+          <button class="btn primary">加到素材</button></form></div>`).join('')}`;
+    view().querySelectorAll<HTMLElement>('.organism').forEach(card => {
+      const asset = card.dataset.a!;
+      card.querySelectorAll<HTMLButtonElement>('.del').forEach(b => b.onclick = guard(async () => {
+        if (!confirm('删除这条素材？')) return;
+        await api(`/v1/media/${encodeURIComponent(b.dataset.id!)}`, { method: 'DELETE' }); await VIEWS.课程库(); toast('已删除');
+      }));
+      const form = card.querySelector<HTMLFormElement>('.addmedia')!;
+      form.onsubmit = e => {
+        e.preventDefault();
+        guard(async () => {
+          const f = new FormData(form), file = f.get('file') as File;
+          const mime = /\.glb$/i.test(file.name) ? 'model/gltf-binary' : file.type;
+          toast('正在上传…');
+          const data = mime.startsWith('image/') ? (await downscale(file)).data : await new Promise<string>((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.onerror = () => rej(new Error('读不了这个文件')); r.readAsDataURL(file); });
+          await api(`/v1/organisms/${encodeURIComponent(asset)}/media`, { method: 'POST', body: JSON.stringify({
+            mime: mime.startsWith('image/') ? 'image/jpeg' : mime, data: data.slice(data.indexOf(',') + 1),
+            caption: f.get('caption'), length_cm: f.get('length_cm'), credit: f.get('credit'), license: f.get('license'), source_url: f.get('source_url') || null, real: f.get('real') === 'on',
+          }) });
+          await VIEWS.课程库(); toast('已加入。孩子在课里点螳螂虾的洞口就能看到。');
+        })();
+      };
+    });
     view().querySelectorAll<HTMLElement>('.draft').forEach(card => {
       const key = card.dataset.k!;
       card.querySelector<HTMLButtonElement>('.approve')!.onclick = guard(async () => {

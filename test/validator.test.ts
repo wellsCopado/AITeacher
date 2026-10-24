@@ -60,9 +60,16 @@ describe('each rule catches its failure', () => {
     const sp = clone(base); sp.hotspots[0].language_pack.zh = ' ';
     expect(failed(sp)).toContain('V04');
     const sp2 = clone(base); sp2.hotspots[0].language_pack.en = ['only one'];
-    const r = validate(sp2, ctx());
-    expect(r.ok).toBe(true);
-    expect(r.results.find(x => x.id === 'V05')?.ok).toBe(false);
+    expect(failed(sp2)).toContain('V05');
+    const sp3 = clone(base); sp3.learner_profile.language.cycle_enabled = false;
+    expect(failed(sp3)).toContain('V05');
+  });
+  it('V16 step time limits fit the lesson', () => {
+    const sp = clone(base); sp.learner_profile.est_minutes = [8, 10];
+    sp.timing = { steps: { explain: 60, demo: 240, challenge: 240, chat: 60 } };
+    expect(failed(sp)).not.toContain('V16');
+    sp.timing.steps!.demo = 400;
+    expect(failed(sp)).toContain('V16');
   });
   it('V06 unknown component, unreviewed version, code in content', () => {
     const sp = clone(base); sp.scene_component_ids = ['FancyGame@1.0'];

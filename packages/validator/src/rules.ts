@@ -120,11 +120,14 @@ export const RULES: Rule[] = [
     check: sp => sp.hotspots.flatMap((h, i) => h.language_pack.zh.trim() ? [] : [{ path: `$.hotspots[${i}].language_pack.zh`, msg: '中文讲解为空' }]),
   },
   {
-    id: 'V05', name: '英文 3 条齐全（缺失时回落中文）', basis: 'FR13 / BL06', level: 'warn',
-    check: sp => sp.hotspots.flatMap((h, i) => {
-      const n = h.language_pack.en.filter(s => s && s.trim()).length;
-      return n === 3 ? [] : [{ path: `$.hotspots[${i}].language_pack.en`, msg: `英文只有 ${n} 条，缺的会回落中文` }];
-    }),
+    id: 'V05', name: '讲解固定 1 中 3 英：每个热点英文 3 条齐全，不提供纯中文模式', basis: 'FR13 / BL06', level: 'error',
+    check: sp => [
+      ...(sp.learner_profile.language.cycle_enabled ? [] : [{ path: '$.learner_profile.language.cycle_enabled', msg: '讲解必须是 1 中 3 英循环', fix: 'cycle_enabled: true' }]),
+      ...sp.hotspots.flatMap((h, i) => {
+        const n = h.language_pack.en.filter(s => s && s.trim()).length;
+        return n === 3 ? [] : [{ path: `$.hotspots[${i}].language_pack.en`, msg: `英文只有 ${n} 条，要写满 3 条` }];
+      }),
+    ],
   },
   {
     id: 'V06', name: '只引用已审组件及其版本；Spec 中没有脚本、HTML 或代码', basis: 'FR44', level: 'error',
@@ -269,6 +272,15 @@ export const RULES: Rule[] = [
       const mine = mechanism(sp);
       for (let k = hist.length - 1; k >= 0 && hist[k].outcome === '未见效' && hist[k].mechanism === mine; k--) streak++;
       return streak >= 3 ? [{ path: '$.scene_component_ids', msg: `${mine} 已经连续 ${streak} 次重教未见效`, fix: '换一个组件或表征；没有合适组件时请家长开组件工单' }] : [];
+    },
+  },
+  {
+    id: 'V16', name: '每一步都有时间上限，加起来不超过本课预计时长', basis: 'FR10', level: 'error',
+    check(sp) {
+      const steps = sp.timing?.steps ?? {};
+      const max = (sp.learner_profile.est_minutes?.[1] ?? 12) * 60;
+      const total = Object.values(steps).reduce((a, b) => a + (b ?? 0), 0);
+      return total > max ? [{ path: '$.timing.steps', msg: `各步时间加起来 ${total} 秒，超过预计的 ${max} 秒`, fix: '缩短某一步，或调大 est_minutes' }] : [];
     },
   },
 ];

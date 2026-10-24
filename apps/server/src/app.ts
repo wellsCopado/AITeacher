@@ -11,6 +11,7 @@ import { contentHash, readJson, REVIEW_CHECKLIST } from '../../../packages/cli/s
 import { Store, type EventIn, type Role } from './db.js';
 import { HttpError, TZ, addDays, fail, isDate, isKey, sha, shanghaiDate } from './http.js';
 import { homeworkRoutes, reteachHistory } from './homework.js';
+import { mediaRoutes } from './media.js';
 
 export { shanghaiDate, TZ } from './http.js';
 
@@ -327,6 +328,7 @@ export async function buildApp(o: AppOptions) {
   }
 
   homeworkRoutes(app, { store, root: o.root, dataDir: o.dataDir ?? join(dirname(o.dbPath), 'homework'), today, iso, parent, childParam, pin: o.pin });
+  mediaRoutes(app, { store, root: o.root, mediaDir: join(dirname(o.dbPath), 'media'), iso, parent, anyone });
 
   // ---- static apps ----
   if (o.serveApps) {

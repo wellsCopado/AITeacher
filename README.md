@@ -11,7 +11,7 @@
 | 部分 | 位置 |
 | --- | --- |
 | LessonSpec / 资产 / 兴趣 Schema | `packages/schema` |
-| V01–V15 自动校验、安全公式求值 | `packages/validator` |
+| V01–V16 自动校验、安全公式求值 | `packages/validator` |
 | `dls` 命令行（六阶段 + 兴趣记录） | `packages/cli` |
 | Skill：discovery-learning-studio | `skills/discovery-learning-studio`（`.claude/skills` 已链接） |
 | 组件白名单、知识点、资产库、主题表、孩子档案、兴趣记录 | `content/` |

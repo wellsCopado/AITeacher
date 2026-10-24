@@ -1,7 +1,7 @@
 // Pad light app: pair once, pick a child, play today's lessons. Events go to a local queue first and are
 // sent whenever the server is reachable, so a lesson works through a Wi-Fi drop.
 import type { LessonSpec } from '../../../packages/schema/src/index.js';
-import { play } from '../../../packages/player/src/main.js';
+import { play, type OrganismMedia } from '../../../packages/player/src/main.js';
 import { Queue, type Store as KV } from './queue.js';
 
 interface Child { id: string; name: string; grade: number }
@@ -103,15 +103,21 @@ async function lessonScreen(child: Child, key: string) {
     if (!cached || navigator.onLine) { alert((e as Error).message); return; }
     sp = JSON.parse(cached);
   }
+  // Real photos and videos of animals the parent added (shown until a photoreal model exists).
+  let media: OrganismMedia[] = [];
+  if (sp.pending_assets?.length) {
+    try { media = await api<OrganismMedia[]>('/v1/media'); kv.set('adw.media', JSON.stringify(media)); }
+    catch { media = JSON.parse(kv.get('adw.media') ?? '[]'); }
+  }
   const session = newId();
   app.innerHTML = '<div id="player"></div><p id="sync" class="muted small center"></p>';
   const el = document.getElementById('player')!;
   const onEvent = (ev: Event) => {
-    queue.push({ session, child: child.id, lesson: key }, { id: newId(), ...(ev as CustomEvent).detail });
+    queue.push({ session, child: child.id, lesson: key }, { ...(ev as CustomEvent).detail, id: newId() });
     flush();
   };
   el.addEventListener('adw:event', onEvent);
-  const p = play(el, sp, { childName: child.name, kid: true, onExit: () => { el.removeEventListener('adw:event', onEvent); p.dispose(); todayScreen(child); } });
+  const p = play(el, sp, { childName: child.name, kid: true, media, onExit: () => { el.removeEventListener('adw:event', onEvent); p.dispose(); todayScreen(child); } });
   (window as unknown as { __player: unknown }).__player = p;
 }
 

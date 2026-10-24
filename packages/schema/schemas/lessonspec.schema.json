@@ -879,6 +879,38 @@
           "type": "string"
         }
       }
+    },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "steps": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "explain": {
+              "type": "integer",
+              "minimum": 20,
+              "maximum": 900
+            },
+            "demo": {
+              "type": "integer",
+              "minimum": 20,
+              "maximum": 900
+            },
+            "challenge": {
+              "type": "integer",
+              "minimum": 20,
+              "maximum": 900
+            },
+            "chat": {
+              "type": "integer",
+              "minimum": 20,
+              "maximum": 900
+            }
+          }
+        }
+      }
     }
   }
 }

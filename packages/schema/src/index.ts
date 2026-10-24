@@ -75,6 +75,8 @@ export interface LessonSpec {
   end_chat: { skippable: true; questions: { id: string; kind: 'reflection' | 'next_lesson_wish'; prompt: string; options: string[]; allow_own_words?: boolean }[] };
   object_asset_versions: AssetRef[];
   pending_assets?: PendingAsset[];
+  /** Seconds per step; when one runs out the lesson moves on (the last step ends the lesson). */
+  timing?: { steps?: Partial<Record<'explain' | 'demo' | 'challenge' | 'chat', number>> };
   assessment_plan: { in_lesson: string[]; followup: string; states?: string[] };
   offscreen?: { task: string; adult: boolean; materials?: string[]; optional: true };
   parent_tip: string;

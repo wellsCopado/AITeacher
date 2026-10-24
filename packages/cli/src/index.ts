@@ -122,7 +122,7 @@ const commands: Record<string, (pos: string[], flags: Flags) => number | Promise
       previous_version: str(flags, 'previous') ?? null, trigger_judgment_ref: str(flags, 'judgment') ?? null,
       primary_concept: { id: '', name: '', target_misconceptions: [] }, prerequisites: [],
       curriculum_mapping: { region: prof.region, system: prof.system, grade: prof.grade, term: '', source: '沪学习 App 参考目录', publisher: '待核对', unit: '待核对', status: '参考·待核对', verified_by: null, checked_on: new Date().toISOString().slice(0, 10) },
-      learner_profile: { grade: prof.grade, scaffold: [], language: { default: 'zh', cycle_enabled: false }, recent_judgment_ref: str(flags, 'judgment') ?? null, est_minutes: [10, 15] },
+      learner_profile: { grade: prof.grade, scaffold: [], language: { default: 'zh', cycle_enabled: true }, recent_judgment_ref: str(flags, 'judgment') ?? null, est_minutes: [10, 15] },
     });
     console.log(`已创建 ${dir}/${F.target}。下一步：填好主知识点和误区，运行 dls target ${dir}`);
     return 0;

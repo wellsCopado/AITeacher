@@ -43,7 +43,7 @@ try {
   ok('家长 PIN 登录');
 
   // Pad shows a pairing code, the parent approves it.
-  await pad.goto(`${base}/pad/`);
+  await pad.goto(`${base}/pad/?adw_time=6`);
   await pad.waitForFunction(() => /\d{3} \d{3}/.test(document.getElementById('code')?.textContent ?? ''));
   const code = (await pad.textContent('#code'))!.replace(/\s/g, '');
   await pad.screenshot({ path: join(shots, 'pad-pair.png') });
@@ -61,6 +61,11 @@ try {
 
   // The sample lessons wait in 课程库; the parent previews, ticks all four reviews and publishes with one click.
   const tok = await parent.evaluate(() => sessionStorage.getItem('adw.parent'));
+  // A real photo of the animal (a 1×1 stand-in file here) with its credit and licence.
+  const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  const up = (body: object) => fetch(`${base}/v1/organisms/M-peacock-mantis-shrimp/media`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${tok}` }, body: JSON.stringify(body) });
+  check((await up({ mime: 'image/png', data: PNG, credit: '测试', license: 'CC0' })).status === 400, '没确认是实拍的素材不能加');
+  check((await up({ mime: 'image/png', data: PNG, credit: '测试拍摄者', license: 'CC0', real: true, caption: '洞口的孔雀螳螂虾', length_cm: 16 })).ok, '家长加了一张螳螂虾实拍照片');
   await parent.click('[data-t="课程库"]');
   await parent.waitForSelector('.draft[data-k="L-PA@1.0"]');
   check(await parent.locator('.draft').count() === 2, '两节样课在课程库等审核');
@@ -69,6 +74,19 @@ try {
   await pv.waitForSelector('#next', { timeout: 20000 });
   check((await pv.textContent('h1'))?.includes('螳螂虾'), '家长端能预览待审核的课');
   await pv.close();
+
+  // Nobody touches the lesson: every step runs out of time and moves on by itself, the last one ends it.
+  const auto = await parentCtx.newPage();
+  auto.on('pageerror', (e: Error) => errors.push(e.message));
+  await auto.goto(`${base}/pad/preview.html?adw_time=60#key=L-PA%401.0&t=${encodeURIComponent(tok!)}`);
+  await auto.waitForSelector('#next');
+  check(await auto.locator('#next').isDisabled(), '说明没听完，「开始演示」是锁着的');
+  check(!(await auto.$('#lang')) && !(await auto.$('[data-zh]')), '没有讲解语言选择，也没有纯中文按钮');
+  await auto.waitForFunction(() => /今天的探索结束了/.test(document.body.textContent ?? ''), null, { timeout: 60000 });
+  const autoEv = await auto.evaluate(() => (window as any).__player.events.map((e: any) => e.type + ':' + (e.step ?? e.task ?? e.challenge ?? '')));
+  check(autoEv.filter((e: string) => e.startsWith('step_timeout')).length === 4, '四步都到时自动往下走，最后一步到时结束');
+  check(autoEv.includes('intro_heard:') && autoEv.some((e: string) => e.startsWith('task_timeout')) && autoEv.some((e: string) => e.startsWith('question_timeout')), '说明读完才往下；演示里没做的事到时自动做；题目到时换下一题');
+  await auto.close();
   await card.locator('input[type=checkbox]').first().check();
   await card.locator('.approve').click();
   await parent.waitForFunction(() => /还有没勾的/.test(document.getElementById('toast')?.textContent ?? ''));
@@ -92,6 +110,10 @@ try {
   await pad.click('.lesson');
   await pad.waitForSelector('#next');
   check(!(await pad.$('.side')), 'Pad 上不显示家长侧栏');
+  check(await pad.locator('.step').first().isDisabled(), '孩子不能点上面的步骤跳着走');
+  await pad.waitForSelector('#cap:not([hidden])');
+  check((await pad.textContent('#cap'))?.includes('潜到珊瑚礁海底'), '说明自动出字幕朗读');
+  await pad.waitForSelector('#next:not([disabled])', { timeout: 30000 });
   await pad.click('#next');
   await pad.waitForSelector('#stage canvas', { timeout: 30000 });
   await pad.waitForTimeout(2000);
@@ -99,6 +121,18 @@ try {
   await pad.waitForFunction(() => (window as any).__player.events.some((e: any) => e.type === 'action_done' && e.action === 'walk'), null, { timeout: 60000 });
   await pad.screenshot({ path: join(shots, 'pad-lesson.png') });
   ok('三维场景在 Pad 页面里运行（three.js 来自本机服务器）');
+  check(await pad.locator('#next').isDisabled(), '演示的几件事没做完，不能去挑战');
+  for (let k = 0; k < 10 && await pad.locator('#next').isDisabled(); k++) {
+    const b = pad.locator('#body .pulse:not([disabled]):not(#next), #think').first();
+    if (await b.count()) await b.click().catch(() => undefined);
+    await pad.waitForTimeout(800);
+  }
+  check(await pad.locator('#next').isEnabled(), '跟着引导一件件做完，「去挑战」才打开');
+  await pad.locator('[data-act="focus"]').click();
+  await pad.waitForSelector('.observe img');
+  check((await pad.textContent('.observe'))?.includes('身长约 16 厘米') && (await pad.textContent('.observe'))?.includes('测试拍摄者'), '点螳螂虾的洞打开实拍观察窗，带身长对比和作者授权');
+  check(await pad.evaluate(() => (document.querySelector('.observe img') as HTMLImageElement).naturalWidth === 1), '实拍照片从本机服务器加载成功');
+  await pad.screenshot({ path: join(shots, 'pad-observe.png') });
 
   // Wi-Fi drops: the child keeps going, events wait in the queue.
   await padCtx.setOffline(true);
@@ -107,6 +141,12 @@ try {
   await c1.locator('[data-f="P"]').fill('16'); await c1.locator('[data-u="P"]').selectOption('米');
   await c1.locator('[data-f="S"]').fill('15'); await c1.locator('[data-u="S"]').selectOption('平方米');
   await c1.locator('[data-chk]').click();
+  check(await pad.locator('[data-ch="c2"]').isHidden(), '一题一题来：第 1 题没做，看不到第 2 题');
+  await c1.locator('[data-go]').click();
+  for (const id of ['c2', 'c3']) {
+    const c = pad.locator(`[data-ch="${id}"]`);
+    await c.locator('[data-chk]').click(); await c.locator('[data-go]').click();
+  }
   await pad.click('#next');
   await pad.click('[data-q="wish"] [data-a="机器人"]');
   await pad.click('#done');

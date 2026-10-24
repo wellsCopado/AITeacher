@@ -200,3 +200,33 @@ describe('Pad offline queue', () => {
     expect(new Queue(kv, async () => {}).pending()).toBe(1);
   });
 });
+
+describe('organism media', () => {
+  it('takes real photos or videos with credit and licence, and serves video in ranges for iPad Safari', async () => {
+    const parent = await login();
+    const pad = await pair(parent);
+    const data = Buffer.from('0123456789abcdef').toString('base64');
+    const add = (body: object, tok = parent) => req('POST', '/v1/organisms/M-peacock-mantis-shrimp/media', tok, { mime: 'video/mp4', data, credit: '拍摄者', license: 'CC BY 4.0', real: true, ...body });
+    expect((await add({ real: false })).status).toBe(400);
+    expect((await add({ license: '' })).status).toBe(400);
+    expect((await add({ mime: 'image/gif' })).status).toBe(400);
+    expect((await add({}, pad)).status).toBe(403);
+    expect((await req('POST', '/v1/organisms/M-not-there/media', parent, {})).status).toBe(404);
+    const m = (await add({ caption: '出击', length_cm: 16 })).body;
+    expect(m).toMatchObject({ kind: 'video', length_cm: 16, credit: '拍摄者' });
+    expect((await req('GET', '/v1/media', pad)).body.map((x: { id: string }) => x.id)).toEqual([m.id]);
+
+    const full = await app.inject({ method: 'GET', url: m.url });
+    expect(full.statusCode).toBe(200);
+    expect(full.headers['accept-ranges']).toBe('bytes');
+    const part = await app.inject({ method: 'GET', url: m.url, headers: { range: 'bytes=2-5' } });
+    expect(part.statusCode).toBe(206);
+    expect(part.headers['content-range']).toBe('bytes 2-5/16');
+    expect(part.body).toBe('2345');
+    expect((await app.inject({ method: 'GET', url: m.url, headers: { range: 'bytes=-4' } })).body).toBe('cdef');
+    expect((await app.inject({ method: 'GET', url: `/v1/media/${m.id}/wrongkey` })).statusCode).toBe(404);
+
+    expect((await req('DELETE', `/v1/media/${m.id}`, parent)).status).toBe(200);
+    expect((await req('GET', '/v1/media', pad)).body).toEqual([]);
+  });
+});
