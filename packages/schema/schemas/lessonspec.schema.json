@@ -645,6 +645,70 @@
                   "type": "string"
                 },
                 "minItems": 2
+              },
+              "task": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "type",
+                  "start",
+                  "controls"
+                ],
+                "description": "动手操作题：孩子在 3D 场景里拖角上的把手或点按钮，把场景摆成答案要求的样子（answers 的 field 就是 controls 里的参数）。",
+                "properties": {
+                  "type": {
+                    "enum": [
+                      "build"
+                    ]
+                  },
+                  "start": {
+                    "type": "object",
+                    "description": "开始时场景的大小参数，例如 {\"rows\": 1, \"cols\": 4}",
+                    "additionalProperties": {
+                      "type": "integer"
+                    }
+                  },
+                  "controls": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "孩子能改的参数，例如 [\"rows\"]"
+                  }
+                }
+              }
+            }
+          },
+          "task": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "start",
+              "controls"
+            ],
+            "description": "动手操作题：孩子在 3D 场景里拖角上的把手或点按钮，把场景摆成答案要求的样子（answers 的 field 就是 controls 里的参数）。",
+            "properties": {
+              "type": {
+                "enum": [
+                  "build"
+                ]
+              },
+              "start": {
+                "type": "object",
+                "description": "开始时场景的大小参数，例如 {\"rows\": 1, \"cols\": 4}",
+                "additionalProperties": {
+                  "type": "integer"
+                }
+              },
+              "controls": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                },
+                "description": "孩子能改的参数，例如 [\"rows\"]"
               }
             }
           }

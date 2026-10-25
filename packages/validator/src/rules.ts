@@ -1,6 +1,6 @@
 import Ajv2020 from 'ajv/dist/2020.js';
 import type {
-  AssetEntry, ChildProfile, ComponentDef, InterestObservation, LessonSpec, ReteachHistory,
+  AssetEntry, Challenge, ChildProfile, ComponentDef, HandsOnTask, InterestObservation, LessonSpec, ReteachHistory,
 } from '../../schema/src/index.js';
 import { lessonSpecSchema } from '../../schema/src/index.js';
 import { evalExpr, exprVars, ExprError } from './expr.js';
@@ -276,13 +276,47 @@ export const RULES: Rule[] = [
     },
   },
   {
-    id: 'V20', name: '挑战题以选择题和应用题为主，没有选项的填空题最多 1 道', basis: '家长要求：少出填空，多出选择、应用和动手题', level: 'warn',
-    check(sp) {
+    id: 'V20', name: '挑战题以选择题、应用题和动手题为主，没有选项的填空题最多 1 道，能动手的组件至少 1 道动手题', basis: '家长要求：少出填空，多出选择、应用和动手题', level: 'warn',
+    check(sp, ctx) {
       const out: Issue[] = [];
-      const fills = sp.challenges.map((c, i) => ({ c, i })).filter(x => !x.c.options);
+      const fills = sp.challenges.map((c, i) => ({ c, i })).filter(x => !x.c.options && !x.c.task);
+      const comp = ctx.components[splitId(sp.scene_component_ids[0] ?? '').name];
+      if (comp?.handsOn?.build && !sp.challenges.some(c => c.task)) out.push({ path: '$.challenges', msg: '这节课还没有动手题', fix: `加一道 task: { type: "build", start, controls } 的动手题（可以把一道填空题改成动手题），让孩子把场景摆成答案要求的样子；能改的参数：${comp.handsOn.build.join('、')}` });
       fills.slice(1).forEach(({ i }) => out.push({ path: `$.challenges[${i}]`, msg: `第 ${i + 1} 题是填空题，这节课已经有 1 道填空题了`, fix: '改成选择题：写 3–4 个 options，每个错误选项对应一个常见误区；同类题也写 options' }));
       sp.challenges.forEach((c, i) => {
         if (c.options && c.options.length > 4) out.push({ path: `$.challenges[${i}].options`, msg: `第 ${i + 1} 题有 ${c.options.length} 个选项，太多了`, fix: '留 2–4 个，错误选项各对应一个误区' });
+      });
+      return out;
+    },
+  },
+  {
+    id: 'V21', name: '动手题能做：参数是组件允许孩子改的、开始和答案都在范围内、开始时还没做对、同类题也是动手题', basis: '家长要求：动手操作题', level: 'error',
+    check(sp, ctx) {
+      const out: Issue[] = [];
+      const name = splitId(sp.scene_component_ids[0] ?? '').name, comp = ctx.components[name];
+      const props = ((comp?.paramsSchema ?? {}) as { properties?: Record<string, { minimum?: number; maximum?: number }> }).properties ?? {};
+      const inRange = (k: string, v: number) => Number.isInteger(v) && v >= (props[k]?.minimum ?? -Infinity) && v <= (props[k]?.maximum ?? Infinity);
+      const one = (at: string, q: { answers: Challenge['answers']; options?: string[]; task?: HandsOnTask }, label: string) => {
+        const t = q.task!, can = comp?.handsOn?.[t.type];
+        if (!can) { out.push({ path: `${at}.task`, msg: `${label}：组件 ${name} 不支持 ${t.type} 动手题`, fix: '去掉 task，改成选择题' }); return; }
+        const bad = t.controls.filter(k => !can.includes(k));
+        if (bad.length) out.push({ path: `${at}.task.controls`, msg: `${label}：${bad.join('、')} 不能让孩子改`, fix: `controls 只能从 ${can.join('、')} 里选` });
+        for (const k of can) {
+          const v = t.start[k];
+          if (v === undefined) out.push({ path: `${at}.task.start`, msg: `${label}：start 缺少 ${k}`, fix: `start 写全 ${can.join('、')}` });
+          else if (!inRange(k, v)) out.push({ path: `${at}.task.start.${k}`, msg: `${label}：start 的 ${k} = ${v} 超出组件范围` });
+        }
+        const fields = q.answers.map(a => a.field).sort().join(','), ctl = [...t.controls].sort().join(',');
+        if (fields !== ctl) out.push({ path: `${at}.answers`, msg: `${label}：答案要正好是孩子能改的 ${t.controls.join('、')}`, fix: '每个 control 一条答案，field 就是参数名' });
+        for (const a of q.answers) if (typeof a.value !== 'number' || !inRange(a.field, a.value)) out.push({ path: `${at}.answers`, msg: `${label}：答案 ${a.field} = ${a.value} 不是范围内的整数` });
+        if (q.answers.every(a => t.start[a.field] === a.value)) out.push({ path: `${at}.task.start`, msg: `${label}：一开始就已经是答案了，孩子不用动手`, fix: '让 start 和答案不一样' });
+        if (q.options) out.push({ path: `${at}.options`, msg: `${label}：动手题不要选项` });
+      };
+      sp.challenges.forEach((c, i) => {
+        const at = `$.challenges[${i}]`;
+        if (c.task) one(at, c, `第 ${i + 1} 题`);
+        if (c.twin && !!c.task !== !!c.twin.task) out.push({ path: `${at}.twin.task`, msg: `第 ${i + 1} 题${c.task ? '是动手题，同类题也要是' : '不是动手题，同类题也不要 task'}` });
+        else if (c.twin?.task) one(`${at}.twin`, c.twin, `第 ${i + 1} 题的同类题`);
       });
       return out;
     },

@@ -13,8 +13,10 @@ describe('component whitelist matches the code', () => {
     // Importing index.ts would pull in three.js; read the definitions from source instead.
     const src = readFileSync(join(root, 'packages/components/src/index.ts'), 'utf8');
     const json = JSON.parse(readFileSync(join(root, 'content/components.json'), 'utf8'));
-    for (const [name, def] of Object.entries<{ versions: string[]; hotspotAnchors: string[]; actions: string[] }>(json)) {
-      const block = src.slice(src.indexOf(`  ${name}: {`), src.indexOf('},\n', src.indexOf(`  ${name}: {`)));
+    for (const [name, def] of Object.entries<{ versions: string[]; hotspotAnchors: string[]; actions: string[]; handsOn?: { build?: string[] }; paramsSchema: { properties: Record<string, { minimum: number; maximum: number }> } }>(json)) {
+      const block = src.slice(src.indexOf(`  ${name}: {`), src.indexOf('\n  },\n', src.indexOf(`  ${name}: {`)));
+      // what a hands-on question may change, with the same ranges as the params
+      for (const k of def.handsOn?.build ?? []) expect(block, `${name}.${k}`).toMatch(new RegExp(`${k}: \\{ engine: '\\w+', min: ${def.paramsSchema.properties[k].minimum}, max: ${def.paramsSchema.properties[k].maximum} \\}`));
       expect(block, name).toContain(`version: '${def.versions.at(-1)}'`);
       expect(block).toContain(`hotspotAnchors: [${def.hotspotAnchors.map(a => `'${a}'`).join(', ')}]`);
       expect(block).toContain(`actions: [${def.actions.map(a => `'${a}'`).join(', ')}]`);

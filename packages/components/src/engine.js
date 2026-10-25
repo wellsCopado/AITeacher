@@ -182,7 +182,10 @@ export function create(stage, kind, params, onPick, hooks){
     st.anchors.unit=()=>grp.localToWorld(new THREE.Vector3(-a/2+0.5,0.35,-b/2+0.5));
     st.dims=[{p:()=>grp.localToWorld(new THREE.Vector3(0,0.05,b/2+0.75)),t:`长 ${a} 米`},{p:()=>grp.localToWorld(new THREE.Vector3(a/2+0.75,0.05,0)),t:`宽 ${b} 米`}];
     const R=Math.max(a,b)/2+2.5; Object.assign(sun.shadow.camera,{left:-R,right:R,top:R,bottom:-R,near:1,far:60}); sun.shadow.camera.updateProjectionMatrix();
-    const ab=a+'x'+b; if(st.lastAB!==ab){ st.lastAB=ab; orbit.dist=clamp(Math.max(a,b)*1.45+5,orbit.min,orbit.max); orbit.target.set(0,0.2,0); }
+    // hands-on: the field's corner is the handle; while the child drags it the camera holds still
+    st.frameObj=grp; st.corner=()=>grp.localToWorld(new THREE.Vector3(a/2,0.05,b/2)); st.toDims=(x,z)=>({a:Math.round(2*Math.abs(x)),b:Math.round(2*Math.abs(z))});
+    st.fit=()=>clamp(Math.max(st.params.a,st.params.b)*1.45+5,orbit.min,orbit.max);
+    const ab=a+'x'+b; if(st.lastAB!==ab && !st.task){ st.lastAB=ab; orbit.dist=clamp(Math.max(a,b)*1.45+5,orbit.min,orbit.max); orbit.target.set(0,0.2,0); }
     buildLabels();
   }
   function tapeTexture(P){
@@ -245,7 +248,9 @@ export function create(stage, kind, params, onPick, hooks){
     st.anchors.shrimp=()=>st.org&&st.org.ready ? st.org.anchor() : grp.localToWorld(new THREE.Vector3(h0[0],0.12,h0[1]));
     st.dims=[{p:()=>grp.localToWorld(new THREE.Vector3(0,0.05,b/2+0.45)),t:`长 ${a} 米`},{p:()=>grp.localToWorld(new THREE.Vector3(a/2+0.45,0.05,0)),t:`宽 ${b} 米`}];
     const R=Math.max(a,b)/2+2; Object.assign(sun.shadow.camera,{left:-R,right:R,top:R,bottom:-R,near:1,far:40}); sun.shadow.camera.updateProjectionMatrix();
-    const ab=a+'x'+b; if(st.lastAB!==ab){ st.lastAB=ab; orbit.dist=clamp(Math.max(a,b)*1.25+3,orbit.min,orbit.max); orbit.target.set(0,0,0); }
+    st.frameObj=grp; st.corner=()=>grp.localToWorld(new THREE.Vector3(a/2,0.05,b/2)); st.toDims=(x,z)=>({a:Math.round(2*Math.abs(x)),b:Math.round(2*Math.abs(z))});
+    st.fit=()=>clamp(Math.max(st.params.a,st.params.b)*1.25+3,orbit.min,orbit.max);
+    const ab=a+'x'+b; if(st.lastAB!==ab && !st.task){ st.lastAB=ab; orbit.dist=clamp(Math.max(a,b)*1.25+3,orbit.min,orbit.max); orbit.target.set(0,0,0); }
     buildLabels();
   }
   function buildWheel(){
@@ -289,7 +294,10 @@ export function create(stage, kind, params, onPick, hooks){
     st.anchors.col=()=>tray.localToWorld(new THREE.Vector3(-W/2+0.5,1.5,-D/2-0.95));
     st.anchors.total=()=>tray.localToWorld(new THREE.Vector3(0,2.0,0));
     const R=Math.max(W,D)/2+3; Object.assign(sun.shadow.camera,{left:-R,right:R,top:R,bottom:-R,near:1,far:40}); sun.shadow.camera.updateProjectionMatrix();
-    orbit.target.set(0,0.6,0); const k=r+'x'+c; if(st.lastAB!==k){st.lastAB=k; orbit.dist=clamp(Math.max(W,D)*1.25+5,orbit.min,orbit.max);}
+    const pitch=s+gap; st.frameObj=tray; st.corner=()=>tray.localToWorld(new THREE.Vector3(W/2+0.3,0.16+s,D/2+0.3));
+    st.toDims=(x,z)=>({c:Math.round((2*(Math.abs(x)-0.3)+gap)/pitch), r:Math.round((2*(Math.abs(z)-0.3)+gap)/pitch)});
+    st.fit=()=>clamp(Math.max(st.params.c,st.params.r)*pitch*1.25+5,orbit.min,orbit.max);
+    orbit.target.set(0,0.6,0); const k=r+'x'+c; if(st.lastAB!==k && !st.task){st.lastAB=k; orbit.dist=clamp(Math.max(W,D)*1.25+5,orbit.min,orbit.max);}
     buildLabels();
   }
   // the robot factory: an industrial arm sets the array down row by row (robot-cell.js)
@@ -299,7 +307,8 @@ export function create(stage, kind, params, onPick, hooks){
     st.pickables.push(...cell.pickables); Object.assign(st.anchors, cell.anchors);
     const R=cell.shadowR; Object.assign(sun.shadow.camera,{left:-R,right:R,top:R,bottom:-R,near:1,far:40}); sun.shadow.camera.updateProjectionMatrix();
     orbit.min=cell.view.min; orbit.target.copy(cell.view.target); if(!def){ orbit.az=cell.view.az; orbit.el=cell.view.el; }
-    const k=st.params.r+'x'+st.params.c; if(st.lastAB!==k){st.lastAB=k; orbit.dist=clamp(cell.view.dist,orbit.min,orbit.max);}
+    st.corner=null; st.fit=null;
+    const k=st.params.r+'x'+st.params.c; if(st.lastAB!==k && !st.task){st.lastAB=k; orbit.dist=clamp(cell.view.dist,orbit.min,orbit.max);}
     buildLabels();
   }
   function puff(x,z,count,spread,up){ if(!st.puff||reduced()) return; const p=st.puff, a=p.pts.geometry.attributes.position, n=st.puff.life.length;
@@ -319,6 +328,7 @@ export function create(stage, kind, params, onPick, hooks){
     const put=(el,v,isHs)=>{ const p=v.clone().project(cam); if(p.z>1){el.hidden=true;return} el.hidden = isHs && st.hideLabels; el.style.left=((p.x+1)/2*rect.width)+'px'; el.style.top=((1-p.y)/2*rect.height)+'px'; };
     Object.entries(st.labels).forEach(([id,el])=>st.anchors[id]&&put(el,st.anchors[id](),true));
     st.dims.forEach(d=>d.el&&put(d.el,d.p(),false));
+    if(st.handle){ if(st.task&&st.corner) put(st.handle,st.corner(),false); else st.handle.hidden=true; }
   }
 
   /* ---------- input: drag rotate, pinch/wheel zoom, tap pick ---------- */
@@ -416,7 +426,28 @@ export function create(stage, kind, params, onPick, hooks){
     reset(){ if(def){ follow=false; st.orgFollow=false; glide({...def, target:st.cell?st.cell.view.target.clone():new THREE.Vector3(0,reef?0:garden?0.2:0.6,0)}); } },
     zoom(f){ if(goal) goal.dist=clamp(goal.dist*f,orbit.min,orbit.max); else orbit.dist=clamp(orbit.dist*f,orbit.min,orbit.max); },
     toggleLabels(){ st.hideLabels=!st.hideLabels; },
-    dispose(){ st.dead=true; st.org?.dispose(); st.cell?.dispose(); cancelAnimationFrame(st.raf); ro.disconnect(); stage.querySelectorAll('.hs,.dimlab').forEach(n=>n.remove());
+    /* Hands-on question: the child sizes the scene by dragging its corner handle (a marker, not a scene object) or with
+       the player's steppers. ctrls: engine params the child may change; lim: their [min,max]; cb gets the new params. */
+    taskOn(ctrls, lim, cb){
+      st.task={ctrls,lim,cb}; if(reef) st.tape.forEach(m=>{m.visible=true});
+      if(!st.handle){
+        const h=document.createElement('button'); h.className='taskhandle'; h.type='button'; h.setAttribute('aria-label','拖这里改变大小'); h.textContent='⤡'; stage.appendChild(h); st.handle=h;
+        const plane=new THREE.Plane(new THREE.Vector3(0,1,0),0), hit=new THREE.Vector3();
+        h.addEventListener('pointerdown',e=>{ e.stopPropagation(); e.preventDefault(); h.setPointerCapture(e.pointerId); st.drag=true; goal=null; h.classList.add('on'); });
+        h.addEventListener('pointermove',e=>{ if(!st.drag||!st.task||!st.corner) return;
+          const r=cv.getBoundingClientRect(); ray.setFromCamera(new THREE.Vector2(((e.clientX-r.left)/r.width)*2-1,-((e.clientY-r.top)/r.height)*2+1),cam);
+          plane.constant=-st.corner().y; if(!ray.ray.intersectPlane(plane,hit)) return;
+          const want=st.toDims(...(()=>{ const l=st.frameObj.worldToLocal(hit.clone()); return [l.x,l.z]; })()), next={...st.params};
+          for(const k of st.task.ctrls) if(k in want) next[k]=clamp(want[k],st.task.lim[k][0],st.task.lim[k][1]);
+          if(st.task.ctrls.some(k=>next[k]!==st.params[k])){ st.params=next; build(); if(reef) st.tape.forEach(m=>{m.visible=true}); st.task.cb({...st.params}); } });
+        const up=()=>{ if(!st.drag) return; st.drag=false; h.classList.remove('on'); if(st.fit) glide({dist:st.fit()}); };
+        h.addEventListener('pointerup',up); h.addEventListener('pointercancel',up);
+      }
+      if(st.fit) glide({dist:st.fit()});
+    },
+    taskSet(p){ st.params={...st.params,...p}; st.walk=null; st.fill=null; st.reveal=null; build(); if(reef) st.tape.forEach(m=>{m.visible=true}); if(st.fit) glide({dist:st.fit()}); },
+    taskOff(){ st.task=null; st.drag=false; st.handle?.remove(); st.handle=null; },
+    dispose(){ st.dead=true; st.handle?.remove(); st.org?.dispose(); st.cell?.dispose(); cancelAnimationFrame(st.raf); ro.disconnect(); stage.querySelectorAll('.hs,.dimlab').forEach(n=>n.remove());
       scene.traverse(n=>{ if(n.isMesh){ n.geometry.dispose(); } }); envRT.dispose(); pm.dispose(); renderer.dispose(); renderer.domElement.remove(); }
   };
 }

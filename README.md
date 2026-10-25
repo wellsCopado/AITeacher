@@ -11,7 +11,7 @@
 | 部分 | 位置 |
 | --- | --- |
 | LessonSpec / 资产 / 兴趣 Schema | `packages/schema` |
-| V01–V20 自动校验、安全公式求值 | `packages/validator` |
+| V01–V21 自动校验、安全公式求值 | `packages/validator` |
 | `dls` 命令行（六阶段 + 兴趣记录 + 上下文、AI 出课、MCP） | `packages/cli` |
 | 做课核心：上下文、校验、任意大模型写课与自动修改、MCP 工具 | `packages/studio`、`apps/server/src/studio.ts` |
 | Skill：discovery-learning-studio | `skills/discovery-learning-studio`（Claude Code、Codex、Qoder 的入口都指向这里；见 `AGENTS.md`） |

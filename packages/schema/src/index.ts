@@ -44,13 +44,17 @@ export interface ActivityNode {
   teaches: string | null; action?: string; prompt?: string; hints?: string[]; items?: string[];
   no_theme?: boolean; complete: string;
 }
+/** A hands-on question: the child sizes the 3D scene (drags its corner handle or taps the steppers) until it matches the answers. */
+export interface HandsOnTask { type: 'build'; start: Record<string, number>; controls: string[] }
 export interface Challenge {
   id: string; prompt: string; with_theme: boolean; hints: string[]; options?: string[];
+  /** Present on a hands-on question; its answers' fields are the controls. */
+  task?: HandsOnTask;
   answers: { field: string; label?: string; value: number | string; unit?: string }[];
   /** Shown step by step (subtitle + voice) after the child misses the question 3 times; the last step gives the answer. */
   worked_example?: { steps: string[] };
   /** A similar question the child then does alone: same method, new numbers or setting. */
-  twin?: { prompt: string; answers: Challenge['answers']; options?: string[] };
+  twin?: { prompt: string; answers: Challenge['answers']; options?: string[]; task?: HandsOnTask };
 }
 export interface ExperimentModel {
   id: string; ver: string; deterministic: true;
@@ -100,6 +104,8 @@ export interface LessonSpec {
 export interface ComponentDef {
   versions: string[]; status: string; teaches: string[]; themes: string[];
   hotspotAnchors: string[]; actions: string[]; paramsSchema: object;
+  /** Params a child can set by hand in a hands-on question, per task type (e.g. build: rows, cols). */
+  handsOn?: Record<string, string[]>;
 }
 export interface ChildProfile {
   name: string; grade: number; system: string; region: string;

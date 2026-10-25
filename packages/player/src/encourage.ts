@@ -28,9 +28,11 @@ export function praiseRight(ctx: { tries: number; hints: number; afterDemo?: boo
 }
 
 /** Something the child really got right in a wrong answer, or the effort itself when nothing is right yet. */
-export function findGood(c: Pick<Challenge, 'answers' | 'options'>, r: CheckResult, attempt: Attempt): string {
+export function findGood(c: Pick<Challenge, 'answers' | 'options' | 'task'>, r: CheckResult, attempt: Attempt): string {
   const unitOf = (f: string) => c.answers.find(a => a.field === f)?.unit;
   const full = r.fields.filter(f => f.valueOk && f.unitOk).map(f => f.label);
+  // a hands-on question has no units to choose: what counts is which sizes are already right
+  if (c.task) return full.length ? `${join(full)}已经摆对了，眼光很准！` : '你动手摆了，摆出来再看一看、数一数，这就是在想办法。';
   const num = r.fields.filter(f => f.valueOk && !f.unitOk).map(f => f.label);
   const unit = r.fields.filter(f => !f.valueOk && unitOf(f.field) && f.unitOk && attempt[f.field]?.unit).map(f => f.label);
   if (full.length && full.length < r.fields.length) return `${join(full)}完全做对了，很了不起！`;
@@ -42,9 +44,9 @@ export function findGood(c: Pick<Challenge, 'answers' | 'options'>, r: CheckResu
 }
 
 /** Feedback for a wrong answer: what's good, what to look at again, and a reason to go on. */
-export function encourageWrong(c: Pick<Challenge, 'answers' | 'options'>, r: CheckResult, attempt: Attempt, ctx: { tries: number; persist?: string[] }): string {
+export function encourageWrong(c: Pick<Challenge, 'answers' | 'options' | 'task'>, r: CheckResult, attempt: Attempt, ctx: { tries: number; persist?: string[] }): string {
   const persist = ctx.persist?.length ? ctx.persist : DEFAULT_PERSIST;
-  const fix = describe(r).replace(/。$/, '');
+  const fix = describe(r, c.task ? '再摆一摆' : undefined).replace(/。$/, '');
   const next = ctx.tries >= DEMO_AFTER ? '没关系，我们一起看一遍怎么做。' : ctx.tries === 1 ? '再试一次！' : at(persist, ctx.tries);
   return `${findGood(c, r, attempt)}${fix ? `${fix}。` : ''}${next}`;
 }

@@ -490,7 +490,7 @@ const HELP = `dls — discovery-learning-studio 命令行
   dls theme <目录> --component <组件> [--write]   阶段 2：按孩子兴趣建议主题和课末心愿
   dls assets <目录>                       阶段 3：核验素材（许可、写实底线）
   dls assemble <目录>                     阶段 4：组装 lessonspec.json
-  dls validate <目录|文件> [--previous <文件>] [--json]   阶段 5：V01–V20
+  dls validate <目录|文件> [--previous <文件>] [--json]   阶段 5：V01–V21
   dls preview <目录|文件> [--out <文件>]         生成可直接打开的课程预览
   dls review <目录> [--init] [--approve <类别,…|all> --by <审核人>]   阶段 6：审核清单
   dls submit <目录> --server <地址>       阶段 6：交给家长端审核并发布（推荐）

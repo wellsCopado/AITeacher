@@ -28,10 +28,10 @@ describe('sample lessons', () => {
     expect(r.ok).toBe(true);
     expect(r.results.filter(x => !x.ok).map(x => x.id)).toEqual(['V20']);
   });
-  it('妹妹 L-ARR@1.0 passes and warns about the family-only wood texture', () => {
+  it('妹妹 L-ARR@1.0 passes and warns about the family-only wood texture (and, written before them, no hands-on question)', () => {
     const r = validate(load('L-ARR', '1.0'), ctx());
     expect(r.ok).toBe(true);
-    expect(r.results.filter(x => !x.ok).map(x => x.id)).toEqual(['V12']);
+    expect(r.results.filter(x => !x.ok).map(x => x.id)).toEqual(['V12', 'V20']);
   });
 });
 
@@ -91,15 +91,45 @@ describe('each rule catches its failure', () => {
     const sp2 = clone(base); sp2.encouragement = { persist: ['加油！', '螳螂虾的洞也是一点一点挖出来的。'] };
     expect(failed(sp2)).toContain('V18');
   });
-  it('V20 challenges are mostly choice questions, at most one fill-in (a warning)', () => {
+  /** L-PA with a hands-on first question (size the survey area 5 × 3 m) and choice questions after it. */
+  const handsOn = () => {
     const sp = clone(base);
-    sp.challenges.forEach(c => { c.options = ['16', '15', '31']; c.answers = [c.answers[0]]; c.answers[0].value = '16'; });
+    const [c0, c1, c2] = sp.challenges;
+    Object.assign(c0, { prompt: '把调查区摆成长 5 米、宽 3 米。', task: { type: 'build', start: { a: 2, b: 2 }, controls: ['a', 'b'] },
+      answers: [{ field: 'a', label: '长', value: 5, unit: '米' }, { field: 'b', label: '宽', value: 3, unit: '米' }],
+      worked_example: { steps: ['先把长拉到 5 米。', '再把宽拉到 3 米：长 5 米、宽 3 米。'] },
+      twin: { prompt: '把调查区摆成长 6 米、宽 2 米。', task: { type: 'build', start: { a: 1, b: 1 }, controls: ['a', 'b'] },
+        answers: [{ field: 'a', label: '长', value: 6, unit: '米' }, { field: 'b', label: '宽', value: 2, unit: '米' }] } });
+    delete c0.options;
+    for (const c of [c1, c2]) {
+      c.answers = [{ field: 'P', value: '16 米' }]; c.options = ['16 米', '15 米', '31 米'];
+      c.worked_example = { steps: ['一圈是 5 + 3 + 5 + 3。', '所以是 16 米。'] };
+      c.twin = { prompt: `${c.prompt}（换一块）`, answers: [{ field: 'P', value: '12 米' }], options: ['12 米', '8 米', '20 米'] };
+    }
+    return sp;
+  };
+  it('V20 mostly choice and hands-on questions, at most one fill-in, a hands-on one when the scene allows (warnings)', () => {
+    const sp = handsOn();
     expect(failed(sp)).not.toContain('V20');
-    delete sp.challenges[0].options; delete sp.challenges[1].options;
-    const r = validate(sp, ctx()).results.find(x => x.id === 'V20')!;
-    expect(r.ok).toBe(false); expect(r.level).toBe('warn'); expect(r.issues).toHaveLength(1);
-    sp.challenges[2].options = ['1', '2', '3', '4', '5'];
-    expect(validate(sp, ctx()).results.find(x => x.id === 'V20')!.issues).toHaveLength(2);
+    const v20 = (x: LessonSpec) => validate(x, ctx()).results.find(r => r.id === 'V20')!;
+    const noHands = clone(sp); delete noHands.challenges[0].task; delete noHands.challenges[0].twin!.task;
+    expect(v20(noHands).level).toBe('warn');
+    expect(v20(noHands).issues.map(i => i.msg)).toEqual(['这节课还没有动手题']);
+    const fills = clone(sp); delete fills.challenges[1].options; delete fills.challenges[2].options;
+    expect(v20(fills).issues).toHaveLength(1);
+    const many = clone(sp); many.challenges[1].options = ['1', '2', '3', '4', '5'];
+    expect(v20(many).issues).toHaveLength(1);
+  });
+  it('V21 a hands-on question can be done: allowed params, in range, not solved at the start, twin hands-on too', () => {
+    expect(failed(handsOn())).not.toContain('V21');
+    const msgs = (f: (sp: LessonSpec) => void) => { const sp = handsOn(); f(sp); return validate(sp, ctx()).results.find(r => r.id === 'V21')!.issues.map(i => i.msg).join(' | '); };
+    expect(msgs(sp => { sp.challenges[0].task!.controls = ['rows', 'a', 'b']; })).toContain('rows 不能让孩子改');
+    expect(msgs(sp => { delete sp.challenges[0].task!.start.b; })).toContain('start 缺少 b');
+    expect(msgs(sp => { sp.challenges[0].task!.start = { a: 5, b: 3 }; })).toContain('一开始就已经是答案了');
+    expect(msgs(sp => { sp.challenges[0].answers[0].value = 11; })).toContain('不是范围内的整数');
+    expect(msgs(sp => { sp.challenges[0].task!.controls = ['a']; })).toContain('答案要正好是孩子能改的');
+    expect(msgs(sp => { delete sp.challenges[0].twin!.task; })).toContain('同类题也要是');
+    expect(msgs(sp => { sp.scene_component_ids = ['ArrayMultiplier@1.0']; })).toContain('不能让孩子改');
   });
   it('V06 unknown component, unreviewed version, code in content', () => {
     const sp = clone(base); sp.scene_component_ids = ['FancyGame@1.0'];

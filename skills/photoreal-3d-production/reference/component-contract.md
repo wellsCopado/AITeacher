@@ -62,44 +62,38 @@ mount(el: HTMLElement, componentId: string /* 名称@版本 */, params, opts: Mo
 
 新组件登记进 `content/components.json`，`status` 先写“待审”，家长看过对照图和预览后改“已审”（只有家长能改）。
 
-## 5. 动手操作题（要做）
+## 5. 动手操作题
 
-家长要求挑战题里有孩子亲手做的题：点选、滑动、拖放组装、旋转（题型说明见 `skills/discovery-learning-studio/reference/challenge-types.md`）。实现时 Schema、校验、播放器、组件一起改：
+家长要求挑战题里有孩子亲手做的题（点选、滑动、拖放组装、旋转）。写课的格式见 `skills/discovery-learning-studio/reference/challenge-types.md` 第 4 节，校验 V20、V21。
 
-### LessonSpec
+### 已经有的：摆一摆（`build`）
 
-```json
-{
-  "id": "c2", "kind": "hands_on", "with_theme": true,
-  "prompt": "让机械臂摆出 3 行、每行 4 个齿轮。",
-  "task": {
-    "type": "place",                       // select | slide | place | rotate
-    "start": { "rows": 1, "cols": 4 },     // 开始时的场景参数（在组件参数范围内）
-    "controls": ["rows"],                  // 孩子能改的东西（slide / place 用）
-    "goal": "rows == 3 && cols == 4",      // 判对的条件，只能用参数、数字、+ - * / ( ) 和比较、&& ||
-    "partial": [{ "when": "rows * cols == 12", "praise": "总数对了，再看看是不是 3 行" }]
-  },
-  "worked_example": { "steps": ["…", "…"] },   // 演示时场景自己做一遍
-  "twin": { "prompt": "…", "task": { … } }
-}
-```
-
-- `goal` 和 `partial` 用和实验模型相同的安全表达式求值器（扩展比较和逻辑运算），校验时检查变量都是组件参数、`goal` 能达到、`start` 不满足 `goal`。
-- `partial` 让播放器在孩子没做对时，先夸做对的部分（和现有夸奖规则一致）。
-- 错三次：场景按 `worked_example` 一步步自己做一遍，然后给 `twin` 让孩子再做。
-
-### 组件
+PerimeterArea（`a` `b`，1–10 米）和 ArrayMultiplier（`rows` `cols`，1–9）。孩子拖场景角上的把手或点 −/＋，场景按参数实时重建；答案就是要摆成的参数值，播放器逐个参数比对。
 
 ```ts
-startTask(task: HandsOnTask, cb: { onChange(state: Record<string, number>): void }): void  // 打开操作，场景回到 start
-taskState(): Record<string, number>
-demoTask(task: HandsOnTask): Promise<void>   // 演示：场景自己做到 goal
-endTask(): void                               // 关掉操作
+// content/components.json：每个组件登记它能做的动手题和孩子能改的参数
+"handsOn": { "build": ["a", "b"] }
+
+// Instance（packages/components/src/index.ts）
+startTask(task: { start: Record<string, number>; controls: string[] },
+          onChange: (state: Record<string, number>) => void): void  // 场景回到 start，打开把手；每次变化回传课里的参数
+setTask(values: Record<string, number>): void      // 播放器的 −/＋ 和“重来”调用，只改 controls 里的参数
+taskState(): Record<string, number>                // 现在摆成的参数
+demoTask(target: Record<string, number>): Promise<void>  // 错三次后演示：一格一格摆到 target（减少动态时直接跳到），然后关掉把手
+endTask(): void
 ```
 
-- 操作的对象就是场景里的写实素材（真实的齿轮、样方框），不是另外画的按钮。
-- 触摸目标至少 44 × 44 pt；拖放按真实单位吸附到格点或槽位，吸附时有轻微的声音；松手放不进去的回到原处，不弹跳。
-- 场景角上实时显示当前的数（“3 行 × 4 个 = 12 个”“长 6 米”），这是数学标注层。
-- 有“重来”按钮，回到 `start`。
-- 减少动态效果打开时，拖放照样可用，只是没有过渡动画。
-- 每道动手题至少给 60 秒。
+- 课里的参数名和引擎内部参数名的对应、范围写在 `index.ts` 的 `Def.build`，`test/components.test.ts` 检查它和 `components.json` 的 `handsOn`、`paramsSchema` 一致。
+- 把手是标注层（和行列标签一样的 DOM 元素，48 × 48 px），拖动时射线投到地面，按真实单位取整成参数；不是场景里多出来的几何体。
+- 拖动和摆的过程中镜头不动，松手后镜头慢慢退到能看全整个场景。
+- 新皮肤要支持摆一摆，引擎里给这个皮肤写 `corner()`（把手的位置）、`toDims(x, z)`（地面上一点对应的参数）和 `fit()`（看全场景的镜头），不支持的写 `null`（例如机械臂皮肤，等写实版替换时一起做）。
+
+### 还要做的
+
+| 操作 | 例子 | 要求 |
+| --- | --- | --- |
+| 点选 `select` | 点出第 2 行的所有齿轮 | 点的就是场景里的写实物体；选中有描边，不改材质颜色 |
+| 拖放组装 `place` | 把齿轮一个个拖进托盘 | 按真实单位吸附到格点或槽位，吸附时有轻微的声音；放不进去的回到原处，不弹跳 |
+| 旋转 `rotate` | 把托盘转 90° | 按 90° 吸附；转的时候行列标签跟着变 |
+
+每种新操作：组件实现后在 `handsOn` 登记新的 `type`，Schema 的 `task.type` 枚举、V21、播放器的判对和演示一起改，再在 challenge-types.md 第 4 节写格式。所有操作都要：触摸目标至少 44 × 44 pt；场景角上实时显示现在的数；有“重来”；减少动态效果时照样能操作；每道动手题至少给 60 秒。

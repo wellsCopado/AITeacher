@@ -10,6 +10,10 @@ import { budget, Countdown, fmt, STEP_KEYS } from './timing.js';
 
 export interface LessonEvent { at: string; type: string; [k: string]: unknown }
 
+/** Scenes the parent judged not photoreal enough: they show a notice in the preview and are being replaced (gaps G1). */
+const NOT_REAL_YET: Record<string, string> = { robot_factory: '机械臂写实版制作中 · 这节课先别发布' };
+/** The end-of-lesson host: off until a photoreal host passes the parent's check (gaps G2). */
+const HOST_READY = false;
 const ACTION_LABELS: Record<string, Record<string, string>> = {
   reef: { walk: '拉卷尺围一圈', fill: '放样方', focus: '看看螳螂虾的洞' },
   garden: { walk: '测距轮走一圈', fill: '铺地砖' },
@@ -293,7 +297,7 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
       <div class="demo">
         <div class="stage" id="stage">
           <div class="tools"><button id="zin" aria-label="放大">＋</button><button id="zout" aria-label="缩小">－</button><button id="zreset" aria-label="复位视角">⟲</button><button id="labels" aria-label="隐藏标签">🏷</button></div>
-          <span class="badge">写实渲染 · 计算为模拟</span>
+          <span class="badge">${esc(NOT_REAL_YET[skin] ?? '写实渲染 · 计算为模拟')}</span>
         </div>
         <div class="panel">
           <div class="row wrap">${[...new Set(actions)].map(a => `<button class="btn" data-act="${esc(a)}">${esc(labels[a] ?? a)}</button>`).join('')}</div>
@@ -380,8 +384,27 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
     next();
   }
 
-  type Ask = Pick<Challenge, 'answers' | 'options'>;
+  type Ask = Pick<Challenge, 'answers' | 'options' | 'task'>;
+  // A hands-on question: steppers for what the child may change (they can also drag the scene's corner handle)
+  // and a line that says what is built right now.
+  const CONTROL_LABELS: Record<string, string> = { rows: '几行', cols: '每行几个', a: '长（米）', b: '宽（米）' };
+  function taskControls(c: Ask) {
+    const t = c.task!;
+    return `<div class="row wrap task">${t.controls.map(k => `<div class="stepper" data-ctl="${esc(k)}"><span>${esc(c.answers.find(a => a.field === k)?.label ?? CONTROL_LABELS[k] ?? k)}</span>
+      <button class="btn" data-dec aria-label="减少">−</button><b data-v>${t.start[k] ?? ''}</b><button class="btn" data-inc aria-label="增加">＋</button></div>`).join('')}
+      <button class="btn" data-redo>重来</button></div><p class="readout" data-ro></p>`;
+  }
+  function readout(s: Record<string, number>) {
+    if ('rows' in s) return `现在：${s.rows} 行，每行 ${s.cols} 个，一共 ${s.rows * s.cols} 个`;
+    if ('a' in s) return `现在：长 ${s.a} 米，宽 ${s.b} 米`;
+    return '';
+  }
+  function showState(box: HTMLElement, s: Record<string, number>) {
+    box.querySelectorAll<HTMLElement>('[data-ctl]').forEach(el => { const v = el.querySelector('[data-v]'); if (v) v.textContent = String(s[el.dataset.ctl!] ?? ''); });
+    const ro = box.querySelector('[data-ro]'); if (ro) ro.textContent = readout(s);
+  }
   function answerInputs(c: Ask) {
+    if (c.task) return taskControls(c);
     const units = [...new Set(c.answers.map(a => a.unit).filter(Boolean))] as string[];
     return c.options
       ? `<div class="row wrap">${c.options.map(o => `<button class="btn opt" data-opt="${esc(o)}">${esc(o)}</button>`).join('')}</div>`
@@ -389,6 +412,19 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
   }
   /** Wires the option buttons of an answer box and returns a reader for what the child entered. */
   function answerBox(box: HTMLElement, c: Ask) {
+    if (c.task) {
+      const t = c.task;
+      box.querySelectorAll<HTMLElement>('[data-ctl]').forEach(el => {
+        const k = el.dataset.ctl!, step = (d: number) => () => { const s = pic?.taskState(); if (s) pic!.setTask({ [k]: s[k] + d }); };
+        (el.querySelector('[data-dec]') as HTMLButtonElement).onclick = step(-1);
+        (el.querySelector('[data-inc]') as HTMLButtonElement).onclick = step(1);
+      });
+      (box.querySelector('[data-redo]') as HTMLButtonElement).onclick = () => { pic?.setTask(t.start); log('task_redo'); };
+      return (): Attempt => {
+        const s = pic?.taskState() ?? {};
+        return Object.fromEntries(c.answers.map(a => [a.field, { value: s[a.field] === undefined ? '' : String(s[a.field]), unit: a.unit }]));
+      };
+    }
     let picked = '';
     box.querySelectorAll<HTMLButtonElement>('[data-opt]').forEach(b => b.onclick = () => {
       picked = b.dataset.opt!; box.querySelectorAll('[data-opt]').forEach(x => x.classList.toggle('on', x === b));
@@ -408,6 +444,11 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
   /** Shows the right answer in the boxes (the end of a worked example). */
   function fillAnswer(box: HTMLElement, c: Ask) {
     box.classList.add('shown');
+    if (c.task) {
+      void pic?.demoTask(Object.fromEntries(c.answers.map(a => [a.field, Number(a.value)])));
+      box.querySelectorAll<HTMLButtonElement>('button').forEach(x => { x.disabled = true; });
+      return;
+    }
     if (c.options) box.querySelectorAll<HTMLElement>('[data-opt]').forEach(x => x.classList.toggle('on', x.dataset.opt === String(c.answers[0].value)));
     for (const a of c.answers) {
       const f = box.querySelector(`[data-f="${a.field}"]`) as HTMLInputElement | null; if (f) f.value = String(a.value);
@@ -417,7 +458,7 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
   }
   function challengeCard(c: Challenge, i: number) {
     return `<div class="card" data-ch="${esc(c.id)}" hidden><p data-prompt><b>第 ${i + 1} 题（共 ${sp.challenges.length} 题）</b> ${esc(c.prompt)}</p>
-      <div class="cpic"><div class="stage mini" data-pic></div><span class="pictag">按题目里的数摆出来的，可以转着看</span></div><div class="ans">${answerInputs(c)}</div>
+      <div class="cpic"><div class="stage mini${c.task ? ' task' : ''}" data-pic></div><span class="pictag">${c.task ? '动手摆：拖角上的 ⤡，或者点下面的 −/＋' : '按题目里的数摆出来的，可以转着看'}</span></div><div class="ans">${answerInputs(c)}</div>
       <div class="row"><button class="btn primary" data-chk>检查</button><button class="btn" data-hint>提示</button><button class="btn" data-read>🔊 再读一遍</button><button class="btn primary" data-go hidden>${i + 1 < sp.challenges.length ? '下一题' : '题目做完了'}</button></div>
       <p class="fb" aria-live="polite"></p><div class="worked" hidden></div><div class="twin" hidden></div></div>`;
   }
@@ -441,12 +482,19 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
     }
     return { comp, p };
   }
-  function picture(card: HTMLElement, text: string) {
+  /** The question's picture; for a hands-on question the same scene, set to its start, that the child then builds in (`box` shows the numbers). */
+  function picture(card: HTMLElement, text: string, task?: Challenge['task'], box?: HTMLElement) {
     const el = card.querySelector<HTMLElement>('[data-pic]'); if (!el) return;
     pic?.dispose(); pic = null;
     const { comp, p } = pictureParams(text);
-    try { pic = mount(el, comp, p, { hotspots: [], onHotspot: () => undefined }); pic.still(); log('picture', { params: p }); }
-    catch { el.closest('.cpic')?.remove(); }
+    try {
+      pic = mount(el, comp, p, { hotspots: [], onHotspot: () => undefined }); pic.still();
+      if (task) {
+        const shown = box ?? card;
+        pic.startTask(task, s => { voice.tick(); showState(shown, s); log('task_change', { state: s }); });
+        showState(shown, pic.taskState()); log('task_start', { start: task.start });
+      } else log('picture', { params: p });
+    } catch { if (!task) el.closest('.cpic')?.remove(); }
   }
 
   // One question at a time: each is shown with a subtitle and read aloud, and the next one opens once this one
@@ -477,10 +525,11 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
         guide('题目都做完了，点「去聊聊」。'); subGuide(''); unlock(next); return;
       }
       const c = sp.challenges[i];
-      picture(root.querySelector(`[data-ch="${c.id}"]`) as HTMLElement, c.prompt);
-      guide(`第 ${i + 1} 题（共 ${sp.challenges.length} 题）：先听题，再作答。`, false);
-      void narrate([{ text: c.prompt, el: root.querySelector(`[data-ch="${c.id}"] [data-prompt]`) }]);
-      questionClock(i, per);
+      const card = root.querySelector(`[data-ch="${c.id}"]`) as HTMLElement;
+      picture(card, c.prompt, c.task, card.querySelector('.ans') as HTMLElement);
+      guide(`第 ${i + 1} 题（共 ${sp.challenges.length} 题）：${c.task ? '先听题，再动手摆。' : '先听题，再作答。'}`, false);
+      void narrate([{ text: c.prompt, el: card.querySelector('[data-prompt]') }]);
+      questionClock(i, c.task ? Math.max(60, per) : per);
     };
     sp.challenges.forEach((c, i) => {
       const card = root.querySelector(`[data-ch="${c.id}"]`) as HTMLElement;
@@ -540,13 +589,13 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
       }
       if (epoch !== mine || cur !== i) return;
       // Now the child uses the same method alone, on a similar question.
-      const tw = c.twin ?? { prompt: c.prompt, answers: c.answers, options: c.options };
-      if (c.twin) picture(card, tw.prompt);
+      const tw = c.twin ?? { prompt: c.prompt, answers: c.answers, options: c.options, task: c.task };
       const box = card.querySelector('.twin') as HTMLElement;
       box.hidden = false;
       box.innerHTML = `<p class="wtitle">✋ 轮到你自己做一次</p><p data-tprompt>${esc(tw.prompt)}</p><div class="ans">${answerInputs(tw)}</div>
         <div class="row"><button class="btn primary" data-tchk>检查</button></div><p class="fb" aria-live="polite"></p>`;
       const tans = box.querySelector('.ans') as HTMLElement, tfb = box.querySelector('.fb') as HTMLElement, tchk = box.querySelector('[data-tchk]') as HTMLButtonElement;
+      if (c.twin || tw.task) picture(card, tw.prompt, tw.task, tans);
       const read = answerBox(tans, tw);
       const go = card.querySelector('[data-go]') as HTMLButtonElement;
       tchk.onclick = () => {
@@ -556,6 +605,7 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
         let t: string;
         if (r.correct) { voice.chime(); t = praiseRight({ tries: 0, hints: 0, afterDemo: true, seed: i }); tfb.className = 'fb good'; }
         else { t = `${findGood(tw, r, attempt)}这道题的答案是：${answerText(tw)}。方法你已经看懂了，下次一定能自己做出来！`; tfb.className = 'fb try'; fillAnswer(tans, tw); }
+        if (tw.task && r.correct) pic?.endTask();
         tfb.textContent = t; void narrate([{ text: t }]);
       };
       questionClock(i, Math.max(30, Math.round(per * 0.6)));
@@ -570,8 +620,11 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
     };
   }
 
-  // The chat at the end is hosted by a robot that talks, nods at answers and waves goodbye.
+  // The chat at the end is hosted by someone who talks, nods at answers and waves goodbye. The code-built robot
+  // host failed the parent's realism check, so it stays off until a photoreal one is confirmed
+  // (skills/photoreal-3d-production/reference/host.md, gaps G2); until then the chat is text, subtitles and voice.
   function withHost(html: string) {
+    if (!HOST_READY) { $('#body').innerHTML = html; return; }
     $('#body').innerHTML = `<div class="hostwrap"><div class="host" id="host" aria-hidden="true"><span class="hostname">机器人助手</span></div><div class="hostside">${html}</div></div>`;
     try { host = mountHost($('#host'), { reduced: reducedMotion }); } catch { $('#host').remove(); }
   }

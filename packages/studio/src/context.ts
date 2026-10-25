@@ -49,7 +49,7 @@ export function studioContext(root: string, child: string, src: ContextSources =
   const interests = (src.interests ?? loadInterests(root)).filter(x => x.child === child && x.tenant_id === tenant);
   const published = src.published ?? loadPublished(root);
   const themes: ThemeTable = loadThemes(root);
-  const components = readJson<Record<string, { versions: string[]; status: string; teaches: string[]; themes: string[]; hotspotAnchors: string[]; actions: string[]; paramsSchema: unknown }>>(join(root, 'content', 'components.json'));
+  const components = readJson<Record<string, { versions: string[]; status: string; teaches: string[]; themes: string[]; hotspotAnchors: string[]; actions: string[]; paramsSchema: unknown; handsOn?: Record<string, string[]> }>>(join(root, 'content', 'components.json'));
   const concepts = readJson<Record<string, { name: string; misconceptions: string[] }>>(join(root, 'content', 'concepts.json'));
   const taken = [...new Set([...(src.takenKeys ?? []), ...localTakenKeys(root), ...published.map(p => `${p.lesson_id}@${p.version}`)])];
   const usable = Object.entries(components).filter(([, c]) => c.status === '已审');
@@ -66,6 +66,8 @@ export function studioContext(root: string, child: string, src: ContextSources =
         id: `${name}@${c.versions[c.versions.length - 1]}`, name,
         teaches: c.teaches.map(id => ({ id, name: concepts[id]?.name ?? id, misconceptions: concepts[id]?.misconceptions ?? [] })),
         hotspot_anchors: c.hotspotAnchors, actions: c.actions, params_schema: c.paramsSchema,
+        /** Params the child can set by hand in a hands-on question (challenges[].task), per task type. */
+        hands_on: c.handsOn ?? {},
         themes_ready: Object.entries(themes.skins).filter(([, k]) => k.component === name && k.status === '已有').map(([id, k]) => ({ id, name: k.name })),
         suggested_theme: s.theme, theme_notes: s.notes,
         /** Use exactly this as the next_lesson_wish question in end_chat (V14). */

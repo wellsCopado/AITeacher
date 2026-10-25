@@ -6,6 +6,7 @@
     "themes": ["reef", "garden"],
     "hotspotAnchors": ["fence", "tile", "unit", "shrimp"],
     "actions": ["walk", "fill", "focus"],
+    "handsOn": { "build": ["a", "b"] },
     "paramsSchema": {
       "type": "object", "additionalProperties": false, "required": ["a", "b", "theme"],
       "properties": {
@@ -23,6 +24,7 @@
     "themes": ["blocks", "robot_factory"],
     "hotspotAnchors": ["row", "col", "total"],
     "actions": ["reveal", "rotate"],
+    "handsOn": { "build": ["rows", "cols"] },
     "paramsSchema": {
       "type": "object", "additionalProperties": false, "required": ["rows", "cols", "theme"],
       "properties": {

@@ -24,7 +24,7 @@ description: 为 AI Discovery World 制作、校验并交给家长审核一节�
 - **讲解固定“一中三英”**（V05）：每个热点中文 1 条 + 英文 3 条循环讲，没有纯中文选项。英文只用于讲解，不考英语（BL06）。
 - **上课流程固定**：四步按顺序解锁、每步每题有倒计时、到时间自动前进、文字自动出字幕并朗读。流程在播放器里，你要把说明、题目、提示写得短、适合读出来。
 - **夸奖要具体、给孩子信心**（V18）：答错时先夸真正做对的部分，再说要看哪里，再给坚持的理由。写 `encouragement.persist`，和主题相连，不写空话。
-- **题型以选择题和应用题为主**（V20）：每节 2–3 道题，至少 1 道选择题、1 道应用题，没有选项的填空题最多 1 道；选择题的错误选项各对应一个真实误区。动手操作题（点、滑、拖放组装）在播放器支持后每节至少 1 道。见 [reference/challenge-types.md](reference/challenge-types.md)。
+- **题型以选择题和应用题为主**（V20）：每节 2–3 道题，至少 1 道选择题、1 道应用题，没有选项的填空题最多 1 道；选择题的错误选项各对应一个真实误区。组件支持动手题时（`hands_on` 不为空）每节至少 1 道动手题：孩子拖把手或点 −/＋ 把场景摆成答案（V21）。见 [reference/challenge-types.md](reference/challenge-types.md)。
 - **错三次先演示、再做同类题**（V17）：每道题都写 `worked_example`（2–5 步，最后一步说出答案）和 `twin`（同一方法换数字或情境）。
 - **不做养殖经营**（BL12），**不开放聊天、不外链**（BL11）。
 - **人工审核不可替代**：发布只能由家长在家长端「课程库」点按钮完成。没有服务器时，只有家长在对话里明确确认某一类后，才能运行 `dls review --approve <类别> --by <家长称呼>`。
@@ -63,7 +63,7 @@ pnpm -s dls context --child gege --json   # 完整内容
 | 2 导演设计 | `02-director.json` | `dls theme --write` | 主题引用这个孩子的兴趣；每道题有演示和同类题；有 `encouragement.persist`；课末有心愿题 |
 | 3 素材核验 | `03-assets.json` | `dls assets` | 只用登记过的素材；没到位的在 `pending` 里写“不展示” |
 | 4 组装 | `lessonspec.json` | `dls assemble` | 能组装，没有未登记素材 |
-| 5 自动校验 | `05-validation.json` | `dls validate`、`dls preview` | V01–V20 没有错误；警告告诉家长 |
+| 5 自动校验 | `05-validation.json` | `dls validate`、`dls preview` | V01–V21 没有错误；警告告诉家长 |
 | 6 家长审核 | 家长端「课程库 → 等你审核」 | `dls submit` | 家长看过、勾完四类审核、点发布（只有家长能做） |
 
 ### 1. 目标锁定 → `01-target.json`
@@ -111,7 +111,7 @@ pnpm -s dls assemble content/lessons/L-XXX/1.0
 pnpm -s dls validate content/lessons/L-XXX/1.0
 ```
 
-V01–V20 全部无错误才能继续；警告要告诉家长。按每条问题后面的“→”提示修改阶段文件，再从阶段 4 重跑。规则解释见 [reference/validation.md](reference/validation.md)。
+V01–V21 全部无错误才能继续；警告要告诉家长。按每条问题后面的“→”提示修改阶段文件，再从阶段 4 重跑。规则解释见 [reference/validation.md](reference/validation.md)。
 
 ### 预览（阶段 5 之后、审核之前）
 
