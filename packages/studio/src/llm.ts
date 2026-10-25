@@ -1,5 +1,7 @@
 // Any chat model behind an OpenAI-compatible API: DeepSeek, Qwen (百炼), Kimi, GLM, Doubao, OpenAI, Claude,
 // Gemini, a local Ollama… Switching models is a change of base URL, model name and key, nothing else.
+// One more needs no key: the parent's ChatGPT account through Codex on the family computer (codex.ts).
+import { codexChat, type CodexOpts } from './codex.js';
 
 export interface ModelConfig {
   id: string;
@@ -19,7 +21,8 @@ export const PROVIDERS: { id: string; label: string; base_url: string; models: s
   { id: 'kimi', label: 'Kimi（月之暗面）', base_url: 'https://api.moonshot.cn/v1', models: [] },
   { id: 'glm', label: '智谱 GLM', base_url: 'https://open.bigmodel.cn/api/paas/v4', models: [] },
   { id: 'doubao', label: '豆包（火山方舟）', base_url: 'https://ark.cn-beijing.volces.com/api/v3', models: [] },
-  { id: 'openai', label: 'OpenAI（GPT）', base_url: 'https://api.openai.com/v1', models: [] },
+  { id: 'codex', label: 'ChatGPT 账号（本机 Codex，用 Plus 额度，不用 Key）', base_url: '', models: [] },
+  { id: 'openai', label: 'OpenAI（GPT，按 API 用量付费）', base_url: 'https://api.openai.com/v1', models: [] },
   { id: 'anthropic', label: 'Anthropic（Claude）', base_url: 'https://api.anthropic.com/v1', models: [] },
   { id: 'gemini', label: 'Google Gemini', base_url: 'https://generativelanguage.googleapis.com/v1beta/openai', models: [] },
   { id: 'ollama', label: '本机 Ollama（不联网）', base_url: 'http://localhost:11434/v1', models: [] },
@@ -49,8 +52,12 @@ async function call(cfg: ModelConfig, path: string, init: { method?: string; bod
   return body;
 }
 
+/** Codex runs on this computer and talks to the parent's ChatGPT account: no address, no key, model optional. */
+export const isCodex = (cfg: Pick<ModelConfig, 'provider'>) => cfg.provider === 'codex';
+
 /** A chat function bound to one model. JSON mode and temperature are dropped if the provider refuses them. */
-export function chatWith(cfg: ModelConfig, opts: { fetchImpl?: typeof fetch; timeoutMs?: number } = {}): Chat {
+export function chatWith(cfg: ModelConfig, opts: { fetchImpl?: typeof fetch; timeoutMs?: number; codex?: CodexOpts } = {}): Chat {
+  if (isCodex(cfg)) return codexChat(cfg, { ...opts.codex, ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}) });
   let json = cfg.json_mode !== false, temp = true;
   return async messages => {
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -72,6 +79,7 @@ export function chatWith(cfg: ModelConfig, opts: { fetchImpl?: typeof fetch; tim
 
 /** The models this key can use (GET /models), for picking one in the parent app. */
 export async function listModels(cfg: ModelConfig, opts: { fetchImpl?: typeof fetch } = {}): Promise<string[]> {
+  if (isCodex(cfg)) throw new ModelError('用 ChatGPT 账号时不用选模型：留空就用 Codex 默认的模型，也可以手填（例如 Codex 里 /model 列出的名字）');
   const body = await call(cfg, '/models', { timeoutMs: 20_000, ...opts });
   return ((body?.data ?? body?.models ?? []) as { id?: string; name?: string }[]).map(m => m.id ?? m.name ?? '').filter(Boolean).sort();
 }
@@ -79,6 +87,7 @@ export async function listModels(cfg: ModelConfig, opts: { fetchImpl?: typeof fe
 /** A model from environment variables (dls generate): ADW_LLM_PROVIDER, ADW_LLM_BASE_URL, ADW_LLM_MODEL, ADW_LLM_API_KEY. */
 export function modelFromEnv(env: Record<string, string | undefined> = process.env): ModelConfig | null {
   const p = PROVIDERS.find(x => x.id === (env.ADW_LLM_PROVIDER ?? '').toLowerCase());
+  if (p?.id === 'codex') return { id: 'env', label: p.label, provider: p.id, base_url: '', model: env.ADW_LLM_MODEL ?? '' };
   const base = env.ADW_LLM_BASE_URL ?? p?.base_url, model = env.ADW_LLM_MODEL ?? p?.models[0];
   if (!base || !model) return null;
   return { id: 'env', label: p?.label ?? base, provider: p?.id ?? 'custom', base_url: base, model, api_key: env.ADW_LLM_API_KEY };

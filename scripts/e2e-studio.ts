@@ -1,9 +1,10 @@
 // AI lesson writing in a real browser: the parent adds a model (a stand-in OpenAI-compatible server on this
 // machine), tests it, switches models, lets an AI assistant in over MCP, has a lesson written, sends it back
-// with a note and has it revised. Usage: pnpm e2e:studio [outDir]
+// with a note and has it revised; then, with the parent's ChatGPT account (a stand-in codex command), plans a lesson in
+// the chat, has another model write it, and has ChatGPT draw a picture from real photos. Usage: pnpm e2e:studio [outDir]
 import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
-import { mkdirSync, mkdtempSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -43,7 +44,10 @@ await new Promise<void>(r => model.listen(0, '127.0.0.1', r));
 const modelUrl = `http://127.0.0.1:${(model.address() as { port: number }).port}/v1`;
 
 const PIN = '2468';
-const app = await buildApp({ root, dbPath: join(mkdtempSync(join(tmpdir(), 'adw-e2e-')), 'db.sqlite'), pin: PIN, serveApps: true, tts: null });
+const codexBin = join(root, 'test', 'fixtures', 'fake-codex.mjs');
+chmodSync(codexBin, 0o755);
+const codexHome = mkdtempSync(join(tmpdir(), 'adw-e2e-codex-'));
+const app = await buildApp({ root, dbPath: join(mkdtempSync(join(tmpdir(), 'adw-e2e-')), 'db.sqlite'), pin: PIN, serveApps: true, tts: null, codex: { bin: codexBin, env: { ...process.env, CODEX_HOME: codexHome } } });
 await app.listen({ host: '127.0.0.1', port: 0 });
 const base = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
 
@@ -156,6 +160,58 @@ try {
   await page.click('.media.pending .confirm');
   await page.waitForFunction(() => document.getElementById('toast')?.textContent?.includes('已确认'));
   check(await padSees(), '家长点“确认可用”后孩子在课里能看到');
+
+  // The parent's ChatGPT account: no address or key, checked and tested right here.
+  await page.click('[data-t="设备与数据"]');
+  await page.waitForSelector('#mform');
+  await page.selectOption('#mform [name=provider]', 'codex');
+  await page.waitForFunction(() => document.getElementById('cxstat')?.textContent?.includes('已登录'));
+  check(await page.locator('#mform [name=base_url]').isHidden() && await page.locator('#mform [name=api_key]').isHidden(), '选“ChatGPT 账号”时不用填接口地址和 Key');
+  check((await page.textContent('#cxstat'))?.includes('已装好 Codex 0.164.0'), '页面上能看到 Codex 装好、已登录 ChatGPT');
+  await page.click('#mtry');
+  await page.waitForFunction(() => document.getElementById('mresult')?.textContent?.includes('能用'));
+  check((await page.textContent('#mresult'))?.includes('我是 ChatGPT'), '「测试」通过 Codex 拿到 ChatGPT 的一句回答');
+  await page.locator('#cxhint').screenshot({ path: join(shots, 'parent-codex.png') });
+  await page.click('#mform button.primary');
+  await page.waitForFunction(() => document.getElementById('models')?.textContent?.includes('ChatGPT 账号'));
+  await page.check('#consent');
+  await page.waitForFunction(() => document.getElementById('toast')?.textContent?.includes('已保存'));
+
+  // 和 AI 商量方案 with ChatGPT, then the family model writes the agreed plan.
+  await page.click('[data-t="课程库"]');
+  await page.waitForSelector('#plan');
+  await page.click('#plan summary');
+  check((await page.locator('#pmodel option:checked').textContent()) === 'ChatGPT（本机 Codex）', '商量方案默认用 ChatGPT 账号');
+  await page.fill('#pform [name=say]', '哥哥想练面积');
+  await page.click('#pform button');
+  await page.waitForFunction(() => document.querySelector('#pchat .msg.ai')?.textContent?.includes('想练面积还是周长'), null, { timeout: 30_000 });
+  ok('在家长端和 ChatGPT 聊方案，回答直接显示在对话里');
+  await page.fill('#pform [name=say]', '好了');
+  await page.click('#pform button');
+  await page.waitForSelector('#pchat .puse', { timeout: 30_000 });
+  check((await page.locator('#pchat .msg.ai').last().textContent())?.includes('【课程方案】'), '说“好了”后 ChatGPT 写出【课程方案】');
+  await page.locator('#writer').screenshot({ path: join(shots, 'parent-plan-chat.png') });
+  const drafts = await page.locator('.draft').count();
+  await page.selectOption('#wform [name=model]', { label: '家里的测试模型' });
+  await page.click('#pchat .puse');
+  await page.waitForFunction(() => document.getElementById('toast')?.textContent?.includes('写好了'), null, { timeout: 30_000 });
+  check(await page.locator('.draft').count() === drafts + 1 && asked.some(a => a.includes('长方形面积')), '「用这个方案写课」把谈好的方案交给家里的模型写，写好进“等你审核”');
+
+  // ChatGPT draws a picture from 3 real photos; it waits for the parent like any other.
+  for (const n of [1, 2, 3]) {
+    await fetch(`${base}/v1/organisms/M-peacock-mantis-shrimp/media`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${parentToken}` }, body: JSON.stringify({
+      mime: 'image/png', data: png.toString('base64'), real: true, origin: '实拍', credit: `海洋馆实拍 ${n}`, license: '自己拍的', caption: `实拍 ${n}` }) });
+  }
+  await page.click('[data-t="排课"]'); await page.click('[data-t="课程库"]');
+  const row = page.locator('.drawrow[data-a="M-peacock-mantis-shrimp"]');
+  await row.waitFor();
+  check(await row.locator('.draw').isEnabled() && (await row.locator('.dstat').textContent())?.includes('3 张实拍照片'), '有 3 张实拍照片后可以“让 ChatGPT 依据实拍照片画一张”');
+  await row.locator('.dnote').fill('侧面全身');
+  await row.locator('.draw').click();
+  await page.waitForFunction(() => document.getElementById('toast')?.textContent?.includes('画好了'), null, { timeout: 30_000 });
+  const drawn = page.locator('.media.pending', { hasText: 'ChatGPT（本机 Codex）' });
+  check(await drawn.count() === 1 && await drawn.locator('.refs li').count() === 3, 'ChatGPT 画的图标着“等你确认”，列出 3 张参考照片');
+  await drawn.screenshot({ path: join(shots, 'parent-chatgpt-picture.png') });
   check(!errors.length, `页面没有脚本错误${errors.length ? '：' + errors.join('；') : ''}`);
 } finally {
   await browser.close();

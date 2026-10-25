@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import type { AssetEntry } from '../../../packages/schema/src/index.js';
 import { readJson } from '../../../packages/cli/src/lib.js';
+import { sniffImage } from '../../../packages/studio/src/codex.js';
 import type { MediaRow, Store } from './db.js';
 import { fail } from './http.js';
 
@@ -28,16 +29,11 @@ export const publicMedia = (m: MediaRow) => ({
   source_url: m.source_url, caption: m.caption, length_cm: m.length_cm, created_at: m.created_at,
   added_by: m.added_by, pending: !m.confirmed, refs: m.refs ? JSON.parse(m.refs) as string[] : null,
 });
-const IMAGE_MAGIC: Record<string, (b: Buffer) => boolean> = {
-  'image/jpeg': b => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
-  'image/png': b => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
-  'image/webp': b => b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP',
-};
 const UPLOAD_BYTES = 20 * 1024 * 1024, UPLOAD_TTL_MS = 30 * 60_000;
 
 /** Pictures that ship with the program, in content/assets/organisms/<asset>/media.json. */
 interface Builtin { file: string; kind: 'photo' | 'video' | 'cutout'; origin: string; caption?: string; length_cm?: number; width_px_body?: [number, number]; rig?: string; rig_meta?: string }
-const ORIGINS = ['实拍', '标本扫描', 'AI 写实图'];
+const ORIGINS = ['实拍', '标本扫描', 'AI 写实图'], REAL = ['实拍', '标本扫描'];
 function builtins(root: string, asset?: string) {
   const dir = join(root, 'content', 'assets', 'organisms');
   if (!existsSync(dir)) return [];
@@ -126,8 +122,8 @@ export function mediaRoutes(app: FastifyInstance, d: Deps) {
     if (!tk || tk.until < Date.now()) { tickets.delete(t); fail(404, '上传地址无效或已过期，请重新获取'); }
     const mime = String(req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
     const buf = req.body as Buffer;
-    if (!IMAGE_MAGIC[mime]) fail(400, '只收 jpg、png、webp 图片（content-type 写 image/jpeg、image/png 或 image/webp）');
-    if (!Buffer.isBuffer(buf) || !IMAGE_MAGIC[mime](buf)) fail(400, '收到的不是这种格式的图片文件');
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(mime)) fail(400, '只收 jpg、png、webp 图片（content-type 写 image/jpeg、image/png 或 image/webp）');
+    if (!Buffer.isBuffer(buf) || sniffImage(buf) !== mime) fail(400, '收到的不是这种格式的图片文件');
     tickets.delete(t);
     const key = randomBytes(18).toString('base64url'), file = `${tk!.asset}-${key}.${MEDIA_TYPES[mime].ext}`;
     mkdirSync(d.mediaDir, { recursive: true });
@@ -167,5 +163,22 @@ export function mediaRoutes(app: FastifyInstance, d: Deps) {
     return reply.code(206).header('content-range', `bytes ${start}-${end}/${size}`).header('content-length', end - start + 1)
       .send(readFileSync(path).subarray(start, end + 1));
   });
-  return { prepareUpload, organismIds: () => organisms().map(a => a.asset_id) };
+  /** Real photos of one organism (实拍 / 标本扫描), oldest first, for ChatGPT to draw from and the parent to check against. */
+  const references = (asset: string) => [
+    ...builtins(d.root, asset).filter(b => b.kind === 'photo' && REAL.includes(b.origin)).map(b => ({ path: join(d.root, 'content', 'assets', 'organisms', asset, b.url.split('/').pop()!), label: `${b.origin} · ${b.caption ?? '随程序自带'}` })),
+    ...store.mediaFor(asset).filter(m => m.confirmed && m.kind === 'photo' && REAL.includes(m.origin ?? '实拍'))
+      .map(m => ({ path: join(d.mediaDir, m.file), label: [m.id, m.origin ?? '实拍', m.credit, m.caption, m.source_url].filter(Boolean).join(' · ') })),
+  ].filter(r => existsSync(r.path));
+  /** A picture made here by ChatGPT: hidden from the children until the parent confirms it. */
+  const addPending = (asset: string, data: Buffer, mime: string, m: { by: string; caption: string; refs: string[] }) => {
+    const key = randomBytes(18).toString('base64url'), file = `${asset}-${key}.${MEDIA_TYPES[mime].ext}`;
+    mkdirSync(d.mediaDir, { recursive: true });
+    writeFileSync(join(d.mediaDir, file), data);
+    return store.addMedia({
+      asset_id: asset, kind: 'photo', origin: 'AI 写实图', mime, file, key, credit: 'ChatGPT 依据实拍照片生成', license: '家用；AI 生成图，商用前换成实拍或授权素材',
+      source_url: null, caption: m.caption.slice(0, 120), length_cm: null, added_by: m.by, confirmed: 0, refs: JSON.stringify(m.refs),
+    }, d.iso());
+  };
+  const organism = (asset: string) => { const a = organisms().find(o => o.asset_id === asset); return a && { name: a.name ?? a.asset_id, real_scale: a.real_scale ?? null }; };
+  return { prepareUpload, organismIds: () => organisms().map(a => a.asset_id), organism, references, addPending };
 }

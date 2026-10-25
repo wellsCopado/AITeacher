@@ -41,7 +41,7 @@ pnpm e2e                  # 浏览器里走完两节样课并截图（需要本�
 ADW_PIN=2468 pnpm start   # 启动家庭服务器：/pad/ 和 /parent/
 pnpm e2e:apps             # 浏览器全流程：配对 → 排课 → 孩子上课（中途断网）→ 家长看记录
 pnpm e2e:homework         # 作业闭环：上传照片 → Skill 识别 → 家长核对 → 判断 → 重教需求
-pnpm e2e:studio           # 家长端设置大模型、接入 AI 助手、AI 出课、退回后按意见改
+pnpm e2e:studio           # 家长端设置大模型、接入 AI 助手、AI 出课、退回后按意见改、和 ChatGPT 商量方案、让 ChatGPT 画图
 ```
 
 在本仓库里用 Claude Code、Codex 或 Qoder 说“给哥哥做一节课”，会按 Skill 的六个阶段走；说“看看今天的作业”，会用 homework-analysis 识别和判断。换别的大模型、用 MCP 接 AI 助手，见 [docs/agents.md](docs/agents.md)。

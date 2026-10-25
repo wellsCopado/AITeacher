@@ -2,13 +2,16 @@
 // Ollama…) and has it write a lesson; AI assistants (Codex, Claude Code, Qoder, Cursor…) connect over MCP with a
 // token from the parent app. Either way the lesson lands in 课程库 → 等你审核: only the parent's button publishes.
 // API keys stay in this server's database and are never sent back, not even to the parent app.
+// With the parent's ChatGPT account (Codex on this computer) the parent also plans the lesson in a chat here and has
+// ChatGPT draw photoreal pictures from real photos, so nothing has to be done inside Codex itself.
 import type { FastifyInstance, FastifyReply, FastifyRequest, RouteShorthandOptions } from 'fastify';
 import { randomBytes } from 'node:crypto';
 import type { LessonSpec, ReteachTicket } from '../../../packages/schema/src/index.js';
 import type { Ctx, Report } from '../../../packages/validator/src/index.js';
 import {
-  PROVIDERS, chatWith, checkStages, createMcp, designPrompt, disassemble, exampleStages, generateLesson, guide, listModels, outcome, studioContext,
-  type Chat, type GuideTopic, type LessonRequest, type ModelConfig, type Stages, type StudioBackend,
+  BRIEF_HEADER, PROVIDERS, chatWith, checkStages, codexImage, codexStatus, createMcp, designPrompt, disassemble, exampleStages, generateLesson, guide,
+  isCodex, listModels, outcome, studioContext,
+  type Chat, type CodexOpts, type GuideTopic, type LessonRequest, type Message, type ModelConfig, type Stages, type StudioBackend,
 } from '../../../packages/studio/src/index.js';
 import type { Role, Store } from './db.js';
 import { fail, HttpError } from './http.js';
@@ -19,14 +22,22 @@ interface Deps {
   parent: RouteShorthandOptions; agentOrParent: RouteShorthandOptions;
   issue: (role: Role, label: string) => string;
   vet: (sp: LessonSpec) => { key: string; ticket?: ReteachTicket; report: Report };
-  /** Pictures from AI assistants (one-time upload addresses) and which organisms they can be of. */
-  media: { prepareUpload: (a: Record<string, unknown>, by: string, base: string) => unknown; organismIds: () => string[] };
-  /** Tests swap the network out. */
+  /** Pictures from AI assistants (one-time upload addresses), which organisms they can be of, and ChatGPT's own. */
+  media: {
+    prepareUpload: (a: Record<string, unknown>, by: string, base: string) => unknown; organismIds: () => string[];
+    organism: (asset: string) => { name: string; real_scale: string | null } | undefined;
+    references: (asset: string) => { path: string; label: string }[];
+    addPending: (asset: string, data: Buffer, mime: string, m: { by: string; caption: string; refs: string[] }) => { id: string };
+  };
+  /** Tests swap the network and the codex command out. */
   fetchImpl?: typeof fetch;
+  codex?: CodexOpts;
 }
 
 const MODELS = 'studio.models', ACTIVE = 'studio.active', CONSENT = 'studio.consent';
 type Job = { id: string; child: string; model: string; planner?: string; status: 'running' | 'done' | 'failed'; started_at: string; log: { at: string; msg: string }[]; key?: string; title?: string; error?: string; issues?: { rule: string; path: string; msg: string }[] };
+/** A planning chat turn, or a picture ChatGPT is drawing: both take a minute or more, so the app polls them. */
+type Task = { id: string; status: 'running' | 'done' | 'failed'; started_at: string; model: string; reply?: string; brief?: string | null; asset?: string; media_id?: string; error?: string };
 /** A model on this machine (Ollama, LM Studio…): nothing leaves the house, so no consent is needed. */
 const isLocal = (m: ModelConfig) => { try { return ['localhost', '127.0.0.1', '[::1]'].includes(new URL(m.base_url).hostname); } catch { return false; } };
 
@@ -39,6 +50,10 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
   const consent = () => store.setting(CONSENT) === '1';
   const masked = ({ api_key, ...m }: ModelConfig) => ({ ...m, has_key: !!api_key, key_tail: api_key ? api_key.slice(-4) : null });
   const fromBody = (b: Partial<ModelConfig>, keep?: ModelConfig): ModelConfig => {
+    if (isCodex({ provider: b.provider ?? keep?.provider ?? '' })) {
+      const model = String(b.model ?? keep?.model ?? '').trim().replace(/^-$/, '');
+      return { id: keep?.id ?? `m-${randomBytes(4).toString('hex')}`, label: String(b.label ?? '').trim().slice(0, 40) || keep?.label || `ChatGPT（本机 Codex）${model ? ` · ${model}` : ''}`, provider: 'codex', base_url: '', model, json_mode: false };
+    }
     const base_url = String(b.base_url ?? keep?.base_url ?? '').trim().replace(/\/+$/, '');
     const model = String(b.model ?? keep?.model ?? '').trim();
     if (!/^https?:\/\/[^\s/]+/.test(base_url)) fail(400, '接口地址要以 http:// 或 https:// 开头');
@@ -52,7 +67,13 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
     };
   };
   const view = () => ({ providers: PROVIDERS, models: models().map(masked), active: active()?.id ?? null, consent: consent() });
-  const chatFor = (m: ModelConfig): Chat => chatWith(m, { fetchImpl: d.fetchImpl });
+  const chatFor = (m: ModelConfig): Chat => chatWith(m, { fetchImpl: d.fetchImpl, codex: d.codex });
+  const pick = (id?: string) => {
+    const m = id ? models().find(x => x.id === id || x.label === id) : active();
+    if (!m) fail(400, id ? `没有这个模型：${id}（可选：${models().map(x => x.label).join('、')}）` : '还没有设置大模型：设备与数据 → 大模型');
+    if (!isLocal(m!) && !consent()) fail(403, '先在“设备与数据 → 大模型”里勾选同意：会把年级、兴趣主题发给所选模型（不含姓名、照片和学习记录）');
+    return m!;
+  };
 
   app.get('/v1/studio/models', d.parent, async () => view());
   app.post('/v1/studio/models', d.parent, async (req) => {
@@ -61,7 +82,8 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
     if (b.id && !old) fail(404, '没有这个模型设置');
     const m = fromBody(b, old);
     store.setSetting(MODELS, JSON.stringify(old ? all.map(x => (x.id === m.id ? m : x)) : [...all, m]));
-    if (!store.setting(ACTIVE) || !old) store.setSetting(ACTIVE, m.id);
+    // a new model becomes the one lessons are written with; ChatGPT only if there is no other (it plans and draws)
+    if (!store.setting(ACTIVE) || (!old && !isCodex(m))) store.setSetting(ACTIVE, m.id);
     return view();
   });
   app.delete('/v1/studio/models/:id', d.parent, async (req) => {
@@ -82,6 +104,15 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
     const old = b.id ? models().find(m => m.id === b.id) : undefined;
     const m = fromBody(b.list_only ? { ...b, model: b.model || '-' } : b, old);
     const t0 = Date.now();
+    if (isCodex(m)) {
+      if (b.list_only) return { models: null, list_error: '用 ChatGPT 账号时不用选模型：留空就用 Codex 默认的模型' };
+      const st = await codexStatus(d.codex);
+      if (!st.installed || !st.logged_in) return { ok: false, error: st.detail, codex: st };
+      try {
+        const reply = await chatWith(m, { codex: d.codex, timeoutMs: 120_000 })([{ role: 'user', content: '用一句话介绍你自己（不超过 20 个字）。' }]);
+        return { ok: true, reply: reply.trim().slice(0, 200), ms: Date.now() - t0, codex: st };
+      } catch (e) { return { ok: false, error: (e as Error).message, codex: st }; }
+    }
     let list: string[] | null = null, list_error: string | null = null;
     try { list = await listModels(m, { fetchImpl: d.fetchImpl }); } catch (e) { list_error = (e as Error).message; }
     if (b.list_only) return { models: list, list_error };
@@ -118,9 +149,7 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
   // ---- the built-in lesson writer (a job): 课程库 → AI 出一节课, or an assistant handing over an agreed plan ----
   const jobs = new Map<string, Job>();
   const startJob = (b: { child?: string; wish?: string; component?: string; model?: string; revise?: string }, planner?: string): Job => {
-    const m = b.model ? models().find(x => x.id === b.model || x.label === b.model) : active();
-    if (!m) fail(400, b.model ? `没有这个模型：${b.model}（可选：${models().map(x => x.label).join('、')}）` : '还没有设置大模型：设备与数据 → 大模型');
-    if (!isLocal(m!) && !consent()) fail(403, '先在“设备与数据 → 大模型”里勾选同意：会把年级、兴趣主题发给所选模型（不含姓名、照片和学习记录）');
+    const m = pick(b.model);
     if ([...jobs.values()].some(j => j.status === 'running')) fail(409, '上一节课还在写，写完再开始下一节');
     const request: LessonRequest = { wish: b.wish ? String(b.wish).slice(0, 8000) : undefined, component: b.component || undefined };
     let child = String(b.child ?? '');
@@ -132,21 +161,21 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
       child = draft.for_child;
     }
     const ctx = context(child);
-    const job: Job = { id: randomBytes(6).toString('hex'), child, model: m!.label, status: 'running', started_at: iso(), log: [], ...(planner ? { planner } : {}) };
+    const job: Job = { id: randomBytes(6).toString('hex'), child, model: m.label, status: 'running', started_at: iso(), log: [], ...(planner ? { planner } : {}) };
     jobs.set(job.id, job);
     for (const old of [...jobs.keys()].slice(0, -10)) jobs.delete(old);
     const log = (msg: string) => job.log.push({ at: iso(), msg });
-    log(b.revise ? `按家长意见修改 ${b.revise}（${m!.label}）` : `用 ${m!.label} 给${ctx.child.label}写课${planner ? `（方案来自 ${planner}）` : request.wish && request.wish.length > 200 ? '（按粘贴的课程方案）' : ''}`);
+    log(b.revise ? `按家长意见修改 ${b.revise}（${m.label}）` : `用 ${m.label} 给${ctx.child.label}写课${planner ? `（方案来自 ${planner}）` : request.wish && request.wish.length > 200 ? '（按粘贴的课程方案）' : ''}`);
     void (async () => {
       try {
-        const r = await generateLesson({ root, ctx, request, chat: chatFor(m!), validatorCtx: valCtx(request.revise?.stages ?? ({} as Stages)), onLog: log });
+        const r = await generateLesson({ root, ctx, request, chat: chatFor(m), validatorCtx: valCtx(request.revise?.stages ?? ({} as Stages)), onLog: log });
         if (!r.ok || !r.spec) {
           job.status = 'failed';
           job.error = r.report ? `写了 ${r.rounds} 轮还有问题没改好` : '模型没有给出能用的课';
           job.issues = (r.report?.results ?? []).filter(x => !x.ok && x.level === 'error').flatMap(x => x.issues.map(i => ({ rule: x.id, path: i.path, msg: i.msg }))).slice(0, 20);
           return;
         }
-        const s = submit(r.spec, `AI 出课 · ${m!.label}${planner ? ` · 方案：${planner}` : ''}`);
+        const s = submit(r.spec, `AI 出课 · ${m.label}${planner ? ` · 方案：${planner}` : ''}`);
         if (!s.report.ok) { job.status = 'failed'; job.error = '服务器校验没通过'; return; }
         Object.assign(job, { status: 'done', key: s.key, title: r.spec.title });
         log(`已放进“课程库 → 等你审核”：${r.spec.title}`);
@@ -157,6 +186,60 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
   app.post('/v1/studio/generate', d.parent, async (req, reply) => reply.code(202).send({ job: startJob((req.body ?? {}) as Record<string, string>).id }));
   /** What to paste into ChatGPT (or any chat) to plan the next lesson with it; the plan comes back to 课程方案. */
   app.get('/v1/studio/design-prompt', d.parent, async (req) => ({ text: designPrompt(context(String((req.query as { child?: string }).child ?? ''))) }));
+
+  // ---- in the parent app with ChatGPT (or any model): plan the lesson in a chat, draw pictures from real photos ----
+  const tasks = new Map<string, Task>();
+  const startTask = (model: ModelConfig, extra: Partial<Task>, work: (t: Task) => Promise<void>): Task => {
+    const t: Task = { id: randomBytes(6).toString('hex'), status: 'running', started_at: iso(), model: model.label, ...extra };
+    tasks.set(t.id, t);
+    for (const old of [...tasks.keys()].slice(0, -30)) tasks.delete(old);
+    void work(t).then(() => { t.status = 'done'; }, e => { t.status = 'failed'; t.error = (e as Error).message; });
+    return t;
+  };
+  app.get('/v1/studio/codex', d.parent, async () => codexStatus(d.codex));
+  /** One turn of 和 AI 商量方案: the design brief is the system prompt; the parent's chat is kept by the app. */
+  app.post('/v1/studio/plan', d.parent, async (req, reply) => {
+    const b = (req.body ?? {}) as { child?: string; model?: string; messages?: Message[] };
+    const m = pick(b.model);
+    const msgs = (Array.isArray(b.messages) ? b.messages : []).slice(-40)
+      .map(x => ({ role: x?.role === 'assistant' ? 'assistant' as const : 'user' as const, content: String(x?.content ?? '').slice(0, 8000) })).filter(x => x.content.trim());
+    if (!msgs.length || msgs[msgs.length - 1].role !== 'user') fail(400, '先写一句你想要的');
+    const system = `${designPrompt(context(String(b.child ?? '')))}\n\n现在你在家长端的“和 AI 商量方案”里直接和家长对话：每次回复简短（300 字以内），一次只问一两个问题。家长说“好了”“就这样”或者方案已经谈定，就按上面的格式输出完整的${BRIEF_HEADER}，前后不要加别的话。`;
+    const t = startTask(m, {}, async t => {
+      const text = (await chatWith({ ...m, json_mode: false }, { fetchImpl: d.fetchImpl, codex: d.codex, timeoutMs: 10 * 60_000 })([{ role: 'system', content: system }, ...msgs])).trim();
+      const at = text.indexOf(BRIEF_HEADER);
+      Object.assign(t, { reply: text, brief: at >= 0 ? text.slice(at) : null });
+    });
+    return reply.code(202).send({ id: t.id, model: m.label });
+  });
+  /** ChatGPT draws one photoreal picture from at least 3 real photos; it waits in 生物素材 for the parent's check. */
+  app.post('/v1/studio/image', d.parent, async (req, reply) => {
+    const b = (req.body ?? {}) as { asset?: string; model?: string; note?: string };
+    const asset = String(b.asset ?? ''), o = d.media.organism(asset) ?? fail(404, '资产库里没有这个生物');
+    const m = b.model ? pick(b.model) : models().find(x => isCodex(x)) ?? fail(400, '画图要用 ChatGPT 账号：先在“设备与数据 → 大模型”里添加“ChatGPT 账号（本机 Codex）”');
+    if (!isCodex(m)) fail(400, '只有“ChatGPT 账号（本机 Codex）”能画图');
+    if (!consent()) fail(403, '先在“设备与数据 → 大模型”里勾选同意：画图时会把这种生物的实拍照片发给 ChatGPT');
+    if ([...tasks.values()].some(t => t.status === 'running' && t.asset)) fail(409, '上一张图还在画，画好再开始下一张');
+    const refs = d.media.references(asset).slice(-4);
+    if (refs.length < 3) fail(400, `要先在这里加至少 3 张${o.name}的实拍或标本照片（现在 ${refs.length} 张），ChatGPT 依据它们画，你也拿它们核对`);
+    const note = String(b.note ?? '').trim().slice(0, 300);
+    const prompt = [
+      `依据附上的 ${refs.length} 张实拍照片，画一张「${o.name}」的照片级写实图，给小学生的数学课里当观察图用。${o.real_scale ? `真实体长约 ${o.real_scale}。` : ''}`,
+      '- 要像真实拍摄的生态照片：不要卡通、插画、绘画感，不要夸张的颜色或发光。',
+      '- 形态、颜色、斑纹、身体比例，腿、眼、触角、附肢的数量和位置都要和参考照片一致，不要多也不要少。',
+      '- 整只生物完整入画，背景是它真实的栖息环境，简单不杂乱。',
+      '- 画面里不要有文字、水印、比例尺、人或手。',
+      note && `- 家长的要求：${note}`,
+    ].filter(Boolean).join('\n');
+    const t = startTask(m, { asset }, async t => {
+      const img = await codexImage({ prompt, references: refs.map(r => r.path), model: m.model || undefined }, d.codex);
+      t.media_id = d.media.addPending(asset, img.data, img.mime, { by: m.label, caption: note || `${o.name} · ChatGPT 依据实拍照片画的`, refs: refs.map(r => r.label) }).id;
+      t.reply = img.note;
+    });
+    return reply.code(202).send({ id: t.id, model: m.label });
+  });
+  app.get('/v1/studio/tasks', d.parent, async () => [...tasks.values()].reverse());
+  app.get('/v1/studio/tasks/:id', d.parent, async (req) => tasks.get((req.params as { id: string }).id) ?? fail(404, '没有这个任务'));
 
   // ---- AI assistants over MCP (Streamable HTTP, JSON replies) ----
   const backend = (who: string, base: string): StudioBackend => ({

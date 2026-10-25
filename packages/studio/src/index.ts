@@ -16,6 +16,7 @@ export * from './llm.js';
 export * from './generate.js';
 export * from './mcp.js';
 export * from './design.js';
+export * from './codex.js';
 
 export function outcome(r: ReturnType<typeof checkStages>): CheckOutcome {
   return { key: r.key, ok: r.report.ok, errors: r.report.errors, warnings: r.report.warnings, issues: issues(r.report).map(({ rule_name: _n, ...i }) => i), ...(r.spec ? { title: r.spec.title } : {}) };

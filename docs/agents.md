@@ -6,10 +6,10 @@
 
 | 方式 | 适合 | 要准备什么 |
 | --- | --- | --- |
-| A. 家长端一键出课 | 不想开电脑终端，点一下就出一节课 | 一个大模型的 API Key（DeepSeek、通义千问、Kimi、智谱、豆包、GPT、Claude、Gemini 都行），或家里电脑上的 Ollama |
+| A. 家长端一键出课 | 不想开电脑终端，点一下就出一节课 | 一个大模型的 API Key（DeepSeek、通义千问、Kimi、智谱、豆包、GPT、Claude、Gemini 都行），家里电脑上的 Ollama，或你的 ChatGPT 账号（见 D） |
 | B. AI 助手通过 MCP 做课 | 用 Codex、Claude Code、Qoder、Cursor 等工具，边聊边做 | 家长端生成一个接入令牌，把配置贴进工具里 |
 | C. 在仓库里用命令行 | 要改代码、加组件、调规则 | 克隆仓库，`pnpm install`，AI 助手会自动读 `AGENTS.md` |
-| D. ChatGPT 谈方案、生图，DeepSeek 做课 | 有 ChatGPT Plus，想用云端 GPT 商量方案、出图，再让便宜的模型做完 | A 里配好做课模型；Codex 还要按 B 接入 |
+| D. ChatGPT 谈方案、生图，DeepSeek 做课 | 有 ChatGPT Plus，想用云端 GPT 商量方案、出图，再让便宜的模型做完 | 服务器电脑上装一次 Codex 并登录 ChatGPT；之后全在家长端 |
 
 ## A. 家长端一键出课（任意大模型，随时切换）
 
@@ -33,6 +33,7 @@
 | Anthropic（Claude） | `https://api.anthropic.com/v1` |
 | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` |
 | 本机 Ollama | `http://localhost:11434/v1`（和服务器在同一台电脑上；服务器用 Docker 跑时填 `http://host.docker.internal:11434/v1`） |
+| ChatGPT 账号（本机 Codex） | 不用填地址和 Key，见 D |
 | 其他 | 任何 OpenAI 兼容接口，选“其他”自己填 |
 
 命令行也能这样出课（结果写到 `content/lessons/`）：
@@ -97,25 +98,51 @@ ADW_LLM_PROVIDER=deepseek ADW_LLM_API_KEY=sk-… pnpm -s dls generate --child ge
 
 ## D. ChatGPT 谈方案、生图，DeepSeek 做课
 
-两个模型分工：GPT（用 ChatGPT Plus 的额度）负责和你商量、出图；你在 A 里配置的模型（例如 DeepSeek）按 Skill 把方案做成完整的课。
+两个模型分工：GPT（用 ChatGPT Plus 的额度）负责和你商量方案、出图；你在 A 里配置的模型（例如 DeepSeek）按 Skill 把方案做成完整的课。
 
-**在 ChatGPT 网页或手机 App 里谈（什么都不用装）**
+### 推荐：全在家长端，不用打开 Codex
 
-1. 家长端「课程库 → AI 出一节课」，选孩子，点“复制设计说明（发给 ChatGPT）”。这段说明里有孩子的年级、兴趣、3D 能做什么、规则和方案格式，不含姓名和隐私。
-2. 粘到 ChatGPT，和它聊这节课：想练什么、用什么主题、题目难度。谈好后它会输出以【课程方案】开头的一段。
+家里服务器在后台调用 Codex（Plus 套餐包含 Codex），用的是你的 ChatGPT 账号，不用 API Key，也不按用量另付费。
+
+**只做一次（在运行服务器的那台电脑上）**
+
+1. 打开“终端”，运行 `npm i -g @openai/codex` 安装 Codex。
+2. 运行 `codex login`，在打开的网页里用 ChatGPT 账号登录。登录信息存在这台电脑的 `~/.codex/` 里，要像密码一样保管。
+3. 家长端「设备与数据 → 大模型」，服务商选“ChatGPT 账号（本机 Codex）”。页面会显示 Codex 有没有装好、有没有登录。点“测试”看到回答后点“保存”。模型名可以留空（用 Codex 默认的模型）。
+4. 勾选同意：商量方案和写课时会把年级、称呼和兴趣主题发给 ChatGPT；画图时会把那种生物的实拍照片发给 ChatGPT。
+
+加了 ChatGPT 账号后，原来用来写课的模型（例如 DeepSeek）还是默认的写课模型。
+
+**以后每次**
+
+- **商量方案**：「课程库 → AI 出一节课 → 和 AI 商量方案」，“商量用”默认是 ChatGPT。像聊天一样说你想要什么，它会问一两个问题、给几个方向。满意了说“好了”，它写出【课程方案】，点“用这个方案写课”，就交给“写课用”里选的模型（例如 DeepSeek）去写。写好进“等你审核”。对话在这个浏览器标签页里保留，点“重新开始”清空。
+- **画写实图**：「课程库 → 生物素材」，某种生物有 3 张以上实拍或标本照片后，会出现“让 ChatGPT 依据实拍照片画一张”。可以写一句想要的画面（例如“侧面全身”）。画好后标着“等你确认”，下面列出它参考的照片；你核对形态后点“确认可用”，孩子才看得到。
+- **直接用 ChatGPT 写课**也可以：“写课用”选 ChatGPT 账号。
+
+说明：
+
+- Codex 每次在一个空的临时文件夹里运行，商量和写课时只读、不改任何文件；画图时只能写这个临时文件夹，画好就删掉。
+- 服务器从终端启动时，能找到装好的 `codex`。如果装在别的位置，启动前设置 `ADW_CODEX_BIN=<codex 的完整路径>`。
+- 用量算在 ChatGPT 套餐的 Codex 额度里。额度用完时，家长端会提示过一会儿再试，或先换别的模型。
+- 提示“Codex 还没登录”时，在服务器电脑的终端里再运行一次 `codex login`。
+
+### 也可以：在 ChatGPT 网页或手机 App 里谈（什么都不用装）
+
+1. 家长端「课程库 → AI 出一节课」，选孩子，点“复制设计说明”。这段说明里有孩子的年级、兴趣、3D 能做什么、规则和方案格式，不含姓名和隐私。
+2. 粘到 ChatGPT，和它聊这节课。谈好后它会输出以【课程方案】开头的一段。
 3. 把这段整段粘回「AI 出一节课」的框里，点“开始写课”。写好进“等你审核”。
-4. 要图片：在 ChatGPT 里让它依据实拍照片生成写实图，下载后在「课程库 → 生物素材」里上传，类型选“AI 写实图”，写上参考了哪些照片。
+4. 要图片：在 ChatGPT 里让它依据实拍照片生成写实图，下载后在「生物素材」里上传，类型选“AI 写实图”，写上参考了哪些照片。
 
-**在 Codex 里谈（Plus 套餐包含 Codex，能直接连家里的服务器）**
+### 也可以：在 Codex 里边聊边做（适合想自己指挥 AI 助手的时候）
 
 1. 按 B 生成令牌，把配置贴进 Codex。
-2. 对 Codex 说：“用 adw 和我商量哥哥的下一节课，谈好后交给家里的模型去做”。它会读孩子的上下文，和你谈方案，然后调用 `adw_write_with_model`，让你在家长端选中的模型（例如 DeepSeek）写课，写好进“等你审核”。
-3. 要图片：让 Codex 依据实拍照片生成写实图，再调用 `adw_prepare_image_upload` 上传。图会出现在「生物素材」里标着“等你确认”，你对照参考照片核对后点“确认可用”，孩子才看得到。
+2. 对 Codex 说：“用 adw 和我商量哥哥的下一节课，谈好后交给家里的模型去做”。它会调用 `adw_write_with_model`，写好进“等你审核”。
+3. 要图片：让 Codex 依据实拍照片生成写实图，再调用 `adw_prepare_image_upload` 上传，同样要你确认。
 
-为什么不直接让网页版 ChatGPT 连家里服务器：ChatGPT 连 MCP 要公网 HTTPS 地址，得把家里服务器暴露到外网；而且 OpenAI 帮助中心写的是能写入的完整 MCP 只给企业版和教育版，Plus 能不能用，各页面说法不一致（[帮助中心](https://help.openai.com/articles/12584461)、[开发者文档](https://developers.openai.com/api/docs/guides/developer-mode.md)）。Codex 包含在 Plus 里，能聊天也能生图（[Codex 价格说明](https://learn.chatgpt.com/docs/pricing)），装在家里电脑上就能连局域网，所以推荐用 Codex。
+为什么不直接让网页版 ChatGPT 连家里服务器：ChatGPT 连 MCP 要公网 HTTPS 地址，得把家里服务器暴露到外网；而且 OpenAI 帮助中心写的是能写入的完整 MCP 只给企业版和教育版，Plus 能不能用，各页面说法不一致（[帮助中心](https://help.openai.com/articles/12584461)、[开发者文档](https://developers.openai.com/api/docs/guides/developer-mode.md)）。Codex 包含在 Plus 里，能聊天也能生图（[Codex 价格说明](https://learn.chatgpt.com/docs/pricing)），装在家里电脑上就能用。
 
 ## 参考
 
-- Codex：[Skills](https://developers.openai.com/codex/skills)、[MCP](https://developers.openai.com/codex/mcp)
+- Codex：[Skills](https://developers.openai.com/codex/skills)、[MCP](https://developers.openai.com/codex/mcp)、[登录](https://learn.chatgpt.com/docs/auth)、[命令行非交互模式](https://learn.chatgpt.com/docs/non-interactive-mode)
 - Qoder：[Rules（`.qoder/rules`，兼容 AGENTS.md）](https://docs.qoder.com/user-guide/rules)
 - DeepSeek：[API 文档](https://api-docs.deepseek.com/)

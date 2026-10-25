@@ -3,7 +3,7 @@
 import { summarize, type Ev } from './summary.js';
 import { dataSection, homeworkView, masteryView, type Ctx } from './homework.js';
 import { downscale } from './image.js';
-import { agentsCard, follow, modelsCard, wireStudio, writerCard } from './studio.js';
+import { agentsCard, canDraw, drawRow, follow, modelsCard, wireDraw, wireStudio, writerCard } from './studio.js';
 
 interface Child { id: string; name: string; grade: number }
 interface Lesson { key: string; for_child: string; title: string; content_hash: string; published_at: string }
@@ -157,12 +157,13 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
       <table><tr><th>课程</th><th>给谁</th><th>发布时间</th><th>临时授权</th></tr>${lessons.map(l => `<tr><td>${esc(l.title)}<div class="muted small">${esc(l.key)} · <a href="${preview(l.key)}" target="_blank" rel="noopener">预览</a></div></td><td>${esc(name(l.for_child))}</td><td>${esc(l.published_at.slice(0, 16).replace('T', ' '))}</td>
         <td><select data-k="${esc(l.key)}"><option value="1">今天</option><option value="3">3 天</option><option value="7">7 天</option></select> <button class="btn grant" data-k="${esc(l.key)}" data-c="${esc(l.for_child)}">授权</button></td></tr>`).join('') || '<tr><td colspan="4" class="muted">还没有发布的课</td></tr>'}</table>
       <h3>授权记录</h3><ul>${grants.map(g => `<li>${esc(name(g.child))} · ${esc(title(g.lesson_key))} · 到 ${esc(g.expires_on)}${g.expires_on < today ? '（已过期）' : ''}</li>`).join('') || '<li class="muted">没有</li>'}</ul>
-      <h3>生物素材</h3><p class="muted">写实模型还没到位的动物，课里会打开“实拍观察窗”，放这里加的照片或视频。只能用实拍、标本扫描，或依据实拍照片做的写实模型，不用卡通和绘画。每条都写上作者和授权。</p>
+      <h3>生物素材</h3><p class="muted">写实模型还没到位的动物，课里会打开“实拍观察窗”，放这里加的照片或视频。只能用实拍、标本扫描，或依据实拍照片做的写实模型，不用卡通和绘画。每条都写上作者和授权。${canDraw() ? '有 3 张实拍照片后，可以让 ChatGPT 依据它们画写实图，画好等你核对确认。' : ''}</p>
       ${organisms.map(o => `<div class="card organism" data-a="${esc(o.asset_id)}"><h3>${esc(o.name)} <span class="badge">${esc(o.status)}</span></h3>
-        ${o.media.some(m => m.pending) ? '<p class="small toast bad">有 AI 助手传来的图片等你确认：对照参考照片核对形态，没问题点“确认可用”，孩子才看得到。</p>' : ''}
+        ${o.media.some(m => m.pending) ? '<p class="small toast bad">有 AI 画的图片等你确认：对照参考照片核对形态，没问题点“确认可用”，孩子才看得到。</p>' : ''}
         <div class="media-list">${o.media.map(m => `<figure class="media${m.pending ? ' pending' : ''}">${m.kind === 'video' ? `<video src="${esc(m.url)}" muted playsinline controls preload="metadata"></video>` : m.kind === 'model' ? '<div class="glb">三维扫描 .glb</div>' : `<img src="${esc(m.url)}" alt="" ${m.kind === 'cutout' ? 'class="cutout"' : ''}>`}
           <figcaption class="small"><span class="badge">${esc(m.kind === 'cutout' ? `${m.origin} · 放进三维海底` : m.origin)}</span> ${esc(m.caption ?? '')}${m.length_cm ? ` · 约 ${esc(m.length_cm)} 厘米` : ''}<br><span class="muted">${esc(m.credit)} · ${esc(m.license)}</span>${m.source_url ? ` · <a href="${esc(m.source_url)}" target="_blank" rel="noopener">来源</a>` : ''}</figcaption>
           ${m.pending ? `<div class="small"><span class="badge warn">等你确认</span> 由 ${esc(m.added_by)} 传来${m.refs?.length ? `，参考照片：<ol class="refs">${m.refs.map(r => `<li>${/^https?:\/\//.test(r) ? `<a href="${esc(r)}" target="_blank" rel="noopener">${esc(r)}</a>` : esc(r)}</li>`).join('')}</ol>` : ''}</div><button class="btn sm primary confirm" data-id="${esc(m.id)}">确认可用</button> ` : ''}${m.builtin ? '<span class="muted small">随程序自带</span>' : `<button class="btn sm del" data-id="${esc(m.id)}">删除</button>`}</figure>`).join('') || '<p class="muted small">还没有素材，孩子在课里只能看到洞口和讲解。</p>'}</div>
+        ${canDraw() ? drawRow(o) : ''}
         <form class="addmedia"><label>文件 <input type="file" name="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,.glb" required></label>
           <label>类型 <select name="origin"><option>实拍</option><option>标本扫描</option><option>AI 写实图</option></select></label>
           <label>说明 <input name="caption" maxlength="120" placeholder="例如 洞口探出头的孔雀螳螂虾"></label>
@@ -198,6 +199,7 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
       };
     });
     wireStudio(ctx());
+    wireDraw(ctx(), () => VIEWS.课程库());
     view().querySelectorAll<HTMLButtonElement>('#jp .when').forEach(b => b.onclick = guard(async () => {
       const n = Number(b.dataset.n), p = justPublished!;
       justPublished = null;

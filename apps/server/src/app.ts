@@ -13,6 +13,7 @@ import { HttpError, TZ, addDays, fail, isDate, isKey, sha, shanghaiDate } from '
 import { homeworkRoutes, reteachHistory } from './homework.js';
 import { mediaRoutes } from './media.js';
 import { studioRoutes } from './studio.js';
+import type { CodexOpts } from '../../../packages/studio/src/codex.js';
 import { macSay, SYSTEM_VOICE, type Lang, type Synth } from './tts.js';
 
 export { shanghaiDate, TZ } from './http.js';
@@ -34,6 +35,8 @@ export interface AppOptions {
   tts?: Synth | null;
   /** How the AI lesson writer reaches model APIs (tests pass a fake). */
   fetchImpl?: typeof fetch;
+  /** Which codex command runs the parent's ChatGPT account (default: codex on PATH, or ADW_CODEX_BIN). */
+  codex?: CodexOpts;
 }
 
 const PAIR_TTL_MS = 10 * 60_000;
@@ -422,7 +425,7 @@ export async function buildApp(o: AppOptions) {
   });
 
   const media = mediaRoutes(app, { store, root: o.root, mediaDir: join(dirname(o.dbPath), 'media'), iso, parent, anyone });
-  studioRoutes(app, { store, root: o.root, tenant, iso, parent, agentOrParent, issue, vet, media, fetchImpl: o.fetchImpl });
+  studioRoutes(app, { store, root: o.root, tenant, iso, parent, agentOrParent, issue, vet, media, fetchImpl: o.fetchImpl, codex: o.codex });
 
   // ---- static apps ----
   if (o.serveApps) {

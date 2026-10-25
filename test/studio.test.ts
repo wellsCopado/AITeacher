@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { buildApp } from '../apps/server/src/app.js';
 import {
-  authorMessages, BRIEF_HEADER, checkStages, createMcp, designPrompt, exampleStages, generateLesson, guide, localBackend, modelFromEnv, normalize, parseJsonReply,
-  serveStdio, studioContext, type Message, type Stages,
+  authorMessages, BRIEF_HEADER, checkStages, codexPrompt, codexStatus, createMcp, designPrompt, exampleStages, generateLesson, guide, INSTALL_CODEX, LOGIN_CODEX,
+  localBackend, modelFromEnv, normalize, parseJsonReply, serveStdio, studioContext, type Message, type Stages,
 } from '../packages/studio/src/index.js';
 
 const root = join(import.meta.dirname, '..');
@@ -309,5 +309,134 @@ describe('server: models, AI lesson writer, MCP for agents', () => {
     expect((await req('POST', `/v1/media/${id}/confirm`, token)).status).toBe(403); // only the parent confirms
     await req('POST', `/v1/media/${id}/confirm`, p);
     expect(await onPad()).toContain(id);
+  });
+});
+
+describe('ChatGPT through Codex on the home computer, all from the parent app', () => {
+  const PIN = '2468', bin = join(root, 'test', 'fixtures', 'fake-codex.mjs');
+  let app: Awaited<ReturnType<typeof buildApp>>, home: string, log: string;
+  const deepseek: string[] = [];
+  const fakeFetch = (async (_url: string, init: RequestInit) => {
+    deepseek.push(String(init.body));
+    return new Response(JSON.stringify({ choices: [{ message: { content: reply(example()) } }] }));
+  }) as typeof fetch;
+  const req = async (method: string, url: string, token?: string, body?: unknown) => {
+    const r = await app.inject({ method: method as 'GET', url, headers: token ? { authorization: `Bearer ${token}` } : {}, ...(body === undefined ? {} : { payload: body as object }) });
+    return { status: r.statusCode, body: r.body ? JSON.parse(r.body) : null };
+  };
+  const until = async (url: string, token: string) => {
+    for (let i = 0; i < 400; i++) { const j = (await req('GET', url, token)).body; if (j.status !== 'running') return j; await new Promise(r => setTimeout(r, 10)); }
+    throw new Error('task did not finish');
+  };
+  const runs = () => readFileSync(log, 'utf8').trim().split('\n').map(l => JSON.parse(l) as { args: string[]; prompt: string; images: string[] });
+  const setup = async () => {
+    const p = (await req('POST', '/v1/auth/login', undefined, { pin: PIN })).body.token as string;
+    const v = (await req('POST', '/v1/studio/models', p, { provider: 'codex' })).body;
+    return { p, codex: v.models.at(-1).id as string };
+  };
+
+  beforeEach(async () => {
+    chmodSync(bin, 0o755);
+    home = mkdtempSync(join(tmpdir(), 'adw-codex-home-')); log = join(home, 'runs.jsonl'); deepseek.length = 0;
+    app = await buildApp({ root, dbPath: join(mkdtempSync(join(tmpdir(), 'adw-')), 'db.sqlite'), pin: PIN, tts: null, fetchImpl: fakeFetch, codex: { bin, env: { ...process.env, CODEX_HOME: home, FAKE_CODEX_LOG: log } } });
+  });
+  afterEach(async () => { await app.close(); });
+
+  it('says whether Codex is installed and signed in', async () => {
+    expect(await codexStatus({ bin, env: { ...process.env, CODEX_HOME: home } })).toMatchObject({ installed: true, logged_in: true, version: '0.164.0' });
+    expect(await codexStatus({ bin, env: { ...process.env, CODEX_HOME: home, FAKE_CODEX_LOGGED_OUT: '1' } })).toMatchObject({ installed: true, logged_in: false, detail: LOGIN_CODEX });
+    expect(await codexStatus({ bin: join(home, 'no-such-codex') })).toMatchObject({ installed: false, detail: INSTALL_CODEX });
+    // a conversation becomes one instruction
+    const one = codexPrompt([{ role: 'system', content: '规则' }, { role: 'user', content: '你好' }, { role: 'assistant', content: '想练什么？' }, { role: 'user', content: '面积' }]);
+    expect(one).toContain('【说明】\n规则');
+    expect(one).toMatch(/【对方】\n你好[\s\S]*【你】\n想练什么？[\s\S]*【对方】\n面积/);
+  });
+
+  it('uses the ChatGPT account with no key or address, and writes a lesson with it after consent', async () => {
+    const { p, codex } = await setup();
+    const v = (await req('GET', '/v1/studio/models', p)).body;
+    expect(v.models[0]).toMatchObject({ provider: 'codex', base_url: '', model: '', label: 'ChatGPT（本机 Codex）', has_key: false });
+    expect((await req('GET', '/v1/studio/codex', p)).body).toMatchObject({ installed: true, logged_in: true });
+    expect((await req('POST', '/v1/studio/models/test', p, { id: codex })).body).toMatchObject({ ok: true, reply: '我是 ChatGPT。' });
+
+    expect((await req('POST', '/v1/studio/generate', p, { child: 'gege', model: codex })).status).toBe(403); // goes to OpenAI's cloud: consent first
+    await req('PUT', '/v1/studio/settings', p, { consent: true });
+    writeFileSync(join(home, 'replies.json'), JSON.stringify([reply(example())]));
+    const { job } = (await req('POST', '/v1/studio/generate', p, { child: 'gege', model: codex, wish: '用大桥' })).body;
+    expect(await until(`/v1/studio/jobs/${job}`, p)).toMatchObject({ status: 'done', key: 'L-PA-2@1.0' });
+    const run = runs().at(-1)!;
+    expect(run.args).toEqual(expect.arrayContaining(['exec', '--skip-git-repo-check', '--ignore-user-config', '--sandbox', 'read-only', '--ephemeral']));
+    expect(run.prompt).toContain('lesson-flow.md'); // the Skill rides along
+    expect(run.prompt).toContain('用大桥');
+    expect(run.prompt).not.toContain('"said"');
+    const mine = async () => (await req('GET', '/v1/drafts', p)).body.find((x: { key: string }) => x.key === 'L-PA-2@1.0');
+    expect(await mine()).toMatchObject({ submitted_by: 'AI 出课 · ChatGPT（本机 Codex）', status: '待审核' });
+
+    // a failed sign-in comes back in words the parent can act on
+    writeFileSync(join(home, 'broken'), '');
+    const t = (await req('POST', '/v1/studio/models/test', p, { id: codex })).body;
+    expect(t).toMatchObject({ ok: false, error: LOGIN_CODEX });
+  });
+
+  it('plans the lesson in a chat in the parent app and hands the agreed plan to another model to write', async () => {
+    const { p, codex } = await setup();
+    const ds = (await req('POST', '/v1/studio/models', p, { provider: 'deepseek', base_url: 'https://api.deepseek.com', model: 'deepseek-v4-pro', api_key: 'sk-1' })).body.models.at(-1).id;
+    await req('PUT', '/v1/studio/settings', p, { consent: true });
+    expect((await req('POST', '/v1/studio/plan', p, { child: 'gege', model: codex, messages: [] })).status).toBe(400);
+    expect((await req('POST', '/v1/studio/plan', p, { child: 'gege', model: codex, messages: [{ role: 'assistant', content: '你好' }] })).status).toBe(400);
+
+    const said: Message[] = [{ role: 'user', content: '哥哥想练面积' }];
+    let t = await until(`/v1/studio/tasks/${(await req('POST', '/v1/studio/plan', p, { child: 'gege', model: codex, messages: said })).body.id}`, p);
+    expect(t).toMatchObject({ status: 'done', reply: '想练面积还是周长？我建议用大桥做主题。', brief: null });
+    expect(runs().at(-1)!.prompt).toContain('课程设计顾问'); // the design brief is behind the chat
+    expect(runs().at(-1)!.prompt).toContain('哥哥想练面积');
+
+    said.push({ role: 'assistant', content: t.reply }, { role: 'user', content: '好了' });
+    t = await until(`/v1/studio/tasks/${(await req('POST', '/v1/studio/plan', p, { child: 'gege', model: codex, messages: said })).body.id}`, p);
+    expect(t.brief).toMatch(new RegExp(`^${BRIEF_HEADER}`));
+
+    const { job } = (await req('POST', '/v1/studio/generate', p, { child: 'gege', model: ds, wish: t.brief })).body;
+    expect(await until(`/v1/studio/jobs/${job}`, p)).toMatchObject({ status: 'done' });
+    expect(deepseek.join('\n')).toContain('长方形面积'); // DeepSeek wrote it from the plan
+    expect((await req('GET', '/v1/drafts', p)).body.find((x: { key: string }) => x.key === 'L-PA-2@1.0').submitted_by).toBe('AI 出课 · DeepSeek · deepseek-v4-pro');
+  });
+
+  it('draws a photoreal picture from at least 3 real photos, hidden from children until the parent confirms', async () => {
+    const shrimp = 'M-peacock-mantis-shrimp';
+    const p = (await req('POST', '/v1/auth/login', undefined, { pin: PIN })).body.token as string;
+    expect((await req('POST', '/v1/studio/image', p, { asset: shrimp })).status).toBe(400); // no ChatGPT account set up
+    await req('POST', '/v1/studio/models', p, { provider: 'codex' });
+    expect((await req('POST', '/v1/studio/image', p, { asset: shrimp })).status).toBe(403); // consent first
+    await req('PUT', '/v1/studio/settings', p, { consent: true });
+    const few = await req('POST', '/v1/studio/image', p, { asset: shrimp });
+    expect(few).toMatchObject({ status: 400 });
+    expect(few.body.error).toContain('至少 3 张');
+
+    const PNG = Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010806000000', 'hex').toString('base64');
+    for (const n of [1, 2, 3]) {
+      expect((await req('POST', `/v1/organisms/${shrimp}/media`, p, { mime: 'image/png', data: PNG, real: true, origin: '实拍', credit: `水族馆 ${n}`, license: '自己拍的', caption: `实拍 ${n}` })).status).toBe(200);
+    }
+    const draw = async () => until(`/v1/studio/tasks/${(await req('POST', '/v1/studio/image', p, { asset: shrimp, note: '侧面全身' })).body.id}`, p);
+    const t = await draw();
+    expect(t).toMatchObject({ status: 'done', asset: shrimp });
+    const run = runs().at(-1)!;
+    expect(run.images).toHaveLength(3);
+    expect(run.args).toEqual(expect.arrayContaining(['--sandbox', 'workspace-write']));
+    expect(run.prompt).toContain('孔雀螳螂虾');
+    expect(run.prompt).toContain('侧面全身');
+
+    const media = (await req('GET', '/v1/organisms', p)).body.find((o: { asset_id: string }) => o.asset_id === shrimp).media;
+    const made = media.find((m: { id: string }) => m.id === t.media_id);
+    expect(made).toMatchObject({ pending: true, origin: 'AI 写实图', added_by: 'ChatGPT（本机 Codex）', caption: '侧面全身' });
+    expect(made.refs).toHaveLength(3);
+    expect(made.refs[0]).toContain('水族馆 1');
+    const onPad = async () => (await req('GET', `/v1/media?asset=${shrimp}`, p)).body.map((m: { id: string }) => m.id);
+    expect(await onPad()).not.toContain(t.media_id);
+    await req('POST', `/v1/media/${t.media_id}/confirm`, p);
+    expect(await onPad()).toContain(t.media_id);
+
+    // Codex forgot to copy the picture out: it is still found where Codex saves pictures
+    writeFileSync(join(home, 'no-copy'), '');
+    expect(await draw()).toMatchObject({ status: 'done' });
   });
 });
