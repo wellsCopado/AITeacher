@@ -56,6 +56,8 @@ export interface CodexRun {
   images?: string[];
   /** Let Codex write into its scratch folder (pictures need this); text answers run read-only. */
   write?: boolean;
+  /** Let it search the web and download into its scratch folder (finding real photos). */
+  web?: boolean;
 }
 
 /** One `codex exec` in an empty scratch folder. Returns its last message and the folder (the caller removes it). */
@@ -64,6 +66,7 @@ export async function codexExec(r: CodexRun, o: CodexOpts = {}): Promise<{ text:
   const args = [
     'exec', '--skip-git-repo-check', '--ignore-user-config', '-C', dir, '--sandbox', r.write ? 'workspace-write' : 'read-only', '-o', last,
     ...(r.write ? ['--json'] : ['--ephemeral']), ...(r.model ? ['-m', r.model] : []), ...(r.images ?? []).map(i => `--image=${i}`),
+    ...(r.web ? ['-c', 'web_search="live"', '-c', 'sandbox_workspace_write.network_access=true'] : []),
   ];
   try {
     const p = await run(o, args, r.prompt, o.timeoutMs ?? 15 * 60_000);
@@ -128,5 +131,51 @@ export async function codexImage(a: { prompt: string; references: string[]; mode
       if (mime && data.length <= 20 * 1024 * 1024) return { data, mime, note: r.text.slice(0, 300) };
     }
     throw new ModelError(`Codex 没有生成图片${r.text ? `：${r.text.slice(0, 200)}` : ''}`);
+  } finally { rmSync(r.dir, { recursive: true, force: true }); }
+}
+
+/** What Codex found on the web about one animal: real photos (downloaded) and a few facts for the lesson. */
+export interface Research {
+  scientific_name: string | null; length_cm: number | null; habitat: string | null; facts: string[];
+  photos: { data: Buffer; mime: string; source_url: string | null; author: string; license: string; caption: string }[];
+}
+const HABITATS = ['sea_floor', 'reef', 'grassland', 'soil', 'forest', 'freshwater', 'air', 'other'];
+
+/**
+ * Codex searches the web for real photos of an animal (licensed ones first), downloads them and notes its true size
+ * and a few facts. Only the animal's name is sent. Pictures that aren't real jpg/png/webp files are dropped.
+ */
+export async function codexResearch(a: { name: string; model?: string; count?: number }, o: CodexOpts = {}): Promise<Research> {
+  const n = a.count ?? 4;
+  const prompt = [
+    `给小学生的数学课找「${a.name}」这种生物的真实照片和资料。`,
+    `1. 上网搜索，优先维基共享资源（commons.wikimedia.org）、iNaturalist、博物馆和科研机构网站。找 ${n} 张它的真实照片：必须是实拍，不要绘画、插图、卡通、模型或 AI 图；至少一张能看清全身，最好有一张接近正上方俯视。`,
+    '   用 curl 把原图下载到当前目录的 refs 文件夹，文件名 1.jpg、2.jpg……（png、webp 也行），每张 20 MB 以内。下载后检查确实是图片文件。',
+    '2. 在当前目录写 refs.json（UTF-8），格式：',
+    '{"scientific_name": "学名", "length_cm": 成体常见体长（厘米，只写数字）, "habitat": "sea_floor | reef | grassland | soil | forest | freshwater | air | other 里选一个", "photos": [{"file": "refs/1.jpg", "source_url": "照片所在的网页", "author": "作者", "license": "授权，例如 CC BY-SA 4.0、Public domain；不知道就写 未注明", "caption": "一句中文说明"}], "facts": ["3 到 5 条给小学生的真实知识，中文，每条 30 字以内"]}',
+    '只写有把握的事实，不确定的不写。不要读写当前目录以外的文件。',
+    '3. 最后用一句话说明找到了什么。',
+  ].join('\n');
+  const r = await codexExec({ prompt, model: a.model, write: true, web: true }, { ...o, timeoutMs: o.timeoutMs ?? 20 * 60_000 });
+  try {
+    const at = join(r.dir, 'refs.json');
+    if (!existsSync(at)) throw new ModelError(`Codex 没有找到「${a.name}」的照片${r.text ? `：${r.text.slice(0, 200)}` : ''}`);
+    let j: any;
+    try { j = JSON.parse(readFileSync(at, 'utf8')); } catch { throw new ModelError('Codex 写的 refs.json 不是 JSON'); }
+    const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+    const photos: Research['photos'] = [];
+    for (const p of Array.isArray(j?.photos) ? j.photos : []) {
+      const f = join(r.dir, str(p?.file, 200));
+      if (!f.startsWith(r.dir + '/') || !existsSync(f) || statSync(f).size > 20 * 1024 * 1024) continue;
+      const data = readFileSync(f), mime = sniffImage(data);
+      const url = str(p?.source_url, 500);
+      if (mime && data.length > 2000) photos.push({ data, mime, source_url: /^https?:\/\//.test(url) ? url : null, author: str(p?.author, 120) || '未注明', license: str(p?.license, 100) || '未注明', caption: str(p?.caption, 120) || a.name });
+    }
+    const len = Number(j?.length_cm);
+    return {
+      scientific_name: str(j?.scientific_name, 80) || null, length_cm: len > 0 && len < 1000 ? len : null,
+      habitat: HABITATS.includes(j?.habitat) ? j.habitat : null,
+      facts: (Array.isArray(j?.facts) ? j.facts : []).map((f: unknown) => str(f, 60)).filter(Boolean).slice(0, 5), photos,
+    };
   } finally { rmSync(r.dir, { recursive: true, force: true }); }
 }

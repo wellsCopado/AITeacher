@@ -9,7 +9,7 @@ import { randomBytes } from 'node:crypto';
 import type { LessonSpec, ReteachTicket } from '../../../packages/schema/src/index.js';
 import type { Ctx, Report } from '../../../packages/validator/src/index.js';
 import {
-  BRIEF_HEADER, PROVIDERS, briefFields, chatWith, checkStages, codexImage, codexStatus, createMcp, designPrompt, disassemble, exampleStages, generateLesson, guide,
+  BRIEF_HEADER, PROVIDERS, briefFields, chatWith, checkStages, codexImage, codexResearch, codexStatus, createMcp, designPrompt, disassemble, exampleStages, generateLesson, guide,
   isCodex, listModels, outcome, studioContext,
   type Chat, type CodexOpts, type GuideTopic, type LessonRequest, type Message, type ModelConfig, type Stages, type StudioBackend,
 } from '../../../packages/studio/src/index.js';
@@ -26,8 +26,9 @@ interface Deps {
   media: {
     prepareUpload: (a: Record<string, unknown>, by: string, base: string) => unknown; organismIds: () => string[];
     organism: (asset: string) => { name: string; real_scale: string | null } | undefined;
-    references: (asset: string) => { path: string; label: string }[];
-    addPending: (asset: string, data: Buffer, mime: string, m: { by: string; caption: string; refs: string[] }) => { id: string };
+    references: (asset: string, pending?: boolean) => { path: string; label: string }[];
+    addPending: (asset: string, data: Buffer, mime: string, m: { by: string; caption: string; refs?: string[]; kind?: 'photo' | 'cutout'; origin?: string;
+      credit?: string; license?: string; source_url?: string | null; length_cm?: number | null }) => { id: string };
   };
   /** Tests swap the network and the codex command out. */
   fetchImpl?: typeof fetch;
@@ -37,7 +38,9 @@ interface Deps {
 const MODELS = 'studio.models', ACTIVE = 'studio.active', CONSENT = 'studio.consent';
 type Job = { id: string; child: string; model: string; planner?: string; status: 'running' | 'done' | 'failed'; started_at: string; log: { at: string; msg: string }[]; key?: string; title?: string; error?: string; issues?: { rule: string; path: string; msg: string }[] };
 /** A planning chat turn, or a picture ChatGPT is drawing: both take a minute or more, so the app polls them. */
-type Task = { id: string; status: 'running' | 'done' | 'failed'; started_at: string; model: string; reply?: string; brief?: string | null; asset?: string; media_id?: string; error?: string };
+type Task = { id: string; status: 'running' | 'done' | 'failed'; started_at: string; model: string; reply?: string; brief?: string | null; asset?: string; media_id?: string; error?: string;
+  /** Making a lesson's animal: which step it is on (finding photos, drawing the top view). */
+  step?: string };
 /** A model on this machine (Ollama, LM Studio…): nothing leaves the house, so no consent is needed. */
 const isLocal = (m: ModelConfig) => { try { return ['localhost', '127.0.0.1', '[::1]'].includes(new URL(m.base_url).hostname); } catch { return false; } };
 
@@ -194,8 +197,12 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
         if (!s.report.ok) { job.status = 'failed'; job.error = '服务器校验没通过'; return; }
         Object.assign(job, { status: 'done', key: s.key, title: r.spec.title });
         if (directed && r.spec.theme.interest_refs.includes(directed.id)) store.topicUsed(directed.id, s.key);
-        const subj = r.spec.theme.subject;
-        if (subj) log(store.mediaFor(subj.asset_id).some(x => x.confirmed) ? `主角「${subj.name}」的画面已经有了` : `主角「${subj.name}」还没有画面：在“生物素材”里加照片或让 ChatGPT 画，确认后这节课才能发布`);
+        const subj = r.spec.theme.subject, cm = codexModel();
+        if (subj && store.mediaFor(subj.asset_id).some(x => x.confirmed)) log(`主角「${subj.name}」的画面已经有了`);
+        else if (subj && subj.kind === 'organism' && cm && consent() && !subjectTask(subj.asset_id)) {
+          makeSubject(subj.asset_id, cm);
+          log(`已让 ChatGPT 去找「${subj.name}」的实拍照片，再画成能动的 3D：做好后在“生物素材”里看一眼、确认，这节课就能发布`);
+        } else if (subj) log(`主角「${subj.name}」还没有画面：在“生物素材”里加照片或让 ChatGPT 做，确认后这节课才能发布`);
         log(`已放进“课程库 → 等你审核”：${r.spec.title}`);
       } catch (e) { job.status = 'failed'; job.error = (e as Error).message; log(`出错：${(e as Error).message}`); }
     })();
@@ -258,6 +265,50 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
       t.media_id = d.media.addPending(asset, img.data, img.mime, { by: m.label, caption: note || `${o.name} · ChatGPT 依据实拍照片画的`, refs: refs.map(r => r.label) }).id;
       t.reply = img.note;
     });
+    return reply.code(202).send({ id: t.id, model: m.label });
+  });
+  /**
+   * A lesson's animal made by ChatGPT from start to finish: it finds real photos on the web (unless 3 are already
+   * here), then draws a photoreal top view that the 3D scene joints into a moving animal at its true size.
+   * Everything waits in 生物素材 until the parent has checked it against the photos.
+   */
+  const codexModel = () => models().find(x => isCodex(x));
+  const subjectTask = (asset: string) => [...tasks.values()].find(t => t.status === 'running' && t.asset === asset);
+  const makeSubject = (asset: string, m: ModelConfig, note = ''): Task => {
+    const o = d.media.organism(asset) ?? fail(404, '资产库里没有这个生物');
+    if (subjectTask(asset)) fail(409, `「${o.name}」正在做，做好再开始`);
+    return startTask(m, { asset, step: '上网找实拍照片' }, async t => {
+      const model = m.model || undefined;
+      let refs = d.media.references(asset, true), len = Number(/[\d.]+/.exec(o.real_scale ?? '')?.[0]) || null;
+      if (refs.length < 3) {
+        const found = await codexResearch({ name: o.name, model }, d.codex);
+        if (found.photos.length + refs.length < 3) throw new Error(`ChatGPT 只找到 ${found.photos.length} 张「${o.name}」的实拍照片，不够 3 张：可以自己加几张再试`);
+        store.setSetting(`subject.${asset}`, JSON.stringify({ scientific_name: found.scientific_name, length_cm: found.length_cm, habitat: found.habitat, facts: found.facts, by: m.label, at: iso() }));
+        len = found.length_cm ?? len;
+        for (const p of found.photos) d.media.addPending(asset, p.data, p.mime, { by: m.label, origin: '实拍', caption: p.caption, credit: p.author, license: p.license, source_url: p.source_url });
+        refs = d.media.references(asset, true);
+      }
+      t.step = '画俯视写实图（做 3D 用）';
+      const use = refs.slice(-4);
+      const prompt = [
+        `依据附上的 ${use.length} 张实拍照片，画一张「${o.name}」的照片级写实图，在小学数学课的场景里做成会动的 3D 模型用。${len ? `真实体长约 ${len} 厘米。` : ''}`,
+        '- 正上方垂直俯视，整只完整入画，身体舒展、平放；细长的身体摆成平缓的弧线或直线，不要卷曲、打结或重叠。头朝画面左边，尾朝右边。',
+        '- 背景完全透明（PNG 透明背景）；做不到透明就用纯白、没有阴影、没有地面纹理的背景。',
+        '- 像标本摄影：形态、颜色、斑纹、身体比例，附肢、触角、眼的数量和位置都和参考照片一致；光线均匀柔和，不要卡通、插画感，不要发光或夸张的颜色。',
+        '- 画面里只有这一只生物：不要文字、水印、比例尺、人或手。',
+        note && `- 家长的要求：${note}`,
+      ].filter(Boolean).join('\n');
+      const img = await codexImage({ prompt, references: use.map(r => r.path), model }, d.codex);
+      t.media_id = d.media.addPending(asset, img.data, img.mime, { by: m.label, kind: 'cutout', caption: `${o.name} · 俯视全身，课里做成会动的 3D`, refs: use.map(r => r.label), length_cm: len }).id;
+      t.step = '做好了，等你确认';
+      t.reply = img.note;
+    });
+  };
+  app.post('/v1/studio/subject', d.parent, async (req, reply) => {
+    const b = (req.body ?? {}) as { asset?: string; note?: string };
+    const m = codexModel() ?? fail(400, '自动找照片和画图要用 ChatGPT 账号：先在“设备与数据 → 大模型”里添加“ChatGPT 账号（本机 Codex）”');
+    if (!consent()) fail(403, '先在“设备与数据 → 大模型”里勾选同意：会把这种生物的名字和实拍照片发给 ChatGPT');
+    const t = makeSubject(String(b.asset ?? ''), m, String(b.note ?? '').trim().slice(0, 300));
     return reply.code(202).send({ id: t.id, model: m.label });
   });
   app.get('/v1/studio/tasks', d.parent, async () => [...tasks.values()].reverse());

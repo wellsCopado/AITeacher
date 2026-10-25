@@ -22,8 +22,21 @@ process.stdin.on('end', () => {
   const home = env.CODEX_HOME;
   if (existsSync(join(home, 'broken'))) { console.error('ERROR: stream error: unexpected status 401 Unauthorized'); process.exit(1); }
   let text;
-  if (prompt.includes('$imagegen')) {
-    const png = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8cfc0f01f0005000201a3e1d2a80000000049454e44ae426082', 'hex');
+  if (prompt.includes('refs.json')) {
+    // finding real photos on the web: only allowed with live search and network access
+    if (!args.includes('web_search="live"') || !args.includes('sandbox_workspace_write.network_access=true')) { console.error('no network in this sandbox'); process.exit(1); }
+    const n = existsSync(join(home, 'few-photos')) ? 2 : 4;
+    mkdirSync(join(dir, 'refs'), { recursive: true });
+    const photos = [];
+    for (let i = 1; i <= n; i++) {
+      writeFileSync(join(dir, 'refs', `${i}.jpg`), Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(3000, i), Buffer.from([0xff, 0xd9])]));
+      photos.push({ file: `refs/${i}.jpg`, source_url: `https://commons.wikimedia.org/wiki/File:Bobbit_${i}.jpg`, author: `摄影者 ${i}`, license: 'CC BY-SA 4.0', caption: `实拍 ${i}` });
+    }
+    photos.push({ file: '../outside.jpg', source_url: 'https://example.com', author: 'x', license: 'x', caption: 'outside the folder' });
+    writeFileSync(join(dir, 'refs.json'), JSON.stringify({ scientific_name: 'Eunice aphroditois', length_cm: 100, habitat: 'sea_floor', photos, facts: ['白天躲在沙里的洞中', '夜里伸出头部等猎物经过'] }));
+    text = `找到了 ${n} 张实拍照片。`;
+  } else if (prompt.includes('$imagegen')) {
+    const png = env.FAKE_CODEX_IMAGE ? readFileSync(env.FAKE_CODEX_IMAGE) : Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8cfc0f01f0005000201a3e1d2a80000000049454e44ae426082', 'hex');
     const saved = join(home, 'generated_images', 'thread-1', 'ig_1.png');
     mkdirSync(join(home, 'generated_images', 'thread-1'), { recursive: true });
     writeFileSync(saved, png);

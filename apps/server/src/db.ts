@@ -46,7 +46,7 @@ export type Role = 'parent' | 'device' | 'agent';
 export interface SessionRow { key: string; child: string; lesson_key: string; started_on: string; updated_at: string; finished: number }
 export interface JudgmentRow { id: string; child: string; homework_ref: string; status: '草稿' | '已确认'; created_at: string; confirmed_at: string | null; judgment: LearningJudgment; card: ParentCard | null; card_used: number }
 export interface MediaRow {
-  id: string; asset_id: string; kind: 'photo' | 'video' | 'model'; origin: string; mime: string; file: string; key: string; credit: string; license: string;
+  id: string; asset_id: string; kind: 'photo' | 'video' | 'model' | 'cutout'; origin: string; mime: string; file: string; key: string; credit: string; license: string;
   source_url: string | null; caption: string | null; length_cm: number | null; added_by: string; created_at: string;
   /** 0 until the parent confirms it (pictures from AI assistants); children only see confirmed media. */
   confirmed: number;

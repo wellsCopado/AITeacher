@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { buildApp } from '../apps/server/src/app.js';
 import {
-  authorMessages, BRIEF_HEADER, checkStages, codexPrompt, codexStatus, createMcp, designPrompt, exampleStages, generateLesson, guide, INSTALL_CODEX, LOGIN_CODEX,
+  authorMessages, BRIEF_HEADER, checkStages, codexPrompt, codexResearch, codexStatus, createMcp, designPrompt, exampleStages, generateLesson, guide, INSTALL_CODEX, LOGIN_CODEX,
   localBackend, modelFromEnv, normalize, parseJsonReply, serveStdio, studioContext, type Message, type Stages,
 } from '../packages/studio/src/index.js';
 
@@ -483,5 +483,52 @@ describe('ChatGPT through Codex on the home computer, all from the parent app', 
     // Codex forgot to copy the picture out: it is still found where Codex saves pictures
     writeFileSync(join(home, 'no-copy'), '');
     expect(await draw()).toMatchObject({ status: 'done' });
+  });
+
+  it('makes the animal a lesson is about by itself: real photos from the web, then a top view the scene turns into 3D', async () => {
+    const { p, codex } = await setup();
+    await req('PUT', '/v1/studio/settings', p, { consent: true });
+    const e = example(); e.director.title = '珊瑚礁沙底：博比特虫的伏击圈有多大';
+    writeFileSync(join(home, 'replies.json'), JSON.stringify([reply(e)]));
+    const { job } = (await req('POST', '/v1/studio/generate', p, { child: 'gege', topic: '博比特虫', model: codex })).body;
+    const done = await until(`/v1/studio/jobs/${job}`, p);
+    expect(done.status, JSON.stringify(done)).toBe('done');
+    expect(done.log.map((l: { msg: string }) => l.msg).join('\n')).toContain('已让 ChatGPT 去找「博比特虫」的实拍照片');
+    const subject = (await req('GET', `/v1/drafts/${done.key}`, p)).body.theme.subject.asset_id;
+    const task = (await req('GET', '/v1/studio/tasks', p)).body.find((t: { asset?: string }) => t.asset === subject);
+    expect(await until(`/v1/studio/tasks/${task.id}`, p)).toMatchObject({ status: 'done', step: '做好了，等你确认' });
+
+    // first it searched the web (only the animal's name went out), then drew from what it found
+    const [find, draw] = runs().slice(-2);
+    expect(find.args).toEqual(expect.arrayContaining(['--sandbox', 'workspace-write', 'web_search="live"', 'sandbox_workspace_write.network_access=true']));
+    expect(find.prompt).toContain('「博比特虫」');
+    expect(find.prompt).not.toMatch(/哥哥|gege/);
+    expect(draw.images).toHaveLength(4);
+    expect(draw.prompt).toMatch(/正上方垂直俯视[\s\S]*头朝画面左边/);
+    expect(draw.prompt).toContain('真实体长约 100 厘米');
+
+    const worm = (await req('GET', '/v1/organisms', p)).body.find((o: { asset_id: string }) => o.asset_id === subject);
+    expect(worm).toMatchObject({ name: '博比特虫', subject: 'organism', real_scale: '约 100 厘米', facts: { scientific_name: 'Eunice aphroditois', length_cm: 100 } });
+    const photos = worm.media.filter((m: { kind: string }) => m.kind === 'photo'), cut = worm.media.find((m: { kind: string }) => m.kind === 'cutout');
+    expect(photos).toHaveLength(4); // the file outside its folder was not taken
+    expect(photos[0]).toMatchObject({ origin: '实拍', pending: true, credit: '摄影者 1', license: 'CC BY-SA 4.0', source_url: 'https://commons.wikimedia.org/wiki/File:Bobbit_1.jpg' });
+    expect(cut).toMatchObject({ origin: 'AI 写实图', pending: true, length_cm: 100 });
+    expect(cut.refs).toHaveLength(4);
+
+    // children see none of it until the parent checked it; the parent's preview shows it already
+    const device = async (q = '') => (await req('GET', `/v1/media?asset=${subject}${q}`, p)).body.length;
+    expect(await device()).toBe(0);
+    expect(await device('&pending=1')).toBe(5);
+    const checklist = (await req('GET', '/v1/review-checklist', p)).body;
+    const approve = () => req('POST', `/v1/drafts/${done.key}/approve`, p, { checked: checklist });
+    expect((await approve()).status).toBe(409);
+    expect((await req('POST', `/v1/organisms/${subject}/confirm`, p)).body).toEqual({ confirmed: 5 });
+    expect(await device()).toBe(5);
+    expect((await approve()).status).toBe(201);
+
+    // too few photos found: it says so instead of drawing from nothing
+    writeFileSync(join(home, 'few-photos'), '');
+    const few = await codexResearch({ name: '博比特虫' }, { bin, env: { ...process.env, CODEX_HOME: home } });
+    expect(few.photos).toHaveLength(2);
   });
 });

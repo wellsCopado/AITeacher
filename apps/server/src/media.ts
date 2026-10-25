@@ -48,20 +48,27 @@ function builtins(root: string, asset?: string) {
 
 export function mediaRoutes(app: FastifyInstance, d: Deps) {
   const { store } = d;
+  /** What ChatGPT looked up about a lesson's animal (true size, habitat, a few facts), for the parent to check. */
+  const facts = (asset: string): { scientific_name: string | null; length_cm: number | null; habitat: string | null; facts: string[] } | null => {
+    try { return JSON.parse(store.setting(`subject.${asset}`) ?? 'null'); } catch { return null; }
+  };
   // the registry's animals, then whatever lessons are about (博比特虫, 机器人…) that still needs its pictures
-  const organisms = (): { asset_id: string; name?: string; status: string; real_scale?: string }[] => {
+  const organisms = (): { asset_id: string; name?: string; status: string; real_scale?: string; subject?: 'organism' | 'object' }[] => {
     const reg = readJson<AssetEntry[]>(join(d.root, 'content', 'assets', 'registry.json')).filter(a => a.kind === 'organism' && a.status !== '拒绝');
-    return [...reg, ...store.subjects().filter(s => !reg.some(a => a.asset_id === s.asset_id))
-      .map(s => ({ asset_id: s.asset_id, name: s.name, status: store.mediaFor(s.asset_id).some(m => m.confirmed) ? '采用标记' : '待制作' }))];
+    return [...reg, ...store.subjects().filter(s => !reg.some(a => a.asset_id === s.asset_id)).map(s => {
+      const len = facts(s.asset_id)?.length_cm;
+      return { asset_id: s.asset_id, name: s.name, subject: s.kind, status: store.mediaFor(s.asset_id).some(m => m.confirmed) ? '采用标记' : '待制作', ...(len ? { real_scale: `约 ${len} 厘米` } : {}) };
+    })];
   };
 
   app.get('/v1/organisms', d.parent, async () => organisms().map(a => ({
-    asset_id: a.asset_id, name: a.name, status: a.status, real_scale: a.real_scale ?? null,
+    asset_id: a.asset_id, name: a.name, status: a.status, real_scale: a.real_scale ?? null, subject: a.subject ?? null, facts: facts(a.asset_id),
     media: [...builtins(d.root, a.asset_id), ...store.mediaFor(a.asset_id).map(publicMedia)],
   })));
+  // the parent's preview also shows what still waits for their check, so they can see the 3D before confirming it
   app.get('/v1/media', d.anyone, async req => {
-    const asset = (req.query as { asset?: string }).asset;
-    return [...builtins(d.root, asset), ...store.mediaFor(asset).filter(m => m.confirmed).map(publicMedia)];
+    const q = req.query as { asset?: string; pending?: string }, all = q.pending === '1' && req.role === 'parent';
+    return [...builtins(d.root, q.asset), ...store.mediaFor(q.asset).filter(m => m.confirmed || all).map(publicMedia)];
   });
   app.get('/organism-assets/:asset/:file', async (req, reply) => {
     const { asset, file } = req.params as { asset: string; file: string };
@@ -138,6 +145,13 @@ export function mediaRoutes(app: FastifyInstance, d: Deps) {
     }, d.iso());
     return reply.code(201).send({ ...publicMedia(m), status: '已上传，等家长在“课程库 → 生物素材”里确认' });
   });
+  // everything ChatGPT made or found for one animal, checked together
+  app.post('/v1/organisms/:asset/confirm', d.parent, async req => {
+    const asset = (req.params as { asset: string }).asset, waiting = store.mediaFor(asset).filter(m => !m.confirmed);
+    if (!waiting.length) fail(400, '没有等你确认的素材');
+    for (const m of waiting) store.confirmMedia(m.id);
+    return { confirmed: waiting.length };
+  });
   app.post('/v1/media/:id/confirm', d.parent, async req => {
     const m = store.media((req.params as { id: string }).id) ?? fail(404, '没有这个素材');
     store.confirmMedia(m.id);
@@ -167,20 +181,29 @@ export function mediaRoutes(app: FastifyInstance, d: Deps) {
     return reply.code(206).header('content-range', `bytes ${start}-${end}/${size}`).header('content-length', end - start + 1)
       .send(readFileSync(path).subarray(start, end + 1));
   });
-  /** Real photos of one organism (实拍 / 标本扫描), oldest first, for ChatGPT to draw from and the parent to check against. */
-  const references = (asset: string) => [
+  /**
+   * Real photos of one organism (实拍 / 标本扫描), oldest first, for ChatGPT to draw from and the parent to check
+   * against. `pending`: also the ones ChatGPT just found, which the parent checks together with the picture.
+   */
+  const references = (asset: string, pending = false) => [
     ...builtins(d.root, asset).filter(b => b.kind === 'photo' && REAL.includes(b.origin)).map(b => ({ path: join(d.root, 'content', 'assets', 'organisms', asset, b.url.split('/').pop()!), label: `${b.origin} · ${b.caption ?? '随程序自带'}` })),
-    ...store.mediaFor(asset).filter(m => m.confirmed && m.kind === 'photo' && REAL.includes(m.origin ?? '实拍'))
+    ...store.mediaFor(asset).filter(m => (m.confirmed || pending) && m.kind === 'photo' && REAL.includes(m.origin ?? '实拍'))
       .map(m => ({ path: join(d.mediaDir, m.file), label: [m.id, m.origin ?? '实拍', m.credit, m.caption, m.source_url].filter(Boolean).join(' · ') })),
   ].filter(r => existsSync(r.path));
-  /** A picture made here by ChatGPT: hidden from the children until the parent confirms it. */
-  const addPending = (asset: string, data: Buffer, mime: string, m: { by: string; caption: string; refs: string[] }) => {
+  /**
+   * A picture made or found here by ChatGPT: hidden from the children until the parent confirms it. AI pictures list
+   * the real photos they were drawn from; a cutout is the top view the 3D scene joints into a moving animal.
+   */
+  const addPending = (asset: string, data: Buffer, mime: string, m: { by: string; caption: string; refs?: string[]; kind?: 'photo' | 'cutout'; origin?: string;
+    credit?: string; license?: string; source_url?: string | null; length_cm?: number | null }) => {
     const key = randomBytes(18).toString('base64url'), file = `${asset}-${key}.${MEDIA_TYPES[mime].ext}`;
     mkdirSync(d.mediaDir, { recursive: true });
     writeFileSync(join(d.mediaDir, file), data);
+    const ai = (m.origin ?? 'AI 写实图') === 'AI 写实图';
     return store.addMedia({
-      asset_id: asset, kind: 'photo', origin: 'AI 写实图', mime, file, key, credit: 'ChatGPT 依据实拍照片生成', license: '家用；AI 生成图，商用前换成实拍或授权素材',
-      source_url: null, caption: m.caption.slice(0, 120), length_cm: null, added_by: m.by, confirmed: 0, refs: JSON.stringify(m.refs),
+      asset_id: asset, kind: m.kind ?? 'photo', origin: m.origin ?? 'AI 写实图', mime, file, key,
+      credit: (m.credit ?? (ai ? 'ChatGPT 依据实拍照片生成' : '')).slice(0, 200) || '来源见链接', license: (m.license ?? (ai ? '家用；AI 生成图，商用前换成实拍或授权素材' : '')).slice(0, 100) || '未注明',
+      source_url: m.source_url ?? null, caption: m.caption.slice(0, 120), length_cm: m.length_cm ?? null, added_by: m.by, confirmed: 0, refs: m.refs?.length ? JSON.stringify(m.refs) : null,
     }, d.iso());
   };
   const organism = (asset: string) => { const a = organisms().find(o => o.asset_id === asset); return a && { name: a.name ?? a.asset_id, real_scale: a.real_scale ?? null }; };

@@ -12,8 +12,11 @@ export interface MountOptions {
   onPick?(info: Record<string, unknown>): void;
   /** Progress while an action runs, e.g. metres walked or quadrats placed. */
   onProgress?(action: string, value: number): void;
-  /** A cut-out top view of the animal that lives in the burrow, placed at true size (BL14: photoreal only). */
-  organism?: { url: string; rig: string; rigMeta: string; lengthM: number };
+  /**
+   * A cut-out top view of the animal that lives in the burrow, placed at true size (BL14: photoreal only). With a
+   * hand-made rig (rig, rigMeta) it moves part by part; without one it is jointed into segments automatically.
+   */
+  organism?: { url: string; rig?: string | null; rigMeta?: string | null; lengthM: number };
 }
 export interface Instance {
   readonly componentId: string;

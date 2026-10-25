@@ -339,7 +339,7 @@ export function create(stage, kind, params, onPick, hooks){
       // a few grains trickle out of the burrow now and then: something lives in there
       if(st.burrow && Math.random()<dt*0.6) puff(st.burrow.x,st.burrow.z,4,0.08,0.05);
       if(st.org){ for(const m of st.org.pickables) if(!st.pickables.includes(m)) st.pickables.push(m); st.org.update(dt, now);
-        if(st.orgFollow && st.org.ready && !goal){ const a=st.org.center(); orbit.target.lerp(a.setY(0.02),Math.min(1,dt*1.2)); } }
+        if(st.orgFollow && st.org.ready && !goal){ const a=st.org.center(); orbit.target.lerp(a.setY(Math.max(0.02,a.y*0.5)),Math.min(1,dt*1.2)); } }
       const sp=st.snow.geometry.attributes.position; for(let i=0;i<sp.count;i++){let y=sp.getY(i)-dt*0.04; if(y<0)y=6; sp.setY(i,y); sp.setX(i,sp.getX(i)+Math.sin(now*0.0003+i)*dt*0.03)} sp.needsUpdate=true;
       if(st.walk){ const P=2*(st.params.a+st.params.b); st.walk.d=Math.min(P, st.walk.d+(reduced()?P:dt*1.3));
         const p=pathAt(st.walk.d,0); st.reel.position.set(p.x,0.25+Math.sin(now*0.004)*0.02,p.z);
@@ -385,10 +385,12 @@ export function create(stage, kind, params, onPick, hooks){
     setParams(p){ st.params={...p}; st.walk=null; st.fill=null; st.reveal=null; build(); },
     walk(){ if(!garden)return; if(reef){st.tape.forEach(m=>m.visible=false)} else st.chalk.clear(); st.walk={d:0,marks:0}; follow=true; },
     focusShrimp(){ if(!st.burrow)return; follow=false;
-      const t=st.burrow.clone(); if(st.orgDir) t.add(new THREE.Vector3(st.orgDir.x,0,st.orgDir.y).multiplyScalar(0.12));
-      glide({target:t, dist:st.org?0.36:1.1, el:st.org?0.9:0.62}); puff(st.burrow.x,st.burrow.z,30,0.25,0.12);
+      // an animal that says how much ground it covers (a metre-long worm) is framed by that, lower down to see it rise
+      const f=st.org&&st.org.ready&&st.org.frame?st.org.frame():null, t=st.burrow.clone();
+      if(st.orgDir) t.add(new THREE.Vector3(st.orgDir.x,0,st.orgDir.y).multiplyScalar(f?f.focus/2:0.12));
+      glide({target:t, dist:f?Math.max(0.36,f.focus*1.7):st.org?0.36:1.1, el:f?0.62:st.org?0.9:0.62}); puff(st.burrow.x,st.burrow.z,30,0.25,0.12);
       if(st.org){ st.orgFollow=true; setTimeout(()=>st.org&&st.org.cmd('show'), reduced()?0:600); } },
-    organism(cmd){ if(!st.org) return; if(cmd==='anatomy'){ st.orgFollow=true; glide({dist:0.46, el:1.3}); } st.org.cmd(cmd); },
+    organism(cmd){ if(!st.org) return; if(cmd==='anatomy'){ st.orgFollow=true; const f=st.org.frame?st.org.frame():null; glide({dist:f?Math.max(0.46,f.anatomy*1.25):0.46, el:1.3}); } st.org.cmd(cmd); },
     organismState(){ return st.org&&st.org.ready ? {mode:st.org.mode, exploded:!!st.org.exploded} : null; },
     fill(){ if(!garden)return; st.tiles.forEach(m=>{m.visible=false;m.userData.t0=0}); st.fill={next:0,t0:performance.now()}; },
     reveal(){ if(garden)return; st.cubes.forEach(m=>{m.visible=false;m.userData.t0=0}); st.reveal={rows:0,t0:performance.now()}; },

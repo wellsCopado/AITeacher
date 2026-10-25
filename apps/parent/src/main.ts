@@ -3,7 +3,7 @@
 import { summarize, type Ev } from './summary.js';
 import { dataSection, homeworkView, masteryView, type Ctx } from './homework.js';
 import { downscale } from './image.js';
-import { agentsCard, canDraw, drawRow, follow, modelsCard, wireDraw, wireStudio, writerCard } from './studio.js';
+import { agentsCard, canDraw, drawRow, follow, makeRow, modelsCard, wireDraw, wireMake, wireStudio, writerCard } from './studio.js';
 
 interface Child { id: string; name: string; grade: number }
 interface Lesson { key: string; for_child: string; title: string; content_hash: string; published_at: string }
@@ -17,6 +17,10 @@ interface Draft {
 }
 interface Organism {
   asset_id: string; name: string; status: string; real_scale: string | null;
+  /** Set when it is what a lesson is about rather than an animal of the registry. */
+  subject: 'organism' | 'object' | null;
+  /** What ChatGPT looked up about it, for the parent to check. */
+  facts: { scientific_name: string | null; length_cm: number | null; habitat: string | null; facts: string[] } | null;
   media: { id: string; kind: 'photo' | 'video' | 'model' | 'cutout'; origin: string; builtin?: boolean; url: string; credit: string; license: string; source_url: string | null; caption: string | null; length_cm: number | null; pending?: boolean; refs?: string[] | null; added_by?: string }[];
 }
 interface PlanDay { date: string; kids: { child: string; mode: 'auto' | 'manual' | 'planned' | 'none'; lessons: { key: string; title: string; finished: boolean }[] }[] }
@@ -148,7 +152,7 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
         <p class="muted small">${esc(name(d.child))} · ${esc(d.concept)} · ${esc(d.key)} · 主题「${esc(d.theme.name)}」：${esc(d.theme.why)} · 由 ${esc(d.submitted_by)} 交来</p>
         ${d.note ? `<p class="toast bad">你退回时写的：${esc(d.note)} <button class="btn revise">让 AI 按意见改</button></p>` : ''}
         <ol>${d.challenges.map(c => `<li>${esc(c.prompt)} <span class="muted small">答案：${c.answers.map(esc).join('，')}${c.with_theme ? '' : ' · 不带主题的迁移题'}</span></li>`).join('')}</ol>
-        ${d.subject ? d.subject.ready ? `<p class="small">主角「${esc(d.subject.name)}」的画面已确认。</p>` : `<p class="toast bad small">主角「${esc(d.subject.name)}」还没有画面，发布前要先有：到下面「生物素材 → ${esc(d.subject.name)}」加实拍照片，或让 ChatGPT 画一张并确认。</p>` : ''}
+        ${d.subject ? d.subject.ready ? `<p class="small">主角「${esc(d.subject.name)}」的画面已确认。</p>` : `<p class="toast bad small">主角「${esc(d.subject.name)}」还没有确认的画面，发布前要先有：${canDraw() && d.subject.kind === 'organism' ? '点下面的按钮让 ChatGPT 自动做，或' : ''}到下面「生物素材 → ${esc(d.subject.name)}」加实拍照片，核对后确认。</p>${canDraw() && d.subject.kind === 'organism' ? makeRow(organisms.find(o => o.asset_id === d.subject!.asset_id) ?? { asset_id: d.subject.asset_id, name: d.subject.name, media: [] }) : ''}` : ''}
         ${d.pending_assets.filter(a => a !== d.subject?.asset_id).length ? `<p class="small">还没到位、不展示的素材：${d.pending_assets.filter(a => a !== d.subject?.asset_id).map(esc).join('、')}</p>` : ''}
         ${d.offscreen ? `<p class="small">家里的小任务：${esc(d.offscreen)}</p>` : ''}
         ${d.issues.length ? `<ul class="small">${d.issues.map(i => `<li class="${i.level === 'error' ? 'toast bad' : ''}">${esc(i.rule)} ${i.level === 'warn' ? '提示' : '错误'}：${esc(i.msg)}</li>`).join('')}</ul>` : ''}
@@ -162,10 +166,12 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
       <h3>授权记录</h3><ul>${grants.map(g => `<li>${esc(name(g.child))} · ${esc(title(g.lesson_key))} · 到 ${esc(g.expires_on)}${g.expires_on < today ? '（已过期）' : ''}</li>`).join('') || '<li class="muted">没有</li>'}</ul>
       <h3>生物素材</h3><p class="muted">写实模型还没到位的动物，课里会打开“实拍观察窗”，放这里加的照片或视频。只能用实拍、标本扫描，或依据实拍照片做的写实模型，不用卡通和绘画。每条都写上作者和授权。${canDraw() ? '有 3 张实拍照片后，可以让 ChatGPT 依据它们画写实图，画好等你核对确认。' : ''}</p>
       ${organisms.map(o => `<div class="card organism" data-a="${esc(o.asset_id)}"><h3>${esc(o.name)} <span class="badge">${esc(o.status)}</span></h3>
-        ${o.media.some(m => m.pending) ? '<p class="small toast bad">有 AI 画的图片等你确认：对照参考照片核对形态，没问题点“确认可用”，孩子才看得到。</p>' : ''}
+        ${o.facts ? `<p class="small">ChatGPT 查到：${[o.facts.scientific_name && `学名 <i>${esc(o.facts.scientific_name)}</i>`, o.facts.length_cm && `成体常见约 ${esc(o.facts.length_cm)} 厘米`].filter(Boolean).join(' · ')}${o.facts.facts.length ? `<ul>${o.facts.facts.map(f => `<li>${esc(f)}</li>`).join('')}</ul>` : ''}</p>` : ''}
+        ${o.media.some(m => m.pending) ? `<p class="small toast bad">有 ${o.media.filter(m => m.pending).length} 条素材等你确认：对照实拍照片核对形态，${o.media.some(m => m.kind === 'cutout' && m.pending) ? '可以先点课程的“预览”看会动的 3D，' : ''}没问题点“确认可用”，孩子才看得到。${o.media.filter(m => m.pending).length > 1 ? ' <button class="btn sm primary confirmall">都核对过了，全部确认</button>' : ''}</p>` : ''}
         <div class="media-list">${o.media.map(m => `<figure class="media${m.pending ? ' pending' : ''}">${m.kind === 'video' ? `<video src="${esc(m.url)}" muted playsinline controls preload="metadata"></video>` : m.kind === 'model' ? '<div class="glb">三维扫描 .glb</div>' : `<img src="${esc(m.url)}" alt="" ${m.kind === 'cutout' ? 'class="cutout"' : ''}>`}
           <figcaption class="small"><span class="badge">${esc(m.kind === 'cutout' ? `${m.origin} · 放进三维海底` : m.origin)}</span> ${esc(m.caption ?? '')}${m.length_cm ? ` · 约 ${esc(m.length_cm)} 厘米` : ''}<br><span class="muted">${esc(m.credit)} · ${esc(m.license)}</span>${m.source_url ? ` · <a href="${esc(m.source_url)}" target="_blank" rel="noopener">来源</a>` : ''}</figcaption>
           ${m.pending ? `<div class="small"><span class="badge warn">等你确认</span> 由 ${esc(m.added_by)} 传来${m.refs?.length ? `，参考照片：<ol class="refs">${m.refs.map(r => `<li>${/^https?:\/\//.test(r) ? `<a href="${esc(r)}" target="_blank" rel="noopener">${esc(r)}</a>` : esc(r)}</li>`).join('')}</ol>` : ''}</div><button class="btn sm primary confirm" data-id="${esc(m.id)}">确认可用</button> ` : ''}${m.builtin ? '<span class="muted small">随程序自带</span>' : `<button class="btn sm del" data-id="${esc(m.id)}">删除</button>`}</figure>`).join('') || '<p class="muted small">还没有素材，孩子在课里只能看到洞口和讲解。</p>'}</div>
+        ${canDraw() && o.subject !== 'object' && !o.media.some(m => m.kind === 'cutout' && m.builtin) ? makeRow(o) : ''}
         ${canDraw() ? drawRow(o) : ''}
         <form class="addmedia"><label>文件 <input type="file" name="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,.glb" required></label>
           <label>类型 <select name="origin"><option>实拍</option><option>标本扫描</option><option>AI 写实图</option></select></label>
@@ -180,6 +186,9 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
       const asset = card.dataset.a!;
       card.querySelectorAll<HTMLButtonElement>('.confirm').forEach(b => b.onclick = guard(async () => {
         await api(`/v1/media/${encodeURIComponent(b.dataset.id!)}/confirm`, { method: 'POST' }); await VIEWS.课程库(); toast('已确认，孩子在课里能看到了');
+      }));
+      card.querySelector<HTMLButtonElement>('.confirmall')?.addEventListener('click', guard(async () => {
+        const r = await api<{ confirmed: number }>(`/v1/organisms/${encodeURIComponent(asset)}/confirm`, { method: 'POST' }); await VIEWS.课程库(); toast(`已确认 ${r.confirmed} 条，孩子在课里能看到了`);
       }));
       card.querySelectorAll<HTMLButtonElement>('.del').forEach(b => b.onclick = guard(async () => {
         if (!confirm('删除这条素材？')) return;
@@ -197,12 +206,13 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
             mime: mime.startsWith('image/') ? 'image/jpeg' : mime, data: data.slice(data.indexOf(',') + 1),
             caption: f.get('caption'), length_cm: f.get('length_cm'), credit: f.get('credit'), license: f.get('license'), source_url: f.get('source_url') || null, real: f.get('real') === 'on', origin: f.get('origin'),
           }) });
-          await VIEWS.课程库(); toast('已加入。孩子在课里点螳螂虾的洞口就能看到。');
+          await VIEWS.课程库(); toast('已加入。孩子在课里点洞口就能看到。');
         })();
       };
     });
     wireStudio(ctx());
     wireDraw(ctx(), () => VIEWS.课程库());
+    wireMake(ctx(), () => VIEWS.课程库());
     view().querySelectorAll<HTMLButtonElement>('#jp .when').forEach(b => b.onclick = guard(async () => {
       const n = Number(b.dataset.n), p = justPublished!;
       justPublished = null;

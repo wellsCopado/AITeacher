@@ -9,7 +9,7 @@ interface Model { id: string; label: string; provider: string; base_url: string;
 interface Models { providers: Provider[]; models: Model[]; active: string | null; consent: boolean }
 interface Job { id: string; child: string; model: string; status: 'running' | 'done' | 'failed'; log?: { at: string; msg: string }[]; key?: string; title?: string; error?: string; issues?: { rule: string; path: string; msg: string }[] }
 /** A planning chat turn or a picture being drawn. */
-interface Task { id: string; status: 'running' | 'done' | 'failed'; model: string; reply?: string; brief?: string | null; asset?: string; media_id?: string; error?: string }
+interface Task { id: string; status: 'running' | 'done' | 'failed'; model: string; reply?: string; brief?: string | null; asset?: string; media_id?: string; error?: string; step?: string }
 interface CodexStatus { installed: boolean; version: string | null; logged_in: boolean; detail: string }
 type Said = { role: 'user' | 'assistant'; content: string };
 
@@ -31,11 +31,11 @@ const planStore = {
 };
 
 /** Ask the server about a task until it ends; stops by itself when the page that shows it is gone. */
-function poll(c: Ctx, id: string, alive: () => boolean, end: (t: Task) => Promise<void> | void) {
+function poll(c: Ctx, id: string, alive: () => boolean, end: (t: Task) => Promise<void> | void, each?: (t: Task) => void) {
   const tick = c.guard(async () => {
     if (!alive()) return;
     const t = await c.api<Task>(`/v1/studio/tasks/${id}`);
-    if (t.status === 'running') { setTimeout(tick, 2000); return; }
+    if (t.status === 'running') { each?.(t); setTimeout(tick, 2000); return; }
     await end(t);
   });
   tick();
@@ -169,6 +169,29 @@ export function wireDraw(c: Ctx, reload: () => Promise<void>) {
     btn.onclick = c.guard(async () => {
       const r = await c.api<{ id: string }>('/v1/studio/image', { method: 'POST', body: JSON.stringify({ asset, note: row.querySelector<HTMLInputElement>('.dnote')!.value }) });
       btn.disabled = true; stat.textContent = 'ChatGPT 正在画（通常 1–3 分钟），可以先做别的'; stat.className = 'small muted dstat';
+      watch(r.id);
+    });
+    const running = shown.tasks?.find(t => t.status === 'running' && t.asset === asset);
+    if (running) watch(running.id);
+  });
+}
+
+// ---- 课程库: a lesson's animal made by ChatGPT start to finish: real photos from the web → photoreal top view → moving 3D ----
+export function makeRow(o: { asset_id: string; name: string; media: { kind: string }[] }): string {
+  const busy = shown.tasks?.find(t => t.status === 'running' && t.asset === o.asset_id), again = o.media.some(m => m.kind === 'cutout');
+  return `<div class="row makerow" data-a="${esc(o.asset_id)}"><button type="button" class="btn ${again ? '' : 'primary'} make" ${busy ? 'disabled' : ''}>${again ? `让 ChatGPT 重新做「${esc(o.name)}」的 3D` : `让 ChatGPT 自动做「${esc(o.name)}」：找实拍照片 → 画写实俯视图 → 课里变成会动的 3D`}</button>
+    <span class="small muted mstat">${busy ? `ChatGPT 正在${esc(busy.step ?? '做')}…` : '大约 3–10 分钟；做好后在“生物素材”里对照照片核对，再确认'}</span></div>`;
+}
+export function wireMake(c: Ctx, reload: () => Promise<void>) {
+  document.querySelectorAll<HTMLElement>('.makerow').forEach(row => {
+    const asset = row.dataset.a!, stat = row.querySelector<HTMLElement>('.mstat')!, btn = row.querySelector<HTMLButtonElement>('.make')!;
+    const watch = (id: string) => poll(c, id, () => row.isConnected, async t => {
+      if (t.status === 'done') { await reload(); c.toast('做好了：先点这节课的“预览”看会动的 3D，再在“生物素材”里对照实拍照片核对，没问题就确认。'); }
+      else { stat.textContent = `没做成：${t.error}`; stat.className = 'small toast bad mstat'; btn.disabled = false; }
+    }, t => { stat.textContent = `ChatGPT 正在${t.step ?? '做'}…（可以先做别的）`; });
+    btn.onclick = c.guard(async () => {
+      const r = await c.api<{ id: string }>('/v1/studio/subject', { method: 'POST', body: JSON.stringify({ asset }) });
+      btn.disabled = true; stat.textContent = 'ChatGPT 正在上网找实拍照片…（可以先做别的）'; stat.className = 'small muted mstat';
       watch(r.id);
     });
     const running = shown.tasks?.find(t => t.status === 'running' && t.asset === asset);

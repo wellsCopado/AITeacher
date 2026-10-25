@@ -63,7 +63,10 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
   const hintsUsed: Record<string, number> = {};
   const skin = sp.theme.skin ?? '';
   const organismPending = (sp.pending_assets ?? []).filter(p => p.kind === 'organism');
-  const shrimpMedia = (opts.media ?? []).filter(m => organismPending.some(p => p.asset_id === m.asset_id));
+  const animalMedia = (opts.media ?? []).filter(m => organismPending.some(p => p.asset_id === m.asset_id));
+  // the animal the lesson is about (博比特虫…); without one it is the reef's own mantis shrimp
+  const subject = sp.theme.subject?.kind === 'organism' ? sp.theme.subject : undefined;
+  const animal = subject?.name ?? '螳螂虾', isShrimp = !subject || /螳螂虾/.test(subject.name);
 
   const log = (type: string, data: Record<string, unknown> = {}) => {
     const e = { at: new Date().toISOString(), type, ...data };
@@ -159,7 +162,7 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
     if (stage) stageSub(stage as HTMLElement, `<span class="tag">${u.lang === 'zh' ? '中' : 'EN'}</span>${esc(u.text)}${u.fallback ? ' <span class="dimtext">（这条暂时没有英文，先用中文）</span>' : ''}`, voice.speak(u.text, u.lang));
     else void voice.speak(u.text, u.lang);
     if (anchor === 'shrimp' && organismPending.length && stage) {
-      if (shrimpMedia.some(m => m.kind === 'cutout' && m.rig)) organismBar(stage as HTMLElement);
+      if (animalMedia.some(m => m.kind === 'cutout')) organismBar(stage as HTMLElement);
       else showOrganism(stage as HTMLElement);
     }
     log('hotspot', { hotspot: hs.id, lang: u.lang, ...(u.advance ? { count: pointers[key] } : {}), ...(u.fallback ? { fallback: true } : {}) });
@@ -180,8 +183,8 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
   function organismBar(stage: HTMLElement) {
     if (stage.querySelector('.orgbar')) return;
     const bar = h(`<div class="orgbar">
-      <button data-org="strike">👊 出拳</button><button data-org="slow">🐢 慢动作出拳</button>
-      <button data-org="anatomy">🔍 拆开看身体</button>${shrimpMedia.some(m => m.kind === 'photo' || m.kind === 'video') ? '<button data-org="photos">📷 看照片</button>' : ''}
+      <button data-org="strike">${isShrimp ? '👊 出拳' : '⚡ 出击'}</button><button data-org="slow">🐢 慢动作${isShrimp ? '出拳' : '出击'}</button>
+      <button data-org="anatomy">🔍 拆开看身体</button>${animalMedia.some(m => m.kind === 'photo' || m.kind === 'video') ? '<button data-org="photos">📷 看照片</button>' : ''}
       <button data-org="hide">🏠 回洞</button></div>`);
     bar.querySelectorAll<HTMLButtonElement>('[data-org]').forEach(b => b.onclick = () => {
       const c = b.dataset.org!;
@@ -189,11 +192,11 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
       if (c === 'photos') { showOrganism(stage); return; }
       scene?.organism(c === 'anatomy' && scene.organismState()?.exploded ? 'anatomy' : c);
       const sub = (t: string) => stageSub(stage, esc(t), say(t));
-      if (c === 'slow') sub('慢动作，放慢了 40 倍。真正的一拳只要几毫秒，快到能在水里打出小气泡。');
+      if (c === 'slow') sub(isShrimp ? '慢动作，放慢了 40 倍。真正的一拳只要几毫秒，快到能在水里打出小气泡。' : `慢动作，放慢了 40 倍，看清${animal}是怎么一下子扑出去的。`);
       if (c === 'anatomy') {
         const apart = !b.classList.toggle('on') ? false : true;
         b.textContent = apart ? '🧩 合起来' : '🔍 拆开看身体';
-        if (apart) sub('拆开看看：两只复眼、触角、触角鳞片、一对捕肢、步足、头胸甲、六节腹节，最后是尾节和尾扇。');
+        if (apart) sub(isShrimp ? '拆开看看：两只复眼、触角、触角鳞片、一对捕肢、步足、头胸甲、六节腹节，最后是尾节和尾扇。' : `拆开看看：${animal}的身体从头部到尾部，是一节一节连起来的。`);
       }
       if (c === 'hide') { const a = bar.querySelector('[data-org="anatomy"]') as HTMLElement; a.classList.remove('on'); a.textContent = '🔍 拆开看身体'; }
     });
@@ -203,9 +206,9 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
   // The real animal, from the photos, videos or scans the parent registered. Never a stand-in model (BL14).
   function showOrganism(stage: HTMLElement) {
     stage.querySelector('.observe,.pending-card')?.remove();
-    const media = shrimpMedia.filter(m => m.kind === 'photo' || m.kind === 'video');
+    const media = animalMedia.filter(m => m.kind === 'photo' || m.kind === 'video');
     if (!media.length) {
-      stage.appendChild(h(`<div class="pending-card">螳螂虾的实拍素材还没到位，家长在「课程库 · 生物素材」加上后会出现在这里<br><span class="dimtext">写实底线：不用卡通或简化模型代替</span></div>`));
+      stage.appendChild(h(`<div class="pending-card">${esc(animal)}的实拍素材还没到位，家长在「课程库 · 生物素材」加上后会出现在这里<br><span class="dimtext">写实底线：不用卡通或简化模型代替</span></div>`));
       return;
     }
     let k = 0;
@@ -215,8 +218,8 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
       const m = media[k];
       (box.querySelector('.frame') as HTMLElement).innerHTML = m.kind === 'video'
         ? `<video src="${esc(m.url)}" autoplay muted loop playsinline controls></video>`
-        : `<img src="${esc(m.url)}" alt="${esc(m.caption ?? '孔雀螳螂虾实拍')}">`;
-      (box.querySelector('figcaption') as HTMLElement).innerHTML = `<span class="tag">${esc(!m.origin || m.origin === '实拍' ? (m.kind === 'video' ? '实拍视频' : '实拍照片') : m.origin)}</span>${esc(m.caption ?? '')}${m.length_cm ? ` · 身长约 ${esc(m.length_cm)} 厘米，是样方边长 1 米的 ${esc(Math.round(m.length_cm))}/100` : ''}<br><span class="dimtext">${esc(m.credit)} · ${esc(m.license)}</span>`;
+        : `<img src="${esc(m.url)}" alt="${esc(m.caption ?? `${animal}实拍`)}">`;
+      (box.querySelector('figcaption') as HTMLElement).innerHTML = `<span class="tag">${esc(!m.origin || m.origin === '实拍' ? (m.kind === 'video' ? '实拍视频' : '实拍照片') : m.origin)}</span>${esc(m.caption ?? '')}${m.length_cm ? ` · 身长约 ${esc(m.length_cm)} 厘米${m.length_cm < 100 ? `，是样方边长 1 米的 ${esc(Math.round(m.length_cm))}/100` : ''}` : ''}<br><span class="dimtext">${esc(m.credit)} · ${esc(m.license)}</span>`;
       const n = box.querySelector('[data-n]'); if (n) n.textContent = `${k + 1}/${media.length}`;
       log('organism_media', { media: m.id, kind: m.kind });
     };
@@ -279,7 +282,7 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
     const name = comp.split('@')[0];
     const actions = sp.activity_graph.filter(n => (n.type === 'demo' || n.type === 'contrast') && n.action).flatMap(n => n.action!.split('+'));
     if (sp.hotspots.some(x => x.anchor === 'shrimp')) actions.push('focus');
-    const labels = ACTION_LABELS[skin] ?? {};
+    const labels: Record<string, string> = { ...(ACTION_LABELS[skin] ?? {}), ...(skin === 'reef' ? { focus: `看看${animal}的洞` } : {}) };
     const predict = sp.activity_graph.find(n => n.type === 'predict');
     $('#body').innerHTML = `
       <div class="demo">
@@ -296,9 +299,9 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
         </div>
       </div>`;
     const stage = $('#stage');
-    const cut = shrimpMedia.find(m => m.kind === 'cutout');
+    const cut = animalMedia.find(m => m.kind === 'cutout');
     scene = mount(stage, comp, sp.component_params[name] as Record<string, unknown>, {
-      organism: cut?.rig && cut.rig_meta ? { url: cut.url, rig: cut.rig, rigMeta: cut.rig_meta, lengthM: (cut.length_cm ?? 16) / 100 } : undefined,
+      organism: cut ? { url: cut.url, rig: cut.rig ?? null, rigMeta: cut.rig_meta ?? null, lengthM: (cut.length_cm ?? (isShrimp ? 16 : 30)) / 100 } : undefined,
       hotspots: sp.hotspots.map(x => ({ anchor: x.anchor, label: x.label })),
       onHotspot: a => playHotspot(a),
       onPick: info => log('pick', info),

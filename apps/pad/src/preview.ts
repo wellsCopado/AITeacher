@@ -16,7 +16,8 @@ async function get<T = LessonSpec>(path: string): Promise<T | null> {
   const sp = (await get(`/v1/drafts/${encodeURIComponent(key)}`)) ?? (await get(`/v1/lessons/${encodeURIComponent(key)}`));
   if (!sp) { app.innerHTML = '<p style="padding:24px">打不开这节课：请从家长端「课程库」点“预览”进入。</p>'; return; }
   document.title = `${sp.title} · 预览`;
-  const media = (await get<OrganismMedia[]>('/v1/media')) ?? [];
+  // pictures still waiting for the parent's check are shown here too, so the 3D can be seen before confirming it
+  const media = (await get<OrganismMedia[]>('/v1/media?pending=1')) ?? [];
   const audio = async (text: string, lang: string) => {
     const r = await fetch(`/v1/tts?lang=${lang}&text=${encodeURIComponent(text)}`, { headers: { authorization: `Bearer ${token}` } });
     if (!r.ok) throw new Error(`tts ${r.status}`);

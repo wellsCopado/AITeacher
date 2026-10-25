@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createChainOrganism } from './organism-chain.js';
 
 /* A living animal built from a photoreal top view (BL14): the picture is cut into its real body parts
    (eyes, antennae, antennal scales, raptorial claws, legs, carapace, six abdominal segments, tail fan),
@@ -27,7 +28,10 @@ async function assets(o){
 const ease = t => t<0?0:t>1?1:t*t*(3-2*t);
 const wrap = a => { while(a>Math.PI) a-=2*Math.PI; while(a<-Math.PI) a+=2*Math.PI; return a; };
 
-export function createOrganism({ parent, o, outDir, puff, reduced, stage }){
+export function createOrganism(args){
+  // any other animal comes as one top view without a hand-made rig: it is jointed automatically
+  if(!args.o.rig) return createChainOrganism(args);
+  const { parent, o, outDir, puff, reduced, stage } = args;
   const ctl = { ready:false, pickables:[], mode:'hidden', anchor:null, dispose(){} };
   const clip = new THREE.Plane(new THREE.Vector3(outDir.x, 0, outDir.y), 0);
   const root = new THREE.Group(); parent.add(root);
