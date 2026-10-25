@@ -10,12 +10,21 @@ export { evalExpr, exprVars, ExprError } from './expr.js';
 export interface RuleResult { id: string; name: string; basis: string; level: 'error' | 'warn'; ok: boolean; issues: Issue[] }
 export interface Report { lesson: string; ok: boolean; errors: number; warnings: number; results: RuleResult[] }
 
-export function validate(sp: LessonSpec, ctx: Ctx): Report {
+/**
+ * Rules added after the first lessons were written: question types (V20) and the pictures' numbers (V23). They are
+ * errors for every lesson written from now on and only warn about the two sample lessons written before them.
+ */
+export const NEW_LESSON_RULES = ['V20', 'V23'];
+export const WRITTEN_BEFORE = ['L-PA@1.0', 'L-ARR@1.0'];
+export const isNewLesson = (key: string) => !WRITTEN_BEFORE.includes(key);
+
+export function validate(sp: LessonSpec, ctx: Ctx, opts: { newLesson?: boolean } = {}): Report {
   const results: RuleResult[] = RULES.map(r => {
     let issues: Issue[];
     try { issues = r.check(sp, ctx); }
     catch (e) { issues = [{ path: '$', msg: `规则执行出错（多半是结构不完整，先看 V01）：${(e as Error).message}` }]; }
-    return { id: r.id, name: r.name, basis: r.basis, level: r.level, ok: issues.length === 0, issues };
+    const level = opts.newLesson && NEW_LESSON_RULES.includes(r.id) ? 'error' : r.level;
+    return { id: r.id, name: r.name, basis: r.basis, level, ok: issues.length === 0, issues };
   });
   const errors = results.filter(r => !r.ok && r.level === 'error').length;
   const warnings = results.filter(r => !r.ok && r.level === 'warn').length;

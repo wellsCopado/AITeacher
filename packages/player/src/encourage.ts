@@ -19,11 +19,13 @@ const at = <T>(xs: T[], n: number) => xs[((n % xs.length) + xs.length) % xs.leng
 const join = (xs: string[]) => xs.join('、');
 
 /** Praise for a right answer, matched to how the child got there. */
-export function praiseRight(ctx: { tries: number; hints: number; afterDemo?: boolean; seed?: number }): string {
+export function praiseRight(ctx: { tries: number; hints: number; afterDemo?: boolean; seed?: number; kind?: 'task' | 'choice' }): string {
   const n = ctx.seed ?? 0;
   if (ctx.afterDemo) return at(['你自己做出来了！刚才看懂的方法，你马上就会用了，这就是真本领。', '这次全靠你自己！看一遍就学会，说明你听得特别认真。'], n);
   if (ctx.tries > 0) return `前面没对，你没有放弃，又试了一次就做对了！这就是坚持的力量。`;
   if (ctx.hints > 0) return at(['用了提示，自己想通了，这就是会学习的样子！', '提示只是一把钥匙，门是你自己打开的，做对了！'], n);
+  if (ctx.kind === 'task') return at(['一次就摆对了！你先看清要求再动手，这个习惯特别棒。', '摆对了！你一边摆一边看，又稳又准，像真正的调查员一样。'], n);
+  if (ctx.kind === 'choice') return at(['选对了！你先想清楚再选，这个习惯特别棒。', '选对了！别的选项错在哪里，你心里也有数了。'], n);
   return at(['一次就做对了！你先想清楚再写，这个习惯特别棒。', '全对！数和单位都清清楚楚，像真正的调查员一样。', '做对了！你算得又稳又准。'], n);
 }
 

@@ -5,7 +5,7 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ChildProfile, InterestObservation, LessonSpec, ThemeTable } from '../../schema/src/index.js';
-import { loadAssets, loadInterests, loadPublished, loadThemes, readJson, suggestTheme } from '../../cli/src/lib.js';
+import { loadAssets, loadInterests, loadPublished, loadThemes, readJson, STATE_RANK, suggestTheme } from '../../cli/src/lib.js';
 
 export interface ContextSources {
   interests?: InterestObservation[];
@@ -18,6 +18,8 @@ export interface ContextSources {
   progress?: string | null;
   /** Today (YYYY-MM-DD), for guessing the term and unit when there is no progress note. */
   today?: string;
+  /** The day the child said the wish this lesson follows (the server knows it; interests only keep the month). */
+  wishOn?: string;
 }
 
 /** 上海: the first term runs September to January, the second February to June. */
@@ -54,12 +56,19 @@ export function studioContext(root: string, child: string, src: ContextSources =
   const taken = [...new Set([...(src.takenKeys ?? []), ...localTakenKeys(root), ...published.map(p => `${p.lesson_id}@${p.version}`)])];
   const usable = Object.entries(components).filter(([, c]) => c.status === '已审');
   const today = src.today ?? new Date().toISOString().slice(0, 10);
+  // the record the theme comes from: a parent-named topic first, then the child's own next-lesson wish
+  const top = interests.filter(x => x.state !== '只用于安全工程题材').sort((a, b) => STATE_RANK[a.state] - STATE_RANK[b.state] || b.observed_on.localeCompare(a.observed_on))[0];
   return {
     child: { id: child, label: profile.name, grade: profile.grade, region: profile.region, system: profile.system },
     /** School progress: the parent's note, or a guess from grade and date that the lesson must call a guess. */
     school: { today, term: termOf(today), progress: src.progress?.trim() || null },
     tenant_id: tenant,
     interests: interests.map(x => ({ id: x.id, topic: x.topic, source: x.source, state: x.state, observed_on: x.observed_on })),
+    /** What the child said they want to learn next: this lesson follows it (the theme is already picked from it). */
+    next_lesson_wish: top?.state === '下一课心愿' ? {
+      interest_id: top.id, topic: top.topic, wished_on: src.wishOn ?? top.observed_on,
+      rule: `这节课按${profile.name}自己说的心愿「${top.topic}」准备：主题用它（各组件的 suggested_theme 已经按它选好），parent_tip 写一句“按${profile.name}的心愿「${top.topic}」准备”。`,
+    } : null,
     components: usable.map(([name, c]) => {
       const s = suggestTheme({ child, tenant, component: name, interests: src.interests ?? loadInterests(root), themes, profile, published });
       return {

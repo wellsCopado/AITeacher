@@ -29,8 +29,10 @@
 pnpm install                         # 第一次
 pnpm -s dls context --child gege     # 做课需要的上下文：兴趣、可用组件、建议主题、新课 id
 pnpm -s dls design --child gege      # 给 ChatGPT 等聊天模型的设计说明（谈好的【课程方案】再交给 dls generate --wish）
-pnpm -s dls validate <课目录>        # 校验 V01–V21
+pnpm -s dls validate <课目录>        # 校验 V01–V23
 pnpm -s dls skill [<名称> [<文件>]]  # 读任意一份 Skill（不写名称时列出全部）
+pnpm -s dls asset-check [<素材id>] [--save]  # 3D 素材自动检查 A1–A9（不写 id 只查 A5：代码里有没有没登记的几何体）
+pnpm -s dls asset-sheet <素材id>      # 渲染四个角度的对照图，和同角度实拍照片并排，给家长判断像不像
 pnpm -s dls mcp                      # 以 MCP（stdio）提供做课工具
 pnpm test && pnpm typecheck          # 改代码后
 ```

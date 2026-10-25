@@ -20,11 +20,11 @@ description: 为 AI Discovery World 制作、校验并交给家长审核一节�
 - **资料不全也不停下**：课内进度看上下文 `school`；家长没填就按年级和日期推断，在 `parent_tip` 里写明“推断”。不要停下来问家长要教材、“沪学习”的单元或别的资料。
 - **写实底线**（BL14）：所有 3D 和动画写实，标准是“截图放进纪录片里不违和，不像动画片”，细则见 `skills/photoreal-3d-production/reference/realism-spec.md`。生物只能用扫描、实拍或依据真实照片的 AI 生成素材（须 ≥ 3 张参考照片、核对人、标注“AI 依据照片生成”）。素材没到位就写进 `pending_assets`，写明“不展示”，绝不用卡通或简化模型代替。
 - **准确可追溯**（BL03）：数值、单位、事实都写出处；不确定的写“待科学审核”，不编造。数字自己算一遍，参考算例必须和公式一致。
-- **课末必问心愿，下一课按心愿准备**：每节课结束问“下一次课你想学什么”，选项来自这个孩子自己的兴趣或选项，允许自己说一个。孩子说的会自动记下；家长没另外指定时，下一节课就按这个孩子最新、还没安排过的心愿做（上下文的 `suggested_theme` 已经按这个顺序给出），`parent_tip` 里写明“按某月某日孩子说的心愿准备”。
+- **课末必问心愿，下一课按心愿准备**：每节课结束问“下一次课你想学什么”，选项来自这个孩子自己的兴趣或选项，允许自己说一个。孩子说的会马上记下，变成这个孩子的“下一课准备单”，按先后排队；家长没另外指定时，下一节课就按排第一的准备单做：上下文的 `next_lesson_wish` 就是它，`suggested_theme` 已经按它选好，`parent_tip` 写一句“按（孩子）的心愿「主题」准备”。上下文里只有整理出的主题，没有孩子的原话，也不要去要。
 - **讲解固定“一中三英”**（V05）：每个热点中文 1 条 + 英文 3 条循环讲，没有纯中文选项。英文只用于讲解，不考英语（BL06）。
 - **上课流程固定**：四步按顺序解锁、每步每题有倒计时、到时间自动前进、文字自动出字幕并朗读。流程在播放器里，你要把说明、题目、提示写得短、适合读出来。
 - **夸奖要具体、给孩子信心**（V18）：答错时先夸真正做对的部分，再说要看哪里，再给坚持的理由。写 `encouragement.persist`，和主题相连，不写空话。
-- **题型以选择题和应用题为主**（V20）：每节 2–3 道题，至少 1 道选择题、1 道应用题，没有选项的填空题最多 1 道；选择题的错误选项各对应一个真实误区。组件支持动手题时（`hands_on` 不为空）每节至少 1 道动手题：孩子拖把手或点 −/＋ 把场景摆成答案（V21）。见 [reference/challenge-types.md](reference/challenge-types.md)。
+- **题型以选择题和应用题为主**（V20）：每节 2–3 道题，至少 1 道选择题、1 道应用题，没有选项的填空题最多 1 道；选择题的错误选项各对应一个真实误区。组件支持动手题时（`hands_on` 不为空）每节至少 1 道动手题：孩子拖把手或点 −/＋ 把场景摆成答案（V21）。不是动手题的每道题写 `picture`，写明配图摆哪些数（V22、V23）。新写的课题型或配图不对，校验报错，交不上去。见 [reference/challenge-types.md](reference/challenge-types.md)。
 - **错三次先演示、再做同类题**（V17）：每道题都写 `worked_example`（2–5 步，最后一步说出答案）和 `twin`（同一方法换数字或情境）。
 - **不做养殖经营**（BL12），**不开放聊天、不外链**（BL11）。
 - **人工审核不可替代**：发布只能由家长在家长端「课程库」点按钮完成。没有服务器时，只有家长在对话里明确确认某一类后，才能运行 `dls review --approve <类别> --by <家长称呼>`。
@@ -34,7 +34,7 @@ description: 为 AI Discovery World 制作、校验并交给家长审核一节�
 ## 绝对不要做
 
 - 不发布、不审核通过、不替家长勾审核项；不改 `content/published/` 下已发布的文件（要改就升版本号）。
-- 不覆盖示例课 `content/lessons/L-PA/1.0`、`L-ARR/1.0` 和已发布的课。新课一律用上下文里给的新课 id（`new_lesson_id`）。
+- 不覆盖示例课 `content/lessons/L-PA/1.1`、样课 `L-PA/1.0`、`L-ARR/1.0` 和已发布的课。新课一律用上下文里给的新课 id（`new_lesson_id`）。
 - 不为了通过校验去改校验器、Schema、组件或资产库；问题出在课里就改课。
 - 不编素材：`assets.use` 只用资产库里登记过、状态为“采用”或“采用标记”的素材 id；主角和还没做好的素材写进 `pending`。
 - 不把孩子的真实姓名、作业照片、学习记录、孩子的原话发给任何模型或网站。做课只需要年级、称呼（哥哥 / 妹妹）和兴趣主题。
@@ -51,7 +51,7 @@ pnpm -s dls context --child gege --json   # 完整内容
 
 通过 MCP 时用 `adw_get_context`（见下面“三种做课方式”）。
 
-照着示例课 `content/lessons/L-PA/1.0/` 的结构写（字段、层级、类型一样），内容为这个孩子新写，不抄示例的题目和讲解。示例课是题型规则之前写的，3 道都是填空题，**题型不要照它**，按 [reference/challenge-types.md](reference/challenge-types.md) 写。
+照着示例课 `content/lessons/L-PA/1.1/` 的结构写（字段、层级、类型一样；`adw_get_example` 给的就是它），内容为这个孩子新写，不抄示例的题目和讲解。它有选择题、应用题、动手题和每道题的配图，题型按 [reference/challenge-types.md](reference/challenge-types.md)。新课的 `version` 用上下文 `fixed` 里的 1.0，`previous_version` 写 null。
 
 ## 六个阶段
 
@@ -63,7 +63,7 @@ pnpm -s dls context --child gege --json   # 完整内容
 | 2 导演设计 | `02-director.json` | `dls theme --write` | 主题引用这个孩子的兴趣；每道题有演示和同类题；有 `encouragement.persist`；课末有心愿题 |
 | 3 素材核验 | `03-assets.json` | `dls assets` | 只用登记过的素材；没到位的在 `pending` 里写“不展示” |
 | 4 组装 | `lessonspec.json` | `dls assemble` | 能组装，没有未登记素材 |
-| 5 自动校验 | `05-validation.json` | `dls validate`、`dls preview` | V01–V21 没有错误；警告告诉家长 |
+| 5 自动校验 | `05-validation.json` | `dls validate`、`dls preview` | V01–V23 没有错误；警告告诉家长 |
 | 6 家长审核 | 家长端「课程库 → 等你审核」 | `dls submit` | 家长看过、勾完四类审核、点发布（只有家长能做） |
 
 ### 1. 目标锁定 → `01-target.json`
@@ -111,7 +111,7 @@ pnpm -s dls assemble content/lessons/L-XXX/1.0
 pnpm -s dls validate content/lessons/L-XXX/1.0
 ```
 
-V01–V21 全部无错误才能继续；警告要告诉家长。按每条问题后面的“→”提示修改阶段文件，再从阶段 4 重跑。规则解释见 [reference/validation.md](reference/validation.md)。
+V01–V23 全部无错误才能继续；警告要告诉家长。按每条问题后面的“→”提示修改阶段文件，再从阶段 4 重跑。规则解释见 [reference/validation.md](reference/validation.md)。
 
 ### 预览（阶段 5 之后、审核之前）
 
@@ -197,7 +197,16 @@ pnpm -s dls sync --server http://<服务器地址>:8787
 pnpm -s dls interest add --child gege --topic 机器人 --source 孩子自述 --state 下一课心愿 --lesson L-PA@1.0
 ```
 
-下一节课的阶段 2 会优先用它：家长没另外指定时，主题就是这个孩子最新、还没安排过的心愿。服务器还会按心愿提前收集素材（`skills/photoreal-3d-production/reference/pipeline.md` P0）。
+下一节课的阶段 2 会优先用它：家长没另外指定时，主题就是这个孩子排第一、还没安排过的心愿（`dls context` 的 `next_lesson_wish`）。
+
+在家里的服务器上，每条心愿还会：
+
+- 认出主题：孩子的话里有已知的主题（兴趣、心愿选项、场景、资产库里的动物）就用它；认不出时等家长在「兴趣与心愿」里点一下确认，确认前不发给任何模型或服务。
+- 进准备单排队，家长端「兴趣与心愿」显示每张准备单：哪天说的、用哪个现成场景、主角素材做到哪一步，可以“现在按它出课”或“跳过”。
+- 提前准备素材：没有现成场景的动物，开了 ChatGPT 账号和同意开关时自动去找实拍照片、画写实图，等家长确认；机器和建筑交给做素材的 AI 助手（MCP 工具 `adw_next_lessons` 列出所有排着的准备单）。
+- 课交上来后，它跟的准备单标“已安排”，同一个心愿不会再用第二次。
+
+流程规格见 `skills/photoreal-3d-production/reference/pipeline.md` P0。
 
 ## 交付给家长时
 

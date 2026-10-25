@@ -83,7 +83,8 @@ try {
   check((await up({ mime: 'image/png', data: PNG, credit: '测试拍摄者', license: 'CC0', real: true, caption: '洞口的孔雀螳螂虾', length_cm: 16 })).ok, '家长加了一张螳螂虾实拍照片');
   await parent.click('[data-t="课程库"]');
   await parent.waitForSelector('.draft[data-k="L-PA@1.0"]');
-  check(await parent.locator('.draft').count() === 2, '两节样课在课程库等审核');
+  check(await parent.locator('.draft').count() === 3, '三节样课在课程库等审核');
+  check((await parent.textContent('.draft[data-k="L-PA@1.1"] .replaces'))?.includes('L-PA@1.0 的新版本') ?? false, '螳螂虾新版写明它替换哪一版');
   const card = parent.locator('.draft[data-k="L-PA@1.0"]');
   const [pv] = await Promise.all([parentCtx.waitForEvent('page'), card.locator('a.btn').click()]);
   await pv.waitForSelector('#start', { timeout: 20000 });
@@ -110,7 +111,7 @@ try {
   for (const c of await card.locator('input[type=checkbox]').all()) await c.check();
   await card.locator('.approve').click();
   await parent.waitForFunction(() => document.getElementById('toast')?.textContent?.includes('已发布'));
-  check(await parent.locator('.draft').count() === 1, '审核通过后发布，课程库里只剩妹妹那节等审核');
+  check(await parent.locator('.draft').count() === 2, '审核通过后发布，课程库里还剩螳螂虾新版和妹妹那节等审核');
   // Right after publishing: one tap to put it on today.
   await parent.waitForSelector('#jp .when');
   await parent.click('#jp .when[data-n="0"]');
@@ -235,6 +236,10 @@ try {
   check(/机器人 · 下一课心愿 · 孩子自述/.test(ints), '心愿自动记为哥哥自己的兴趣');
   const meimeiCard = await parent.locator('.card:has(h3:text-is("妹妹"))').textContent();
   check(!meimeiCard?.includes('机器人'), '妹妹的兴趣里没有哥哥的心愿');
+  const prep = await parent.locator('.card:has(h3:text-is("哥哥")) .prep').textContent();
+  check(!!prep && /下一课准备单[\s\S]*机器人[\s\S]*下一节课按它出[\s\S]*机器人工厂/.test(prep), '心愿马上变成哥哥的下一课准备单：排第一，用机器人工厂场景');
+  check(!!prep?.includes('不够写实'), '准备单写明机器人场景的写实版还在做');
+  await parent.locator('.card:has(h3:text-is("哥哥")) .prep').screenshot({ path: join(shots, 'parent-prep.png') });
 
   // Count on the server: every event exactly once.
   const sessions = await (await fetch(`${base}/v1/sessions`, { headers: { authorization: `Bearer ${tok}` } })).json();

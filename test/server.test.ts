@@ -10,9 +10,9 @@ import type { LessonSpec } from '../packages/schema/src/index.js';
 
 const root = join(import.meta.dirname, '..');
 const PIN = '2468';
-const spec = (lesson: string) => JSON.parse(readFileSync(join(root, 'content', 'lessons', lesson, '1.0', 'lessonspec.json'), 'utf8')) as LessonSpec;
-function freeze(sp: LessonSpec): LessonSpec {
-  const f: LessonSpec = { ...sp, review_records: Object.entries(REVIEW_CHECKLIST).map(([category, checked]) => ({ category: category as '科学', reviewer: '家长', checked, at: '2026-10-24T08:00:00Z' })), published_at: '2026-10-24T08:00:00Z' };
+const spec = (lesson: string, version = '1.0') => JSON.parse(readFileSync(join(root, 'content', 'lessons', lesson, version, 'lessonspec.json'), 'utf8')) as LessonSpec;
+function freeze(sp: LessonSpec, at = '2026-10-24T08:00:00Z'): LessonSpec {
+  const f: LessonSpec = { ...sp, review_records: Object.entries(REVIEW_CHECKLIST).map(([category, checked]) => ({ category: category as '科学', reviewer: '家长', checked, at })), published_at: at };
   f.content_hash = contentHash(f);
   return f;
 }
@@ -144,6 +144,18 @@ describe('family server', () => {
     expect(await todayKeys('meimei')).toEqual(['L-ARR@1.0']);
   });
 
+  it('puts a newer version of a lesson in the old one\'s place, and never schedules a lesson already learned', async () => {
+    const t = await login();
+    const pad = await pair(t);
+    const todayKeys = async () => (await req('GET', '/v1/today?child=gege', pad)).body.lessons.map((l: { key: string }) => l.key);
+    expect((await req('POST', '/v1/lessons', t, freeze(spec('L-PA')))).status).toBe(201);
+    expect((await req('POST', '/v1/lessons', t, freeze(spec('L-PA', '1.1'), '2026-10-24T09:00:00Z'))).status).toBe(201);
+    expect(await todayKeys()).toEqual(['L-PA@1.1']);
+    await req('POST', '/v1/sessions/sess-0000011/events', pad, { child: 'gege', lesson: 'L-PA@1.1', events: [{ id: 'ev-00000111', at: '2026-10-24T02:10:00Z', type: 'lesson_end', solved: [] }] });
+    clock = new Date('2026-10-24T16:30:00Z');
+    expect(await todayKeys()).toEqual([]); // 1.0 is the same lesson, already learned
+  });
+
   it('stores events idempotently and turns a next-lesson wish into the child\'s own interest', async () => {
     const t = await login();
     await req('POST', '/v1/lessons', t, freeze(spec('L-PA')));
@@ -175,6 +187,41 @@ describe('family server', () => {
     expect(helped).toContain('挑战 c2：试了 3 次，还没做对，用了 1 级提示，看了一遍分步演示，同类题自己做对了。');
   });
 
+  it('turns every wish into a prep list at once: the topic, queued oldest first, words it can\'t place wait for the parent', async () => {
+    const t = await login();
+    await req('POST', '/v1/lessons', t, freeze(spec('L-PA')));
+    const pad = await pair(t);
+    let n = 0;
+    const wish = (answer: string, at = '2026-10-24T02:09:00Z') => req('POST', `/v1/sessions/sess-wish-${++n}/events`, pad,
+      { child: 'gege', lesson: 'L-PA@1.0', events: [{ id: `ev-wish-000${n}`, at, type: 'next_lesson_wish', question: 'wish', answer, source: '孩子自述' }] });
+    await wish('我想看螳螂虾打架');
+    await wish('还是机器人');
+    await wish('恐龙化石');
+    await wish('螳螂虾！');
+    let preps = (await req('GET', '/v1/preps', t)).body;
+    expect(preps.map((p: { topic: string; status: string }) => [p.topic, p.status])).toEqual([['螳螂虾', '准备中'], ['机器人', '准备中'], ['恐龙化石', '等你确认主题']]);
+    expect(preps[0]).toMatchObject({ child: 'gege', said: '我想看螳螂虾打架', wished: '10月24日', lesson_from: 'L-PA@1.0', subject: null, scenes: [{ name: '珊瑚礁样方调查' }], ready: true });
+    expect(preps[0].log.map((l: { msg: string }) => l.msg).join('\n')).toContain('又说了一次想学「螳螂虾」'); // the same wish again joins its list
+    expect(preps[1].scenes[0].realism).toContain('不够写实'); // the robot cell is being replaced
+    expect(preps[1].ready).toBe(false);
+    expect(preps[2].log[0].msg).toContain('确认前不会发给任何模型');
+    // the interest keeps the topic, the words stay with it on this server
+    expect((await req('GET', '/v1/interests?child=gege', t)).body.find((x: { said: string }) => x.said === '我想看螳螂虾打架')).toMatchObject({ topic: '螳螂虾', state: '下一课心愿' });
+
+    // the parent names the words' topic in one tap, or sets a wish aside
+    const fixed = (await req('POST', `/v1/preps/${preps[2].id}/topic`, t, { topic: '恐龙' })).body;
+    expect(fixed).toMatchObject({ topic: '恐龙', status: '准备中', subject: { name: '恐龙', kind: 'organism' }, ready: false });
+    expect(fixed.log.at(-1).msg).toContain('ChatGPT 账号'); // nothing to find photos with yet: it says how
+    expect((await req('POST', `/v1/preps/${preps[1].id}/skip`, t)).status).toBe(200);
+    preps = (await req('GET', '/v1/preps', t)).body;
+    expect(preps.map((p: { status: string }) => p.status)).toEqual(['准备中', '已跳过', '准备中']);
+    expect((await req('GET', '/v1/interests?child=gege', t)).body.find((x: { topic: string; source: string }) => x.topic === '机器人' && x.source === '孩子自述').state).toBe('喜欢');
+    // the parent can write a wish down too
+    await req('POST', '/v1/interests', t, { child: 'meimei', topic: '海洋动物', state: '下一课心愿', said: '想看海里的鱼' });
+    expect((await req('GET', '/v1/preps', t)).body.at(-1)).toMatchObject({ child: 'meimei', topic: '海洋动物', said: '想看海里的鱼', status: '准备中' });
+    expect((await req('GET', '/v1/preps', pad)).status).toBe(403);
+  });
+
   it('dates a late-synced session by its first event', async () => {
     const t = await login();
     await req('POST', '/v1/lessons', t, freeze(spec('L-PA')));
@@ -197,7 +244,7 @@ describe('lesson review in the parent app', () => {
   it('lists unpublished lessons for review, publishes only with all four reviews ticked, and takes rejections', async () => {
     const t = await login();
     const drafts = (await req('GET', '/v1/drafts', t)).body;
-    expect(drafts.map((d: { key: string }) => d.key).sort()).toEqual(['L-ARR@1.0', 'L-PA@1.0']);
+    expect(drafts.map((d: { key: string }) => d.key).sort()).toEqual(['L-ARR@1.0', 'L-PA@1.0', 'L-PA@1.1']);
     const arr = drafts.find((d: { key: string }) => d.key === 'L-ARR@1.0');
     expect(arr.ok).toBe(true);
     expect(arr.issues.some((i: { rule: string; level: string }) => i.rule === 'V12' && i.level === 'warn')).toBe(true);
@@ -210,13 +257,19 @@ describe('lesson review in the parent app', () => {
     const sp = (await req('GET', '/v1/lessons/L-PA@1.0', t)).body;
     expect(sp.review_records).toHaveLength(4);
     expect(contentHash(sp)).toBe(sp.content_hash);
-    expect((await req('GET', '/v1/drafts', t)).body.map((d: { key: string }) => d.key)).toEqual(['L-ARR@1.0']);
+    const arrDraft = async () => (await req('GET', '/v1/drafts', t)).body.find((d: { key: string }) => d.key === 'L-ARR@1.0');
+    expect((await req('GET', '/v1/drafts', t)).body.map((d: { key: string }) => d.key).sort()).toEqual(['L-ARR@1.0', 'L-PA@1.1']);
     expect((await req('POST', '/v1/drafts/L-ARR@1.0/reject', t, { note: '' })).status).toBe(400);
     await req('POST', '/v1/drafts/L-ARR@1.0/reject', t, { note: '题目再简单一点' });
-    expect((await req('GET', '/v1/drafts', t)).body[0]).toMatchObject({ status: '已退回', note: '题目再简单一点' });
+    expect(await arrDraft()).toMatchObject({ status: '已退回', note: '题目再简单一点' });
     // The Skill resubmits after changes; it goes back to 待审核.
     expect((await req('POST', '/v1/drafts', t, spec('L-ARR'))).status).toBe(201);
-    expect((await req('GET', '/v1/drafts', t)).body[0]).toMatchObject({ status: '待审核', note: null });
+    expect(await arrDraft()).toMatchObject({ status: '待审核', note: null });
+    // a new lesson handed in now must follow the question-type and picture rules
+    const fills = { ...spec('L-ARR'), lesson_id: 'L-ARR-9' };
+    const refused = await req('POST', '/v1/drafts', t, fills);
+    expect(refused.status).toBe(422);
+    expect(refused.body.report.results.filter((r: { ok: boolean; level: string }) => !r.ok && r.level === 'error').map((r: { id: string }) => r.id)).toEqual(['V20', 'V23']);
     expect((await req('POST', '/v1/drafts', t, spec('L-PA'))).status).toBe(409); // already published
   });
 });

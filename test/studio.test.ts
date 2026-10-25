@@ -110,7 +110,7 @@ describe('MCP', () => {
     expect(init.result.instructions).toContain('adw_submit_for_review');
     expect(await mcp.handle({ jsonrpc: '2.0', method: 'notifications/initialized' })).toBeNull();
     const list = await mcp.handle({ jsonrpc: '2.0', id: 2, method: 'tools/list' }) as { result: { tools: { name: string }[] } };
-    expect(list.result.tools.map(t => t.name)).toEqual(['adw_read_guide', 'adw_read_skill', 'adw_get_context', 'adw_get_example', 'adw_check_lesson', 'adw_submit_for_review', 'adw_list_lessons', 'adw_get_lesson']);
+    expect(list.result.tools.map(t => t.name)).toEqual(['adw_read_guide', 'adw_read_skill', 'adw_get_context', 'adw_next_lessons', 'adw_get_example', 'adw_check_lesson', 'adw_submit_for_review', 'adw_list_lessons', 'adw_get_lesson']);
     expect(list.result.tools.some(t => /publish|approve/.test(t.name))).toBe(false); // publishing stays the parent's button
     expect(await mcp.handle({ jsonrpc: '2.0', id: 3, method: 'nope' })).toMatchObject({ error: { code: -32601 } });
     const batch = await mcp.handle([{ jsonrpc: '2.0', id: 4, method: 'ping' }, { jsonrpc: '2.0', method: 'notifications/x' }]) as object[];
@@ -256,6 +256,7 @@ describe('server: models, AI lesson writer, MCP for agents', () => {
     const ctx = await tool('adw_get_context', { child: 'gege' });
     const s = example();
     s.target.lesson_id = ctx.components.find((c: { name: string }) => c.name === 'PerimeterArea').new_lesson_id;
+    Object.assign(s.target, { version: ctx.fixed.version, previous_version: null }); // a new lesson starts at the version the context fixes
     expect((await tool('adw_check_lesson', s)).ok).toBe(true);
     const sub = await tool('adw_submit_for_review', s);
     expect(sub.status).toContain('已交给家长审核');
@@ -337,6 +338,17 @@ describe('server: models, AI lesson writer, MCP for agents', () => {
     // an agreed plan for 妹妹 is written for 妹妹, about what it says, whoever was selected
     const arr = JSON.parse(JSON.stringify(Object.fromEntries((['target', 'director', 'assets'] as const).map((k, i) => [k, JSON.parse(readFileSync(join(root, 'content/lessons/L-ARR/1.0', ['01-target.json', '02-director.json', '03-assets.json'][i]), 'utf8'))]))));
     arr.director.title = '机器人工厂：机械臂摆零件';
+    // a new lesson: a hands-on question and a choice question with its picture (the 1.0 sample predates both rules)
+    arr.director.challenges = [
+      { id: 'c1', prompt: '机械臂要摆出 3 行、每行 4 个齿轮。拖角上的把手或点 ＋，把行数摆出来。', with_theme: true, task: { type: 'build', start: { rows: 1, cols: 4 }, controls: ['rows'] },
+        answers: [{ field: 'rows', label: '几行', value: 3, unit: '行' }], hints: ['每行 4 个已经摆好了，一共要几行？'],
+        worked_example: { steps: ['每行 4 个，要摆 3 行。', '一行一行加：1 行、2 行、3 行。', '所以摆 3 行。'] },
+        twin: { prompt: '机械臂要摆出 2 行、每行 4 个齿轮。', task: { type: 'build', start: { rows: 1, cols: 4 }, controls: ['rows'] }, answers: [{ field: 'rows', label: '几行', value: 2, unit: '行' }] } },
+      { id: 'c2', prompt: '3 行，每行 4 个，一共几个？', with_theme: false, picture: { params: { rows: 3, cols: 4 } }, options: ['12 个', '7 个', '34 个'],
+        answers: [{ field: 'total', value: '12 个' }], hints: ['有 3 个 4。'],
+        worked_example: { steps: ['每行 4 个，有 3 行。', '4 + 4 + 4，就是 3 × 4。', '所以一共 12 个。'] },
+        twin: { prompt: '2 行，每行 5 个，一共几个？', picture: { params: { rows: 2, cols: 5 } }, options: ['10 个', '7 个', '25 个'], answers: [{ field: 'total', value: '10 个' }] } },
+    ];
     modelReplies = [reply(arr)];
     const brief = `${BRIEF_HEADER}\n孩子：妹妹（2 年级）\n主题：机器人（工厂里的机械臂）\n主角：工业机械臂\n知识点：乘法的意义`;
     const j2 = (await req('POST', '/v1/studio/generate', p, { child: 'gege', wish: brief })).body.job;
@@ -347,6 +359,45 @@ describe('server: models, AI lesson writer, MCP for agents', () => {
     expect((await req('GET', `/v1/drafts/${d2.key}`, p)).body.component_params.ArrayMultiplier.theme).toBe('robot_factory');
     expect(JSON.stringify(calls.at(-1)!.body)).toContain('第二单元 表内乘法（一）'); // her school progress went along
     expect((await req('GET', '/v1/interests?child=meimei', p)).body.some((x: { topic: string }) => x.topic === '机器人')).toBe(true);
+  });
+
+  it('writes the next lesson from the first queued wish, never sends the child\'s words, and marks the wish 已安排', async () => {
+    const p = await login();
+    await req('POST', '/v1/studio/models', p, { provider: 'deepseek', base_url: 'https://api.deepseek.com', model: 'deepseek-v4-pro', api_key: 'sk-1' });
+    await req('PUT', '/v1/studio/settings', p, { consent: true });
+    await req('POST', '/v1/interests', p, { child: 'gege', topic: '螳螂虾', state: '下一课心愿', said: '我想看螳螂虾打架' });
+    await req('POST', '/v1/interests', p, { child: 'gege', topic: '机器人', state: '下一课心愿', said: '机器人搬东西' });
+    const [first, second] = (await req('GET', '/v1/preps', p)).body;
+
+    // any assistant sees the queue over MCP, topics only
+    const { token } = (await req('POST', '/v1/agents', p, { label: 'Codex' })).body;
+    const next = (await req('POST', '/mcp', token, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'adw_next_lessons', arguments: {} } })).body.result.content[0].text;
+    expect(JSON.parse(next)[0].queue.map((q: { topic: string }) => q.topic)).toEqual(['螳螂虾', '机器人']);
+    expect(next).not.toMatch(/打架|搬东西/);
+
+    const { job } = (await req('POST', '/v1/studio/generate', p, { child: 'gege' })).body;
+    const done = await until(`/v1/studio/jobs/${job}`, p);
+    expect(done.status, JSON.stringify(done)).toBe('done');
+    expect(done.log.map((l: { msg: string }) => l.msg).join('\n')).toMatch(/按哥哥\d+月\d+日的心愿「螳螂虾」准备的/);
+    const sent = JSON.stringify(calls.at(-1)!.body);
+    expect(sent).toContain('next_lesson_wish');
+    expect(sent).not.toMatch(/打架|搬东西/);
+    const draft = (await req('GET', `/v1/drafts/${done.key}`, p)).body;
+    expect(draft.parent_tip).toMatch(/按哥哥\d+月\d+日的心愿「螳螂虾」准备。$/);
+    let preps = (await req('GET', '/v1/preps', p)).body;
+    expect(preps.find((x: { id: string }) => x.id === first.id)).toMatchObject({ status: '已安排', lesson_ref: done.key });
+    expect(preps.find((x: { id: string }) => x.id === second.id).status).toBe('准备中');
+    expect((await req('GET', '/v1/interests?child=gege', p)).body.find((x: { said: string }) => x.said === '我想看螳螂虾打架').state).toBe('喜欢');
+
+    // the parent can have a later one written now; a used one can't be used twice
+    expect((await req('POST', '/v1/studio/generate', p, { prep: first.id })).status).toBe(400);
+    const robot = example(); robot.director.title = '机器人巡检：围出机器人的工作区';
+    modelReplies = [reply(robot)];
+    const j2 = (await req('POST', '/v1/studio/generate', p, { prep: second.id })).body.job;
+    const d2 = await until(`/v1/studio/jobs/${j2}`, p);
+    expect(d2.status, JSON.stringify(d2)).toBe('done');
+    preps = (await req('GET', '/v1/preps', p)).body;
+    expect(preps.find((x: { id: string }) => x.id === second.id)).toMatchObject({ status: '已安排', lesson_ref: d2.key });
   });
 
   it('takes a picture from an assistant only through a one-time address, and shows it to children only after the parent confirms', async () => {
@@ -545,6 +596,15 @@ describe('ChatGPT through Codex on the home computer, all from the parent app', 
     expect((await req('POST', `/v1/organisms/${subject}/confirm`, p)).body).toEqual({ confirmed: 5 });
     expect(await device()).toBe(5);
     expect((await approve()).status).toBe(201);
+
+    // a child's wish for an animal with no scene starts the photos right away, before any lesson is written
+    await req('POST', '/v1/interests', p, { child: 'meimei', topic: '海蛞蝓', state: '下一课心愿', said: '我想看海蛞蝓' });
+    const prep = (await req('GET', '/v1/preps', p)).body.find((x: { topic: string }) => x.topic === '海蛞蝓');
+    expect(prep.log.at(-1).msg).toContain('已让 ChatGPT 去找「海蛞蝓」的实拍照片');
+    const early = (await req('GET', '/v1/studio/tasks', p)).body.find((t: { asset?: string }) => t.asset === prep.subject.asset_id);
+    expect(await until(`/v1/studio/tasks/${early.id}`, p)).toMatchObject({ status: 'done' });
+    expect(runs().at(-2)!.prompt).not.toContain('我想看');
+    expect((await req('GET', '/v1/preps', p)).body.find((x: { id: string }) => x.id === prep.id).subject.state).toContain('等你在“生物素材”里确认');
 
     // too few photos found: it says so instead of drawing from nothing
     writeFileSync(join(home, 'few-photos'), '');

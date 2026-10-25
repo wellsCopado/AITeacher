@@ -11,6 +11,8 @@ interface Session { key: string; child: string; lesson_key: string; started_on: 
 interface Draft {
   key: string; title: string; child: string; status: string; note: string | null; concept: string; theme: { name: string; why: string };
   challenges: { prompt: string; with_theme: boolean; answers: string[] }[]; pending_assets: string[]; offscreen: string | null;
+  /** The earlier version this one replaces in the automatic schedule. */
+  replaces: string | null;
   ok: boolean; issues: { rule: string; level: string; msg: string }[]; submitted_by: string;
   /** What the lesson is about and must show; it can't be published before its picture is confirmed. */
   subject: { name: string; asset_id: string; kind: string; ready: boolean } | null;
@@ -26,6 +28,11 @@ interface Organism {
 interface PlanDay { date: string; kids: { child: string; mode: 'auto' | 'manual' | 'planned' | 'none'; lessons: { key: string; title: string; finished: boolean }[] }[] }
 interface Plan { auto: boolean; today: string; days: PlanDay[]; grants: { child: string; lesson_key: string; expires_on: string }[] }
 interface Interest { id: string; child: string; topic: string; source: string; said: string | null; observed_on: string; state: string; lesson_ref: string | null }
+/** 下一课准备单: a child's wish turned into the next lesson's topic, and how far its scene and subject are. */
+interface Prep {
+  id: string; child: string; topic: string; said: string | null; status: '等你确认主题' | '准备中' | '已安排' | '已跳过'; wished: string; lesson_from: string | null; lesson_ref: string | null;
+  scenes: { name: string; realism?: string }[]; planned: string[]; subject: { name: string; kind: string; state: string } | null; ready: boolean; log: { at: string; msg: string }[];
+}
 
 const app = document.getElementById('app')!;
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
@@ -68,6 +75,24 @@ function login() {
       token = r.token; ss.set('adw.parent', r.token); await main();
     })();
   };
+}
+
+/** One child's prep lists: the queue (the first one is the next lesson), words waiting for a topic, and what was done. */
+function prepCard(list: Prep[]) {
+  const queue = list.filter(p => p.status === '准备中'), ask = list.filter(p => p.status === '等你确认主题'), done = list.filter(p => p.status === '已安排' || p.status === '已跳过');
+  if (!list.length) return '';
+  const said = (p: Prep) => `${esc(p.wished)}说${p.said && p.said !== p.topic ? `：“${esc(p.said)}”` : `想学「${esc(p.topic)}」`}`;
+  const where = (p: Prep) => [
+    ...p.scenes.map(s => `场景：${esc(s.name)}${s.realism ? `（${esc(s.realism)}）` : '（已有）'}`),
+    ...(p.subject ? [`主角「${esc(p.subject.name)}」：${esc(p.subject.state)}`] : []),
+  ].join(' · ');
+  // the latest step, unless it only repeats the scene line above
+  const last = (p: Prep) => { const m = p.log[p.log.length - 1]?.msg; return m && !m.startsWith('用现成的 3D 场景') ? `<span class="small muted">${esc(m)}</span>` : ''; };
+  return `<div class="prep"><h4>下一课准备单</h4>
+    ${queue.length ? `<ol>${queue.map((p, i) => `<li><b>${esc(p.topic)}</b>${i === 0 ? ' <span class="badge">下一节课按它出</span>' : ''} · ${said(p)}<br><span class="small">${where(p)}${p.ready ? ' · <b>素材已备好</b>' : ''}</span><br>${last(p)}
+      <div class="row"><button class="btn primary" data-pgen="${esc(p.id)}">现在按它出课</button><button class="btn" data-pprep="${esc(p.id)}">再准备一次</button><button class="btn" data-pskip="${esc(p.id)}">跳过</button></div></li>`).join('')}</ol>` : '<p class="muted small">没有排着的心愿</p>'}
+    ${ask.map(p => `<form class="ptopic row" data-p="${esc(p.id)}"><span>${said(p)}：认不出是哪个主题，确认前不会发给任何模型</span><input name="topic" maxlength="20" value="${esc(p.topic)}" required><button class="btn primary">确认主题</button><button type="button" class="btn" data-pskip="${esc(p.id)}">跳过</button></form>`).join('')}
+    ${done.length ? `<details><summary class="small">已安排或跳过的 ${done.length} 条</summary><ul class="small">${done.map(p => `<li>${esc(p.topic)} · ${said(p)} · ${esc(p.status)}${p.lesson_ref ? `：${esc(title(p.lesson_ref))}` : ''}</li>`).join('')}</ul></details>` : ''}</div>`;
 }
 
 async function main() {
@@ -150,6 +175,7 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
       ${drafts.length ? `<h3>等你审核（${drafts.length}）</h3><p class="muted">先点“预览”把课走一遍，再逐项勾选四类审核。全部勾上才能发布；发布后内容冻结，孩子在排课当天才看得到。</p>` : ''}
       ${drafts.map(d => `<div class="card draft" data-k="${esc(d.key)}"><h3>${esc(d.title)} <span class="badge">${esc(d.status)}</span></h3>
         <p class="muted small">${esc(name(d.child))} · ${esc(d.concept)} · ${esc(d.key)} · 主题「${esc(d.theme.name)}」：${esc(d.theme.why)} · 由 ${esc(d.submitted_by)} 交来</p>
+        ${d.replaces ? `<p class="small replaces">这是 ${esc(d.replaces)} 的新版本。发布后自动排课只排新版；孩子上过旧版就算上过这节课，想再上可以在「排课」里手动加。</p>` : ''}
         ${d.note ? `<p class="toast bad">你退回时写的：${esc(d.note)} <button class="btn revise">让 AI 按意见改</button></p>` : ''}
         <ol>${d.challenges.map(c => `<li>${esc(c.prompt)} <span class="muted small">答案：${c.answers.map(esc).join('，')}${c.with_theme ? '' : ' · 不带主题的迁移题'}</span></li>`).join('')}</ol>
         ${d.subject ? d.subject.ready ? `<p class="small">主角「${esc(d.subject.name)}」的画面已确认。</p>` : `<p class="toast bad small">主角「${esc(d.subject.name)}」还没有确认的画面，发布前要先有：${canDraw() && d.subject.kind === 'organism' ? '点下面的按钮让 ChatGPT 自动做，或' : ''}到下面「生物素材 → ${esc(d.subject.name)}」加实拍照片，核对后确认。</p>${canDraw() && d.subject.kind === 'organism' ? makeRow(organisms.find(o => o.asset_id === d.subject!.asset_id) ?? { asset_id: d.subject.asset_id, name: d.subject.name, media: [] }) : ''}` : ''}
@@ -265,9 +291,9 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
   },
 
   async 兴趣与心愿() {
-    const [list, progress] = await Promise.all([api<Interest[]>('/v1/interests'), api<Record<string, string>>('/v1/progress')]);
-    view().innerHTML = `<p class="muted">你在「AI 出一节课」里指定的主题最优先；没指定时用这个孩子自己的兴趣，不拿另一个孩子的套用。孩子在课末说的“下一课想学什么”会自动记在这里。</p>
-      ${kids.map(k => `<div class="card"><h3>${esc(k.name)}</h3>
+    const [list, progress, preps] = await Promise.all([api<Interest[]>('/v1/interests'), api<Record<string, string>>('/v1/progress'), api<Prep[]>('/v1/preps')]);
+    view().innerHTML = `<p class="muted">你在「AI 出一节课」里指定的主题最优先；没指定时用这个孩子自己的兴趣，不拿另一个孩子的套用。孩子在课末说的“下一课想学什么”会马上记在这里，变成下一课的准备单，按先后排队，下一节课按排第一的出。</p>
+      ${kids.map(k => `<div class="card"><h3>${esc(k.name)}</h3>${prepCard(preps.filter(p => p.child === k.id))}
         <form class="progress row" data-c="${esc(k.id)}"><label class="grow">课内数学进度 <input name="text" maxlength="300" value="${esc(progress[k.id] ?? '')}" placeholder="例如：第二单元 表内乘法（一），刚学完 5 的乘法。不填就按年级和月份推断"></label><button class="btn">保存</button></form>
         <ul>${list.filter(x => x.child === k.id).map(x => `<li><b>${esc(x.topic)}</b> · ${esc(x.state)} · ${esc(x.source)}${x.said && x.said !== x.topic ? `：“${esc(x.said)}”` : ''} · ${esc(x.observed_on)}${x.lesson_ref ? ` · 来自 ${esc(title(x.lesson_ref))}` : ''}</li>`).join('') || '<li class="muted">还没有记录</li>'}</ul></div>`).join('')}
       <form id="add" class="card row"><select name="child">${kidOptions()}</select><input name="topic" placeholder="兴趣，例如：机器人" maxlength="40" required>
@@ -278,6 +304,20 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
       const f = Object.fromEntries(new FormData(e.target as HTMLFormElement));
       guard(async () => { await api('/v1/interests', { method: 'POST', body: JSON.stringify(f) }); await VIEWS.兴趣与心愿(); toast('已记下'); })();
     };
+    view().querySelectorAll<HTMLFormElement>('form.ptopic').forEach(f => f.onsubmit = e => {
+      e.preventDefault();
+      guard(async () => { await api(`/v1/preps/${f.dataset.p}/topic`, { method: 'POST', body: JSON.stringify(Object.fromEntries(new FormData(f))) }); await VIEWS.兴趣与心愿(); toast('主题定好了，开始准备'); })();
+    });
+    view().querySelectorAll<HTMLButtonElement>('button[data-pskip]').forEach(b => b.onclick = guard(async () => {
+      await api(`/v1/preps/${b.dataset.pskip}/skip`, { method: 'POST', body: '{}' }); await VIEWS.兴趣与心愿(); toast('跳过了，这个兴趣还留着');
+    }));
+    view().querySelectorAll<HTMLButtonElement>('button[data-pprep]').forEach(b => b.onclick = guard(async () => {
+      await api(`/v1/preps/${b.dataset.pprep}/prepare`, { method: 'POST', body: '{}' }); await VIEWS.兴趣与心愿();
+    }));
+    view().querySelectorAll<HTMLButtonElement>('button[data-pgen]').forEach(b => b.onclick = guard(async () => {
+      await api('/v1/studio/generate', { method: 'POST', body: JSON.stringify({ prep: b.dataset.pgen }) });
+      tab = '课程库'; await main(); toast('开始按这张准备单写课了，写好后在下面“等你审核”');
+    }));
     view().querySelectorAll<HTMLFormElement>('form.progress').forEach(f => f.onsubmit = e => {
       e.preventDefault();
       guard(async () => { await api(`/v1/progress/${f.dataset.c}`, { method: 'PUT', body: JSON.stringify(Object.fromEntries(new FormData(f))) }); toast(`已保存${name(f.dataset.c!)}的课内进度，下一节课按它出`); })();

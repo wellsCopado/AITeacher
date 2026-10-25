@@ -467,9 +467,11 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
   // (rows and gears in a row, a field's length and width). A question that doesn't name the theme still gets the
   // lesson's scene, so a robot lesson never falls back to plain blocks.
   // One picture at a time; it moves on with the question and changes for the child's own try after a demo.
-  function pictureParams(text: string) {
+  // A question that says its picture's numbers (picture.params) gets exactly those; older lessons are read from the text.
+  function pictureParams(text: string, given?: Challenge['picture']) {
     const comp = sp.scene_component_ids[0], name = comp.split('@')[0];
     const p: Record<string, unknown> = { ...(sp.component_params[name] as Record<string, unknown>) };
+    if (given) return { comp, p: { ...p, ...given.params } };
     const n = (re: RegExp) => { const m = re.exec(text); return m ? Number(m[1] ?? m[2]) : undefined; };
     const nums = (text.match(/\d+/g) ?? []).map(Number);
     const fits = (v: number | undefined, max: number): v is number => v !== undefined && v >= 1 && v <= max && Number.isInteger(v);
@@ -483,12 +485,12 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
     return { comp, p };
   }
   /** The question's picture; for a hands-on question the same scene, set to its start, that the child then builds in (`box` shows the numbers). */
-  function picture(card: HTMLElement, text: string, task?: Challenge['task'], box?: HTMLElement) {
+  function picture(card: HTMLElement, text: string, task?: Challenge['task'], box?: HTMLElement, given?: Challenge['picture']) {
     const el = card.querySelector<HTMLElement>('[data-pic]'); if (!el) return;
     pic?.dispose(); pic = null;
-    const { comp, p } = pictureParams(text);
+    const { comp, p } = pictureParams(text, given);
     try {
-      pic = mount(el, comp, p, { hotspots: [], onHotspot: () => undefined }); pic.still();
+      pic = mount(el, comp, p, { hotspots: [], onHotspot: () => undefined }); pic.still(given?.view);
       if (task) {
         const shown = box ?? card;
         pic.startTask(task, s => { voice.tick(); showState(shown, s); log('task_change', { state: s }); });
@@ -526,7 +528,7 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
       }
       const c = sp.challenges[i];
       const card = root.querySelector(`[data-ch="${c.id}"]`) as HTMLElement;
-      picture(card, c.prompt, c.task, card.querySelector('.ans') as HTMLElement);
+      picture(card, c.prompt, c.task, card.querySelector('.ans') as HTMLElement, c.picture);
       guide(`第 ${i + 1} 题（共 ${sp.challenges.length} 题）：${c.task ? '先听题，再动手摆。' : '先听题，再作答。'}`, false);
       void narrate([{ text: c.prompt, el: card.querySelector('[data-prompt]') }]);
       questionClock(i, c.task ? Math.max(60, per) : per);
@@ -553,7 +555,7 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
         log('answer', { challenge: c.id, correct: r.correct, hints, attempt, try: tries + 1 });
         if (r.correct) {
           voice.chime(); finished();
-          const t = praiseRight({ tries, hints, seed: i });
+          const t = praiseRight({ tries, hints, seed: i, kind: c.task ? 'task' : c.options ? 'choice' : undefined });
           fb.className = 'fb good'; fb.textContent = t; void narrate([{ text: t }]);
           return;
         }
@@ -589,13 +591,13 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
       }
       if (epoch !== mine || cur !== i) return;
       // Now the child uses the same method alone, on a similar question.
-      const tw = c.twin ?? { prompt: c.prompt, answers: c.answers, options: c.options, task: c.task };
+      const tw = c.twin ?? { prompt: c.prompt, answers: c.answers, options: c.options, task: c.task, picture: c.picture };
       const box = card.querySelector('.twin') as HTMLElement;
       box.hidden = false;
       box.innerHTML = `<p class="wtitle">✋ 轮到你自己做一次</p><p data-tprompt>${esc(tw.prompt)}</p><div class="ans">${answerInputs(tw)}</div>
         <div class="row"><button class="btn primary" data-tchk>检查</button></div><p class="fb" aria-live="polite"></p>`;
       const tans = box.querySelector('.ans') as HTMLElement, tfb = box.querySelector('.fb') as HTMLElement, tchk = box.querySelector('[data-tchk]') as HTMLButtonElement;
-      if (c.twin || tw.task) picture(card, tw.prompt, tw.task, tans);
+      if (c.twin || tw.task) picture(card, tw.prompt, tw.task, tans, tw.picture);
       const read = answerBox(tans, tw);
       const go = card.querySelector('[data-go]') as HTMLButtonElement;
       tchk.onclick = () => {

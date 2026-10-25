@@ -2,6 +2,16 @@
 
 一个素材、场景或主持人要给孩子看，必须依次通过 A（自动检查）、B（对照图）、C（家长确认）、D（agent 自检），并尽量做 E（iPad 实测）。A 里的检查由实现的 agent 写进仓库，作为测试一直跑。
 
+现在能跑的命令：
+
+```
+pnpm -s dls asset-check                 # 只查 A5：场景代码里的几何体都在白名单里，列出还在等替换的
+pnpm -s dls asset-check <asset_id> --save   # A1–A9，结果写进 manifest.json 的 stats 和 checks
+pnpm -s dls asset-sheet <asset_id>      # 对照图 content/assets/<asset_id>/sheet.png
+```
+
+自动的：A1（Khronos glTF Validator）、A2、A3（模型最大边和 `real_scale_m` 最大值比）、A4、A5、A6（来源、作者、许可、日期、sha256、形态依据，生成类 ≥ 3 张参考照片）、A7（有动画就要有 `motion_refs`）。要人看的：A7 的关节限位和速度、A8（组件测试）、A9（跑测试）。
+
 ## A. 自动检查（`pnpm -s dls asset-check <asset_id>`，并纳入 `pnpm test`）
 
 | 编号 | 检查 | 不通过 |
@@ -19,6 +29,9 @@
 A5 的白名单文件：`packages/components/src/simple-geometry.allow.json`，格式 `{ "<文件>": [{ "geometry": "RoundedBoxGeometry", "what": "3 cm 实木积木", "class": "简单几何件" }] }`。改白名单要在交付说明里写原因，家长能看到。
 
 ## B. 对照图（自动生成 `content/assets/<asset_id>/sheet.png`，`pnpm -s dls asset-sheet <asset_id>`）
+
+参考照片写在 `manifest.json` 的 `reference_photos`，每张写 `angle`（“3/4 前侧”“正侧”“俯视”“特写”），对照图按角度配对；没写角度的按顺序填空位。现在的命令用工作室光照渲染 4 个角度，动作行（5 帧）和课里光照的渲染还没做（gaps.md G7）。
+
 
 - 左边是我们的渲染，右边是同角度的真实照片，每个主角至少 4 组：3/4 前侧、正侧、俯视、最有细节的部位特写。
 - 有动作的，再加一行 5 帧（0%、25%、50%、75%、100%），旁边放参考视频的对应帧。

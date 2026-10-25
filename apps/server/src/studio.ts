@@ -16,12 +16,16 @@ import {
 import type { Role, Store } from './db.js';
 import { fail, HttpError } from './http.js';
 import { reteachHistory } from './homework.js';
+import { dateText, type WishBook } from './wishes.js';
+import type { PrepRow } from './db.js';
+import { loadThemes, topicPlan } from '../../../packages/cli/src/lib.js';
 
 interface Deps {
   store: Store; root: string; tenant: string; iso: () => string;
   parent: RouteShorthandOptions; agentOrParent: RouteShorthandOptions;
   issue: (role: Role, label: string) => string;
-  vet: (sp: LessonSpec) => { key: string; ticket?: ReteachTicket; report: Report };
+  /** intake: a lesson handed in now, so the rules for new lessons apply. */
+  vet: (sp: LessonSpec, intake?: boolean) => { key: string; ticket?: ReteachTicket; report: Report };
   /** Pictures from AI assistants (one-time upload addresses), which organisms they can be of, and ChatGPT's own. */
   media: {
     prepareUpload: (a: Record<string, unknown>, by: string, base: string) => unknown; organismIds: () => string[];
@@ -30,6 +34,8 @@ interface Deps {
     addPending: (asset: string, data: Buffer, mime: string, m: { by: string; caption: string; refs?: string[]; kind?: 'photo' | 'cutout'; origin?: string;
       credit?: string; license?: string; source_url?: string | null; length_cm?: number | null }) => { id: string };
   };
+  /** The children's next-lesson wishes and their prep lists. */
+  wishes: WishBook;
   /** Tests swap the network and the codex command out. */
   fetchImpl?: typeof fetch;
   codex?: CodexOpts;
@@ -128,9 +134,10 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
   // ---- what lesson writing sees from this server ----
   const published = () => store.lessons().map(l => store.lesson(l.key)!).filter(Boolean);
   const progress = (child: string) => store.setting(`progress.${child}`);
-  const context = (child: string) => {
+  /** What a lesson for this child is written from; it follows the first queued wish, or the prep list the parent picked. */
+  const context = (child: string, prep?: string) => {
     if (!store.hasChild(child)) fail(400, `没有这个孩子：${child}（可选：${store.children().map(c => c.id).join('、')}）`);
-    return studioContext(root, child, { interests: store.interests(), published: published(), takenKeys: [...store.lessons().map(l => l.key), ...store.drafts().map(x => x.key)], tenant: d.tenant, progress: progress(child), today: iso().slice(0, 10) });
+    return studioContext(root, child, { interests: d.wishes.interestsFor(child, prep), wishOn: d.wishes.head(child, prep)?.wished_on, published: published(), takenKeys: [...store.lessons().map(l => l.key), ...store.drafts().map(x => x.key)], tenant: d.tenant, progress: progress(child), today: iso().slice(0, 10) });
   };
   /** 哥哥 / 妹妹 or an id → the child's id. */
   const childId = (s: string) => store.children().find(c => c.id === s || c.name === s)?.id;
@@ -152,16 +159,16 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
   /** Hand a lesson in for review. Same checks as the parent's own submit; never publishes. */
   const submit = (spec: LessonSpec, by: string) => {
     if (spec.tenant_id !== d.tenant) fail(400, `tenant_id 应该是 ${d.tenant}`);
-    const { key, report } = d.vet(spec);
+    const { key, report } = d.vet(spec, true);
     if (store.lesson(key)) fail(409, `${key} 已发布且已冻结；修改请升版本号`);
-    if (!report.ok) return { key, report };
-    store.upsertDraft(spec, by, iso());
-    return { key, report };
+    if (!report.ok) return { key, report, followed: [] as PrepRow[] };
+    const followed = store.tx(() => { const f = d.wishes.follow(spec, key); store.upsertDraft(spec, by, iso()); return f; });
+    return { key, report, followed };
   };
 
   // ---- the built-in lesson writer (a job): 课程库 → AI 出一节课, or an assistant handing over an agreed plan ----
   const jobs = new Map<string, Job>();
-  const startJob = (b: { child?: string; wish?: string; component?: string; model?: string; revise?: string; topic?: string }, planner?: string): Job => {
+  const startJob = (b: { child?: string; wish?: string; component?: string; model?: string; revise?: string; topic?: string; prep?: string }, planner?: string): Job => {
     const m = pick(b.model);
     // an agreed plan says for whom and about what; the parent's own 主题 box says what it is about
     const plan = b.wish ? briefFields(String(b.wish)) : {};
@@ -177,8 +184,13 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
       request.revise = { stages: disassemble(draft), note: row.note! };
       child = draft.for_child;
     }
+    if (b.prep) {
+      const p = store.prep(String(b.prep));
+      if (!p || p.status !== '准备中') fail(400, '这张准备单不在排队里（已经安排、跳过了，或者还要你先确认主题）');
+      child = p!.child;
+    }
     const directed = topic && !b.revise && store.hasChild(child) ? store.directTopic(child, topic, iso().slice(0, 7), iso()) : null;
-    const ctx = context(child);
+    const ctx = context(child, b.prep);
     const job: Job = { id: randomBytes(6).toString('hex'), child, model: m.label, status: 'running', started_at: iso(), log: [], ...(planner ? { planner } : {}) };
     jobs.set(job.id, job);
     for (const old of [...jobs.keys()].slice(0, -10)) jobs.delete(old);
@@ -196,6 +208,7 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
         const s = submit(r.spec, `AI 出课 · ${m.label}${planner ? ` · 方案：${planner}` : ''}`);
         if (!s.report.ok) { job.status = 'failed'; job.error = '服务器校验没通过'; return; }
         Object.assign(job, { status: 'done', key: s.key, title: r.spec.title });
+        for (const p of s.followed) log(`按${ctx.child.label}${dateText(p.wished_on)}的心愿「${p.topic}」准备的`);
         if (directed && r.spec.theme.interest_refs.includes(directed.id)) store.topicUsed(directed.id, s.key);
         const subj = r.spec.theme.subject, cm = codexModel();
         if (subj && store.mediaFor(subj.asset_id).some(x => x.confirmed)) log(`主角「${subj.name}」的画面已经有了`);
@@ -314,6 +327,64 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
   app.get('/v1/studio/tasks', d.parent, async () => [...tasks.values()].reverse());
   app.get('/v1/studio/tasks/:id', d.parent, async (req) => tasks.get((req.params as { id: string }).id) ?? fail(404, '没有这个任务'));
 
+  // ---- next-lesson prep lists (pipeline P0): get the wished-for topic ready before its lesson ----
+  /** How far a prep list's topic is: the scene it will use, or its subject's pictures. */
+  const readiness = (p: PrepRow) => {
+    const plan = topicPlan(p.topic, loadThemes(root));
+    const ready = plan.skins.filter(s => s.status === '已有');
+    const subj = p.subject ?? plan.subject;
+    const media = subj ? store.mediaFor(subj.asset_id) : [];
+    const running = subj ? subjectTask(subj.asset_id) : undefined;
+    const subject = subj && {
+      ...subj,
+      state: media.some(m => m.confirmed) ? '画面已确认' : running ? `正在做：${running.step ?? ''}` : media.length ? '做好了，等你在“生物素材”里确认' : subj.kind === 'object' ? '要按“写实 3D 制作”Skill 做（交给 AI 助手）' : '还没有画面',
+    };
+    return {
+      scenes: ready.map(s => ({ name: s.name, component: s.component, ...(s.realism ? { realism: s.realism } : {}) })),
+      planned: plan.skins.filter(s => s.status !== '已有').map(s => s.name),
+      subject,
+      ready: !!ready.length && ready.every(s => !s.realism) || subject?.state === '画面已确认',
+    };
+  };
+  const prepView = (p: PrepRow, withWords: boolean) => {
+    const { said: _s, log, ...rest } = p;
+    return { ...rest, ...(withWords ? { said: p.said, log } : {}), child_label: d.wishes.label(p.child), wished: dateText(p.wished_on), ...(p.status === '等你确认主题' ? { topic: withWords ? p.topic : null } : {}), ...readiness(p) };
+  };
+  /** Start collecting what a queued prep list needs, as far as this server can do it by itself. */
+  const prepare = (id: string) => {
+    const p = store.prep(id);
+    if (!p || p.status !== '准备中') return;
+    const say = (msg: string) => store.logPrep(id, msg, iso());
+    const r = readiness(p);
+    if (r.scenes.length) {
+      say(`用现成的 3D 场景「${r.scenes.map(s => s.name).join('、')}」${r.scenes.some(s => s.realism) ? `（${r.scenes.find(s => s.realism)!.realism}）` : ''}`);
+      return;
+    }
+    const s = r.subject!;
+    if (s.state === '画面已确认') { say(`「${s.name}」的画面已经确认过，下一课直接用`); return; }
+    if (s.kind === 'object') { say(`「${s.name}」是机器或建筑：要按“写实 3D 制作”Skill 做写实素材，交给 AI 助手（它们在 adw_next_lessons 里看得到这张准备单）`); return; }
+    const cm = codexModel();
+    if (!cm) { say('自动找实拍照片要用 ChatGPT 账号：在“设备与数据 → 大模型”里添加，或者在“课程库 → 生物素材”里自己加照片'); return; }
+    if (!consent()) { say('自动找实拍照片前，先在“设备与数据 → 大模型”里勾选同意（只发主题名称）'); return; }
+    if (subjectTask(s.asset_id)) { say(`「${s.name}」已经在做了`); return; }
+    if (store.mediaFor(s.asset_id).length) { say(`「${s.name}」的画面做好了，等你在“生物素材”里确认`); return; }
+    makeSubject(s.asset_id, cm);
+    say(`已让 ChatGPT 去找「${s.name}」的实拍照片、画成写实图：做好后在“课程库 → 生物素材”里确认`);
+  };
+  app.get('/v1/preps', d.parent, async () => store.preps().map(p => prepView(p, true)));
+  app.post('/v1/preps/:id/topic', d.parent, async (req) => {
+    const p = d.wishes.setTopic((req.params as { id: string }).id, String((req.body as { topic?: unknown })?.topic ?? ''));
+    prepare(p.id);
+    return prepView(store.prep(p.id)!, true);
+  });
+  app.post('/v1/preps/:id/skip', d.parent, async (req) => { d.wishes.skip((req.params as { id: string }).id); return { ok: true }; });
+  app.post('/v1/preps/:id/prepare', d.parent, async (req) => {
+    const id = (req.params as { id: string }).id;
+    if (!store.prep(id)) fail(404, '没有这张准备单');
+    prepare(id);
+    return prepView(store.prep(id)!, true);
+  });
+
   // ---- AI assistants over MCP (Streamable HTTP, JSON replies) ----
   const backend = (who: string, base: string): StudioBackend => ({
     where: 'server',
@@ -347,6 +418,10 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
     jobStatus: id => jobs.get(id) ?? fail(404, '没有这个任务'),
     organisms: d.media.organismIds,
     prepareImageUpload: a => d.media.prepareUpload(a, who, base),
+    nextLessons: () => store.children().map(c => {
+      const all = store.preps(c.id);
+      return { child: c.id, label: d.wishes.label(c.id), queue: d.wishes.queue(c.id).map(p => prepView(p, false)), waiting_for_parent: all.filter(p => p.status === '等你确认主题').length };
+    }),
   });
   app.post('/mcp', d.agentOrParent, async (req: FastifyRequest, reply) => {
     const out = await createMcp(backend(req.role === 'agent' ? req.who ?? 'AI 助手' : '家长', `${req.protocol}://${req.headers.host}`)).handle(req.body);
@@ -369,4 +444,5 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
 
   app.get('/v1/studio/jobs', d.parent, async () => [...jobs.values()].reverse().map(({ log: _l, ...j }) => j));
   app.get('/v1/studio/jobs/:id', d.parent, async (req) => jobs.get((req.params as { id: string }).id) ?? fail(404, '没有这个任务'));
+  return { prepare };
 }

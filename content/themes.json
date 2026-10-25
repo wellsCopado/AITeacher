@@ -3,7 +3,7 @@
     "reef": { "name": "珊瑚礁样方调查", "component": "PerimeterArea", "status": "已有" },
     "garden": { "name": "花园围栏与铺砖", "component": "PerimeterArea", "status": "已有" },
     "blocks": { "name": "积木方块", "component": "ArrayMultiplier", "status": "已有" },
-    "robot_factory": { "name": "机器人工厂：机械臂一行一行摆齿轮", "component": "ArrayMultiplier", "status": "已有" },
+    "robot_factory": { "name": "机器人工厂：机械臂一行一行摆齿轮", "component": "ArrayMultiplier", "status": "已有", "realism": "家长判定不够写实，写实版制作中，替换前这类课不发布" },
     "insect_meadow": { "name": "草地昆虫样方调查", "component": "PerimeterArea", "status": "待开发" },
     "tower_floor": { "name": "高楼楼层平面", "component": "PerimeterArea", "status": "待开发" },
     "tunnel_walkway": { "name": "隧道检修通道", "component": "PerimeterArea", "status": "待开发" },

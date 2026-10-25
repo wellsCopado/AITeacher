@@ -11,12 +11,12 @@
 | 部分 | 位置 |
 | --- | --- |
 | LessonSpec / 资产 / 兴趣 Schema | `packages/schema` |
-| V01–V21 自动校验、安全公式求值 | `packages/validator` |
+| V01–V23 自动校验、安全公式求值 | `packages/validator` |
 | `dls` 命令行（六阶段 + 兴趣记录 + 上下文、AI 出课、MCP） | `packages/cli` |
 | 做课核心：上下文、校验、任意大模型写课与自动修改、MCP 工具 | `packages/studio`、`apps/server/src/studio.ts` |
 | Skill：discovery-learning-studio | `skills/discovery-learning-studio`（Claude Code、Codex、Qoder 的入口都指向这里；见 `AGENTS.md`） |
 | 组件白名单、知识点、资产库、主题表、孩子档案、兴趣记录 | `content/` |
-| 样课：哥哥 L-PA@1.0、妹妹 L-ARR@1.0 | `content/lessons/` |
+| 示例课 L-PA@1.1（选择、应用、动手题和配图）；样课：哥哥 L-PA@1.0、妹妹 L-ARR@1.0 | `content/lessons/` |
 | 写实 3D 组件（PerimeterArea、ArrayMultiplier） | `packages/components` |
 | 课程播放器（语言循环、判题、心愿） | `packages/player` |
 | `dls preview` 单文件预览、浏览器端到端测试 | `packages/cli/src/preview.ts`、`scripts/e2e-preview.mjs` |

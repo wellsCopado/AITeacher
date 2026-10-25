@@ -22,14 +22,15 @@
 | --- | --- | --- |
 | G4 | 测量轮（`engine.js` 的 `buildWheel`）和卷尺盘是代码拼的工具，换成真实产品的模型文件 | realism-spec.md 第 1 节 |
 | G5 | 地面贴图：`T-sand-ripples` 是程序生成的，`T-grass`、`T-wood` 来源许可没核实；换成扫描贴图（ambientCG、Poly Haven，CC0） | realism-spec.md 第 2 节；V11 |
-| G6 | 挑战配图改成显式字段 `challenges[].picture` 和 `still(params, view)`，不再从题目文字里猜数 | pipeline.md P6 |
-| G7 | 写 A5 代码几何检查和白名单、`dls asset-check`、`dls asset-sheet` | acceptance.md A、B |
+| G6 | ~~挑战配图改成显式字段~~ 已做：`challenges[].picture`、`still(view)`（overview / top / side）、V22、V23。机械臂皮肤的相机预设等 G1 替换时一起做 | pipeline.md P6 |
+| G7 | ~~写 A5 代码几何检查和白名单、`dls asset-check`、`dls asset-sheet`~~ 已做：白名单 `packages/components/src/simple-geometry.allow.json`（测试 `test/assets.test.ts` 一直查），`dls asset-check`（A1 用 Khronos glTF Validator，A2–A4、A6、A7 读文件和 manifest），`dls asset-sheet`（4 个角度的渲染和同角度实拍并排）。**还要做**：对照图的动作行（5 帧）、用课里的光照渲染、家长端「素材确认」显示对照图（G10） | acceptance.md A、B |
 | G8 | 大素材的存放和加载：不再写进 `assets.js`；服务器按资产 id 提供文件，Pad 缓存，核对 sha256 | asset-sourcing.md 第 3 节 |
 | G9 | 场景清单 `scene_bill`：Schema、校验、写课规则、素材流程按清单逐项解析 | pipeline.md P3 |
 | G10 | 家长端：课的预览和它的素材对照图放在一处确认；选择主持人（真人 / 机器人）、上传或录制主持人视频、同意记录 | pipeline.md P8；host.md |
-| G15 | 动手操作题：摆一摆（`build`）已做，PerimeterArea 和 ArrayMultiplier 能用，校验 V21，做课 Skill 已打开（提交见 git log “hands-on”）。**还要做**：点选、拖放组装、旋转；机械臂皮肤的摆一摆等 G1 替换时一起做 | component-contract.md 第 5 节 |
-| G16 | 心愿 → 下一课准备单 → 提前收集素材 | pipeline.md P0 |
-| G17 | 示例课按新题型重写一版（L-PA 1.1：选择题、应用题、动手题），换成新的示例后把 V20 从警告升为错误 | `skills/discovery-learning-studio/reference/challenge-types.md` |
+| G15 | 动手操作题：摆一摆（`build`）已做，PerimeterArea 和 ArrayMultiplier 能用，校验 V21，做课 Skill 已打开（提交 045c854）。**还要做**：点选、拖放组装、旋转；机械臂皮肤的摆一摆等 G1 替换时一起做 | component-contract.md 第 5 节 |
+| G16 | 心愿 → 下一课准备单 → 提前收集素材：记下、认主题、排队、家长端显示、动物自动找照片、按排第一的出课已做。**还要做**：准备单里的数学知识点和场景清单初稿（等 G9）；自动收集按 research.md 三步（G18） | pipeline.md P0 |
+| G17 | ~~示例课按新题型重写~~ 已做：`content/lessons/L-PA/1.1`；V20、V23 对新写的课是错误（样课 L-PA@1.0、L-ARR@1.0 只提醒）。还可以加一节 ArrayMultiplier 的示例课 | `skills/discovery-learning-studio/reference/challenge-types.md` |
+| G19 | 珊瑚礁场景的礁石和碎石是程序变形的二十面体（`engine.js`），换成扫描礁石（Poly Haven、ambientCG 的 CC0 扫描） | realism-spec.md 第 1 节；A5 白名单里标着待替换 |
 | G18 | 服务器让 ChatGPT（Codex）找动物照片的任务（`packages/studio/src/codex.ts` 的 `codexResearch`）改成按 research.md 的收集、理解、整理三步，产出 `sources.json`、`brief.md`、`plan.md` | research.md |
 | G11 | 资产库 Schema 扩展：`kind` 加 `host`、`video`，manifest 字段（asset-sourcing.md 第 4 节），状态加“待确认” | asset-sourcing.md |
 

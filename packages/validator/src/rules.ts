@@ -1,6 +1,6 @@
 import Ajv2020 from 'ajv/dist/2020.js';
 import type {
-  AssetEntry, Challenge, ChildProfile, ComponentDef, HandsOnTask, InterestObservation, LessonSpec, ReteachHistory,
+  AssetEntry, Challenge, ChallengePicture, ChildProfile, ComponentDef, HandsOnTask, InterestObservation, LessonSpec, ReteachHistory,
 } from '../../schema/src/index.js';
 import { lessonSpecSchema } from '../../schema/src/index.js';
 import { evalExpr, exprVars, ExprError } from './expr.js';
@@ -318,6 +318,39 @@ export const RULES: Rule[] = [
         if (c.twin && !!c.task !== !!c.twin.task) out.push({ path: `${at}.twin.task`, msg: `第 ${i + 1} 题${c.task ? '是动手题，同类题也要是' : '不是动手题，同类题也不要 task'}` });
         else if (c.twin?.task) one(`${at}.twin`, c.twin, `第 ${i + 1} 题的同类题`);
       });
+      return out;
+    },
+  },
+  {
+    id: 'V22', name: '题目配图的参数是这个组件的、在范围内；动手题不写配图', basis: '流程 P6：配图写明数，不从题目文字里猜', level: 'error',
+    check(sp, ctx) {
+      const out: Issue[] = [];
+      const name = splitId(sp.scene_component_ids[0] ?? '').name;
+      const props = ((ctx.components[name]?.paramsSchema ?? {}) as { properties?: Record<string, { type?: string; minimum?: number; maximum?: number }> }).properties ?? {};
+      const nums = Object.keys(props).filter(k => props[k].type === 'integer');
+      const one = (at: string, q: { picture?: ChallengePicture; task?: HandsOnTask }, label: string) => {
+        if (!q.picture) return;
+        if (q.task) { out.push({ path: `${at}.picture`, msg: `${label}是动手题，不要 picture`, fix: '动手题的场景从 task.start 开始，去掉 picture' }); return; }
+        for (const [k, v] of Object.entries(q.picture.params)) {
+          if (!nums.includes(k)) out.push({ path: `${at}.picture.params.${k}`, msg: `${label}：配图参数 ${k} 不是 ${name} 的数`, fix: `只能用 ${nums.join('、')}` });
+          else if (!Number.isInteger(v) || v < (props[k].minimum ?? -Infinity) || v > (props[k].maximum ?? Infinity)) out.push({ path: `${at}.picture.params.${k}`, msg: `${label}：配图 ${k} = ${v} 超出组件范围 ${props[k].minimum}–${props[k].maximum}` });
+        }
+      };
+      sp.challenges.forEach((c, i) => { one(`$.challenges[${i}]`, c, `第 ${i + 1} 题`); if (c.twin) one(`$.challenges[${i}].twin`, c.twin, `第 ${i + 1} 题的同类题`); });
+      return out;
+    },
+  },
+  {
+    id: 'V23', name: '每道题和同类题都写明配图的数，配图的数在题目里', basis: '流程 P6：配图写明数，不从题目文字里猜', level: 'warn',
+    check(sp) {
+      const out: Issue[] = [];
+      const one = (at: string, q: { prompt: string; picture?: ChallengePicture; task?: HandsOnTask }, label: string) => {
+        if (q.task) return;
+        if (!q.picture) { out.push({ path: `${at}.picture`, msg: `${label}没有写配图的数，播放器只能从题目文字里猜`, fix: 'picture: { params: { 组件参数: 题目里的数 } }，只摆题目给出的数，不摆答案' }); return; }
+        const said = new Set((q.prompt.match(/\d+/g) ?? []).map(Number));
+        for (const [k, v] of Object.entries(q.picture.params)) if (!said.has(v)) out.push({ path: `${at}.picture.params.${k}`, msg: `${label}：配图里 ${k} = ${v}，题目里没有这个数`, fix: '配图只摆题目给出的数；是答案就别摆出来' });
+      };
+      sp.challenges.forEach((c, i) => { one(`$.challenges[${i}]`, c, `第 ${i + 1} 题`); if (c.twin) one(`$.challenges[${i}].twin`, c.twin, `第 ${i + 1} 题的同类题`); });
       return out;
     },
   },

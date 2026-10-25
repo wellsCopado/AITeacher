@@ -40,7 +40,7 @@ export function contentHash(sp: LessonSpec): string {
   return 'sha256:' + createHash('sha256').update(canonical(rest)).digest('hex');
 }
 
-const STATE_RANK: Record<InterestObservation['state'], number> = { 家长指定: -1, 下一课心愿: 0, 近期最喜欢: 1, 喜欢: 2, 曾经喜欢: 3, 只用于安全工程题材: 9 };
+export const STATE_RANK: Record<InterestObservation['state'], number> = { 家长指定: -1, 下一课心愿: 0, 近期最喜欢: 1, 喜欢: 2, 曾经喜欢: 3, 只用于安全工程题材: 9 };
 
 /** The asset id of a theme's subject (博比特虫, 机器人…): the same topic always gets the same id. */
 export const subjectId = (topic: string) => 'S-' + createHash('sha1').update(topic.trim()).digest('hex').slice(0, 8);
@@ -48,6 +48,34 @@ export const subjectId = (topic: string) => 'S-' + createHash('sha1').update(top
 const subjectKind = (topic: string): 'organism' | 'object' => /机器|车|楼|桥|隧道|船|飞机|火箭|塔|房|工厂|电|器/.test(topic) ? 'object' : 'organism';
 /** A theme whose own scene isn't built yet: the model picks the closest ready scene, the subject is made as an asset. */
 export const isCustomTheme = (t: { id: string }) => t.id.startsWith('topic-');
+
+/** The scenes made for a topic: "机器人工厂" or "工厂里的机器人" finds the 机器人 scenes too. */
+export function skinsOf(themes: ThemeTable, topic: string): string[] {
+  const keys = Object.keys(themes.topics).sort((a, b) => b.length - a.length);
+  return themes.topics[topic] ?? themes.topics[keys.find(k => topic.includes(k)) ?? keys.find(k => k.includes(topic)) ?? ''] ?? [];
+}
+
+/**
+ * What a child's own words for the next lesson are about: the longest topic we already know (an interest, an
+ * answer option, a theme, an animal) that the words name. Null when they name none: then the parent says what the
+ * topic is, and until then the words never leave the house.
+ */
+export function wishTopic(said: string, known: string[]): string | null {
+  const s = said.trim().replace(/^还是/, '').replace(/[。！？!?.，,、\s]+$/u, '');
+  if (!s) return null;
+  const ks = [...new Set(known.map(k => k.trim().replace(/^还是/, '')).filter(Boolean))].sort((a, b) => b.length - a.length);
+  return ks.find(k => k === s) ?? ks.find(k => s.includes(k)) ?? null;
+}
+
+/** What a topic needs before its lesson: a ready 3D scene, or the subject itself made as an asset. */
+export function topicPlan(topic: string, themes: ThemeTable) {
+  const skins = skinsOf(themes, topic).map(id => ({ id, ...themes.skins[id] })).filter(s => s.name);
+  const ready = skins.filter(s => s.status === '已有');
+  return {
+    skins: skins.map(s => ({ id: s.id, name: s.name, component: s.component, status: s.status, ...(s.realism ? { realism: s.realism } : {}) })),
+    subject: ready.length ? null : { name: topic, asset_id: subjectId(topic), kind: subjectKind(topic) },
+  };
+}
 
 export interface ThemeSuggestion {
   theme: LessonSpec['theme'];
@@ -72,11 +100,8 @@ export function suggestTheme(opts: {
     .sort((a, b) => STATE_RANK[a.state] - STATE_RANK[b.state] || b.observed_on.localeCompare(a.observed_on));
   const notes: string[] = [];
   let theme: LessonSpec['theme'] | null = null;
-  // "机器人工厂" or "工厂里的机器人" finds the 机器人 scenes too
-  const keys = Object.keys(themes.topics).sort((a, b) => b.length - a.length);
-  const skinsOf = (topic: string) => themes.topics[topic] ?? themes.topics[keys.find(k => topic.includes(k)) ?? keys.find(k => k.includes(topic)) ?? ''] ?? [];
   for (const rec of mine) {
-    const skins = skinsOf(rec.topic);
+    const skins = skinsOf(themes, rec.topic);
     const fit = skins.map(s => ({ id: s, ...themes.skins[s] })).filter(s => s.component === component);
     const ready = fit.find(s => s.status === '已有');
     const why = `${rec.source}：${rec.topic}（${rec.state}）`;

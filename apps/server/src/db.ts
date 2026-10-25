@@ -39,6 +39,9 @@ create table if not exists media (id text primary key, tenant_id text not null, 
   file text not null, key text not null, credit text not null, license text not null, source_url text, caption text, length_cm real,
   added_by text not null, created_at text not null, confirmed integer not null default 1, refs text);
 create table if not exists settings (tenant_id text not null, k text not null, v text not null, primary key (tenant_id, k));
+create table if not exists preps (id text primary key, tenant_id text not null, child text not null, interest_id text not null, said text,
+  topic text not null, status text not null, wished_on text not null, lesson_from text, lesson_ref text, subject text, log text not null default '[]',
+  created_at text not null, updated_at text not null);
 `;
 
 /** parent: the PIN holder; device: a paired Pad; agent: an AI assistant the parent let in (it can only hand lessons in for review). */
@@ -52,6 +55,18 @@ export interface MediaRow {
   confirmed: number;
   /** JSON list of the real photos an AI picture was made from. */
   refs: string | null;
+}
+/**
+ * 下一课准备单: what a child said they want next, turned into the next lesson's topic and prepared ahead.
+ * 等你确认主题: the words name no topic we know, so the parent says it (until then nothing leaves the house);
+ * 准备中: queued, oldest first; 已安排: a lesson was written for it; 已跳过: the parent set it aside.
+ */
+export interface PrepRow {
+  id: string; child: string; interest_id: string; said: string | null; topic: string; status: '等你确认主题' | '准备中' | '已安排' | '已跳过';
+  wished_on: string; lesson_from: string | null; lesson_ref: string | null;
+  /** What has to be made when no ready scene shows the topic (the animal, the robot), else null. */
+  subject: { name: string; asset_id: string; kind: 'organism' | 'object' } | null;
+  log: { at: string; msg: string }[]; created_at: string; updated_at: string;
 }
 export interface EventIn { id: string; at: string; type: string; [k: string]: unknown }
 
@@ -175,8 +190,39 @@ export class Store {
     const all = [...this.drafts().map(d => this.draft(d.key)), ...this.lessons().map(l => this.lesson(l.key))];
     const seen = new Map<string, { asset_id: string; name: string; kind: 'organism' | 'object' }>();
     for (const sp of all) { const s = sp?.theme.subject; if (s && !seen.has(s.asset_id)) seen.set(s.asset_id, { ...s }); }
+    // what a prep list is getting ready ahead of its lesson
+    for (const p of this.preps()) if (p.subject && p.status === '准备中' && !seen.has(p.subject.asset_id)) seen.set(p.subject.asset_id, { ...p.subject });
     return [...seen.values()];
   }
+
+  // next-lesson prep lists (pipeline P0)
+  preps(child?: string): PrepRow[] {
+    return this.all<Omit<PrepRow, 'subject' | 'log'> & { subject: string | null; log: string }>(
+      `select id, child, interest_id, said, topic, status, wished_on, lesson_from, lesson_ref, subject, log, created_at, updated_at from preps where tenant_id=? ${child ? 'and child=?' : ''} order by created_at, id`,
+      ...(child ? [this.tenant, child] : [this.tenant])).map(r => ({ ...r, subject: r.subject ? JSON.parse(r.subject) : null, log: JSON.parse(r.log) }));
+  }
+  prep(id: string) { return this.preps().find(p => p.id === id); }
+  addPrep(x: Pick<PrepRow, 'child' | 'interest_id' | 'said' | 'topic' | 'status' | 'wished_on' | 'lesson_from' | 'subject'>, now: string): PrepRow {
+    const max = this.get<{ n: number | null }>("select max(cast(substr(id, 3) as integer)) as n from preps where tenant_id=?", this.tenant)?.n ?? 0;
+    const id = `W-${String(max + 1).padStart(4, '0')}`;
+    this.run('insert into preps (id, tenant_id, child, interest_id, said, topic, status, wished_on, lesson_from, lesson_ref, subject, log, created_at, updated_at) values (?,?,?,?,?,?,?,?,?,null,?,?,?,?)',
+      id, this.tenant, x.child, x.interest_id, x.said, x.topic, x.status, x.wished_on, x.lesson_from, x.subject ? JSON.stringify(x.subject) : null, '[]', now, now);
+    return this.prep(id)!;
+  }
+  updatePrep(id: string, x: Partial<Pick<PrepRow, 'topic' | 'status' | 'lesson_ref' | 'subject'>>, now: string) {
+    const p = this.prep(id);
+    if (!p) return;
+    const n = { ...p, ...x };
+    this.run('update preps set topic=?, status=?, lesson_ref=?, subject=?, updated_at=? where tenant_id=? and id=?', n.topic, n.status, n.lesson_ref, n.subject ? JSON.stringify(n.subject) : null, now, this.tenant, id);
+  }
+  /** One line of what happened to a prep list, for the parent (the last 20 are kept). */
+  logPrep(id: string, msg: string, now: string) {
+    const p = this.prep(id);
+    if (p) this.run('update preps set log=?, updated_at=? where tenant_id=? and id=?', JSON.stringify([...p.log, { at: now, msg }].slice(-20)), now, this.tenant, id);
+  }
+  /** A next-lesson wish was used or set aside: it stays one of the child's interests. */
+  wishDone(child: string, topic: string) { this.run("update interests set state='喜欢' where tenant_id=? and child=? and topic=? and state='下一课心愿'", this.tenant, child, topic); }
+  setInterestTopic(id: string, topic: string) { this.run('update interests set topic=? where tenant_id=? and id=?', topic, this.tenant, id); }
 
   // auth
   addToken(hash: string, role: Role, label: string, now: string) { this.run('insert into tokens (hash, tenant_id, role, label, created_at) values (?,?,?,?,?)', hash, this.tenant, role, label, now); }
@@ -287,7 +333,7 @@ export class Store {
   exportChild(child: string) {
     const sessions = this.sessions(child);
     return {
-      child: this.children().find(c => c.id === child), interests: this.interests(child),
+      child: this.children().find(c => c.id === child), interests: this.interests(child), preps: this.preps(child),
       sessions: sessions.map(s => ({ ...s, events: this.events(s.key) })),
       homework: this.homeworks(child).map(h => ({ ...h, items: this.items(h.id) })),
       judgments: this.judgments(child), tickets: this.tickets(child), feedback: this.feedback(child),
@@ -300,7 +346,7 @@ export class Store {
     this.tx(() => {
       for (const s of this.sessions(child)) this.run('delete from events where tenant_id=? and session_key=?', this.tenant, s.key);
       for (const id of hw) this.run('delete from hw_items where homework_id=?', id);
-      for (const t of ['sessions', 'interests', 'homework', 'judgments', 'tickets', 'feedback', 'schedule', 'grants']) this.run(`delete from ${t} where tenant_id=? and child=?`, this.tenant, child);
+      for (const t of ['sessions', 'interests', 'preps', 'homework', 'judgments', 'tickets', 'feedback', 'schedule', 'grants']) this.run(`delete from ${t} where tenant_id=? and child=?`, this.tenant, child);
     });
     return hw;
   }

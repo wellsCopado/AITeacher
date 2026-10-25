@@ -36,10 +36,12 @@ description: 为 AI Discovery World 找、做、接入和验收写实 3D 素材�
 | 4 整理 | 有了理解才挑：精选参考照片，比较所有 3D 候选，定修改、动作、环境方案 | `research/plan.md` | [reference/research.md](reference/research.md)、[reference/asset-sourcing.md](reference/asset-sourcing.md) |
 | 5 制作 | 统一成 GLB（PBR 贴图、真实尺寸、压缩），需要动的绑骨骼或关节；实时做不到的预渲染成视频 | `content/assets/<asset_id>/` 下的文件 + 登记 | [reference/realism-spec.md](reference/realism-spec.md) |
 | 6 接进组件 | 按组件接口装进场景：热点锚点、动作、挑战配图、动手题、减少动态、释放资源 | 组件代码 + 测试 | [reference/component-contract.md](reference/component-contract.md) |
-| 7 自检 | 跑自动检查，出对照图（我们的截图 vs 真实照片），过一遍自检清单 | 检查结果 + 对照图 | [reference/acceptance.md](reference/acceptance.md) |
+| 7 自检 | 跑自动检查 `dls asset-check <id> --save`，出对照图 `dls asset-sheet <id>`（我们的渲染 vs 同角度真实照片），过一遍自检清单 | 检查结果 + 对照图 | [reference/acceptance.md](reference/acceptance.md) |
 | 8 家长确认 | 在家长端「素材确认」里看对照图和预览，点“确认可用”或写退回意见 | 素材状态“采用”或退回 | [reference/acceptance.md](reference/acceptance.md) |
 
 第 2–4 步不能省、不能并成一步：**先收全、弄懂，最后才整理**。拿前几个搜索结果就开始做，是之前画面不像、主角不对的主要原因。
+
+**先做孩子想学的。** 孩子每次课末说的“下一次想学什么”都会变成一张下一课准备单，按先后排队（家长端「兴趣与心愿」；AI 助手用 MCP 工具 `adw_next_lessons`，只有主题没有原话）。没有指定任务时，从排第一的准备单开始：它的场景或主角素材还没好，就按上面 8 步把它做出来，让下一节课上课前素材已经在“待家长确认”。流程见 [reference/pipeline.md](reference/pipeline.md) P0。
 
 课末主持人（机器人或真人）的规格单独写在 [reference/host.md](reference/host.md)。现在仓库里哪些东西不达标、要换成什么，见 [reference/gaps.md](reference/gaps.md)，**动手前先读它**。
 

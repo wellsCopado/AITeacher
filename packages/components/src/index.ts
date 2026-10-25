@@ -31,8 +31,8 @@ export interface Instance {
   /** The animal in the scene: show, strike, slow (strike in slow motion), anatomy (apart / together), hide. */
   organism(cmd: string): void;
   organismState(): { mode: string; exploded: boolean } | null;
-  /** Show the finished setup without animation (a challenge's picture). */
-  still(): void;
+  /** Show the finished setup without animation (a challenge's picture), seen from a camera preset. */
+  still(view?: 'overview' | 'top' | 'side'): void;
   /**
    * A hands-on question: the scene starts at `start`; the child changes `controls` by dragging the corner handle
    * (or the player's steppers through setTask). onChange gets the lesson params after every change.
@@ -120,7 +120,7 @@ export function mount(el: HTMLElement, componentId: string, params: Record<strin
     toggleLabels: () => engine.toggleLabels(),
     organism: cmd => engine.organism?.(cmd),
     organismState: () => engine.organismState?.() ?? null,
-    still: () => engine.still(),
+    still: view => engine.still(view),
     startTask(t, onChange) {
       task = { controls: t.controls.filter(k => k in def.build), onChange };
       cur = { ...cur, ...t.start };

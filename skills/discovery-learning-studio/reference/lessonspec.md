@@ -20,7 +20,8 @@ Schema：`packages/schema/schemas/lessonspec.schema.json`（以它为准）。�
 - **hotspots**：`anchor` 必须是组件提供的锚点；`facts` 每条写出处，不确定写“待科学审核”。
 - **challenges**：2–3 道；以选择题和应用题为主，组件支持动手题（`dls context` 里 `hands_on` 不为空）时至少 1 道动手题 `task`，没有 `options` 也没有 `task` 的填空题最多 1 道（题型怎么写见 [challenge-types.md](challenge-types.md)）；`with_theme: false` 的题用于迁移；`answers.value` 可以是数字或文字；选择题加 `options`，值和答案一字不差。每道题还要写：
   - `worked_example.steps`：孩子错 3 次后 Pad 一步步演示（字幕 + 朗读）。2–5 步，最后一步说出全部答案。
-  - `twin`：演示后孩子自己做的同类题，`{ prompt, answers, options?, task? }`；原题是动手题时同类题也写 `task`。同一方法换数字或情境，`field` 和原题一致。
+  - `picture`：题目的配图，`{ params: {组件参数: 题目里的数}, view? }`，不是动手题的每道题都写（见 [challenge-types.md](challenge-types.md) 第 5 节）。
+  - `twin`：演示后孩子自己做的同类题，`{ prompt, answers, options?, task?, picture? }`；原题是动手题时同类题也写 `task`，不是动手题时同类题也写 `picture`。同一方法换数字或情境，`field` 和原题一致。
 
   ```json
   {

@@ -46,15 +46,19 @@ export interface ActivityNode {
 }
 /** A hands-on question: the child sizes the 3D scene (drags its corner handle or taps the steppers) until it matches the answers. */
 export interface HandsOnTask { type: 'build'; start: Record<string, number>; controls: string[] }
+/** A question's picture: the lesson's scene set to these component params, as a still. */
+export interface ChallengePicture { params: Record<string, number>; view?: 'overview' | 'top' | 'side' }
 export interface Challenge {
   id: string; prompt: string; with_theme: boolean; hints: string[]; options?: string[];
   /** Present on a hands-on question; its answers' fields are the controls. */
   task?: HandsOnTask;
+  /** The scene set to the question's own numbers (not on a hands-on question, which starts from task.start). */
+  picture?: ChallengePicture;
   answers: { field: string; label?: string; value: number | string; unit?: string }[];
   /** Shown step by step (subtitle + voice) after the child misses the question 3 times; the last step gives the answer. */
   worked_example?: { steps: string[] };
   /** A similar question the child then does alone: same method, new numbers or setting. */
-  twin?: { prompt: string; answers: Challenge['answers']; options?: string[]; task?: HandsOnTask };
+  twin?: { prompt: string; answers: Challenge['answers']; options?: string[]; task?: HandsOnTask; picture?: ChallengePicture };
 }
 export interface ExperimentModel {
   id: string; ver: string; deterministic: true;
@@ -112,7 +116,8 @@ export interface ChildProfile {
   wish_prompt: string; wish_options_from_interests: boolean; wish_fallback_options: string[];
 }
 export interface ThemeTable {
-  skins: Record<string, { name: string; component: string; status: '已有' | '待开发' }>;
+  /** realism: set while the parent has judged a ready scene not photoreal enough and it is being replaced. */
+  skins: Record<string, { name: string; component: string; status: '已有' | '待开发'; realism?: string }>;
   topics: Record<string, string[]>;
   neutral: Record<string, string>;
 }

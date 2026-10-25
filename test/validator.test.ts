@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { evalExpr, ExprError, loadContext, validate } from '../packages/validator/src/index.js';
+import { evalExpr, ExprError, isNewLesson, loadContext, validate } from '../packages/validator/src/index.js';
 import type { LessonSpec } from '../packages/schema/src/index.js';
 
 const root = join(import.meta.dirname, '..');
@@ -23,15 +23,25 @@ describe('safe formulas', () => {
 });
 
 describe('sample lessons', () => {
-  it('哥哥 L-PA@1.0 passes; written before the question-type rule, it only warns about its fill-ins (V20)', () => {
+  it('哥哥 L-PA@1.0 passes; written before the question-type and picture rules, it only warns about them (V20, V23)', () => {
     const r = validate(load('L-PA', '1.0'), ctx());
     expect(r.ok).toBe(true);
-    expect(r.results.filter(x => !x.ok).map(x => x.id)).toEqual(['V20']);
+    expect(r.results.filter(x => !x.ok).map(x => x.id)).toEqual(['V20', 'V23']);
+    expect(isNewLesson('L-PA@1.0')).toBe(false);
   });
-  it('妹妹 L-ARR@1.0 passes and warns about the family-only wood texture (and, written before them, no hands-on question)', () => {
+  it('妹妹 L-ARR@1.0 passes and warns about the family-only wood texture (and, written before them, the question types and pictures)', () => {
     const r = validate(load('L-ARR', '1.0'), ctx());
     expect(r.ok).toBe(true);
-    expect(r.results.filter(x => !x.ok).map(x => x.id)).toEqual(['V12', 'V20']);
+    expect(r.results.filter(x => !x.ok).map(x => x.id)).toEqual(['V12', 'V20', 'V23']);
+  });
+  it('the example L-PA@1.1 has every question type and picture, and passes with nothing to warn about', () => {
+    const r = validate(load('L-PA', '1.1'), ctx(), { newLesson: true });
+    expect(r.results.filter(x => !x.ok).map(x => x.id)).toEqual([]);
+  });
+  it('a new lesson must follow the question-type and picture rules: V20 and V23 are errors for it', () => {
+    const r = validate(load('L-PA', '1.0'), ctx(), { newLesson: isNewLesson('L-PA-9@1.0') });
+    expect(r.ok).toBe(false);
+    expect(r.results.filter(x => !x.ok && x.level === 'error').map(x => x.id)).toEqual(['V20', 'V23']);
   });
 });
 

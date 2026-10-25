@@ -3,7 +3,8 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ChildProfile } from '../../schema/src/index.js';
-import { STAGE_FILES as F, loadPublished, readJson, writeJson } from '../../cli/src/lib.js';
+import { STAGE_FILES as F, loadInterests, loadPublished, loadThemes, readJson, topicPlan, writeJson } from '../../cli/src/lib.js';
+import { isNewLesson } from '../../validator/src/index.js';
 import { studioContext } from './context.js';
 import { EXAMPLE_LESSON, exampleStages, guide, type GuideTopic } from './guide.js';
 import { checkStages, disassemble, issues, readStages, writeStages, type Stages } from './lesson.js';
@@ -38,7 +39,7 @@ export function localBackend(root: string, submit?: (spec: unknown) => Promise<{
       const o = outcome(r);
       if (!/^[A-Za-z0-9-]+@\d+\.\d+$/.test(r.key)) return o;
       // never overwrite the reference lesson or a published one: a new lesson takes the id from adw_get_context
-      if (r.key === EXAMPLE_LESSON.join('@') || loadPublished(root).some(p => `${p.lesson_id}@${p.version}` === r.key))
+      if (r.key === EXAMPLE_LESSON.join('@') || !isNewLesson(r.key) || loadPublished(root).some(p => `${p.lesson_id}@${p.version}` === r.key))
         return { ...o, status: `没有保存：${r.key} 是示例课或已发布的课。新课用 adw_get_context 给的 new_lesson_id` };
       const dir = join(root, 'content', 'lessons', ...r.key.split('@'));
       writeStages(dir, stages);
@@ -52,6 +53,8 @@ export function localBackend(root: string, submit?: (spec: unknown) => Promise<{
       const spec = checkStages(root, stages).spec!;
       return { ...r, ...(await submit(spec)) };
     },
+    // without the family server the wishes are the ones `dls sync` pulled into content/interests.json
+    nextLessons: () => childList(root).map(c => ({ child: c.id, label: c.label, queue: loadInterests(root).filter(x => x.child === c.id && x.state === '下一课心愿').map(x => ({ topic: x.topic, wished: x.observed_on, ...topicPlan(x.topic, loadThemes(root)) })) })),
     lessons: child => loadPublished(root).filter(p => !child || p.for_child === child).map(p => ({ key: `${p.lesson_id}@${p.version}`, title: p.title, child: p.for_child, status: '已发布' })),
     lesson(key) {
       const dir = join(root, 'content', 'lessons', ...key.split('@'));

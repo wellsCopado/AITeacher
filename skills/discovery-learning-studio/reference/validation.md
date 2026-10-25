@@ -1,4 +1,4 @@
-# 自动校验 V01–V21
+# 自动校验 V01–V23
 
 `dls validate` 输出每条规则的结果；✗ 为错误（阻止发布），! 为警告。
 
@@ -22,6 +22,10 @@
 | V16 | 每步时间上限 | `timing.steps` 里各步秒数（explain/demo/challenge/chat）加起来不超过 `est_minutes` 上限；不写就按预计时长自动分配 |
 | V17 | 错三次演示 + 同类题 | 每道题写 `worked_example.steps`（2–5 步，最后一步说出全部答案）和 `twin`（换数字或情境，`field` 与原题一致，选择题的同类题也带 `options`） |
 | V18 | 坚持的理由 | 写 `encouragement.persist` 至少 2 句，和主题相连；“真棒”“加油”这种空话不算 |
-| V20 | 题型（警告） | 挑战题以选择题和应用题为主，没有选项的填空题最多 1 道，选项 2–4 个；组件支持动手题时至少 1 道动手题。见 [challenge-types.md](challenge-types.md) |
+| V20 | 题型（新课是错误） | 挑战题以选择题和应用题为主，没有选项的填空题最多 1 道，选项 2–4 个；组件支持动手题时至少 1 道动手题。见 [challenge-types.md](challenge-types.md) |
+| V22 | 配图参数有效 | `picture.params` 只用这个组件的数字参数、在范围内；动手题不写 `picture` |
+| V23 | 每道题有配图（新课是错误） | 不是动手题的每道题和同类题都写 `picture`，配图里的数都在题目里出现 |
 | V21 | 动手题能做 | `task` 的参数是组件允许孩子改的；`start` 写全、在范围内、不等于答案；答案正好一个 control 一条、范围内整数；不写 `options`；同类题也是动手题。见 [challenge-types.md](challenge-types.md) 第 4 节 |
 | V19 | 主角要看得到 | 主题有主角（`theme.subject`）时，把它列进 `pending_assets`（系统会自动补），标题或说明页标题里写出它的名字；画面做好、家长确认后才能发布 |
+
+V20 和 V23 对新写的课是错误，交不上去；只有这两条规则之前写的样课 L-PA@1.0、L-ARR@1.0 是警告。

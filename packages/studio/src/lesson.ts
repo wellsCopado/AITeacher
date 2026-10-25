@@ -1,9 +1,9 @@
 // The three stage files a lesson is written as (01-target, 02-director, 03-assets), turned into one LessonSpec
-// and checked against V01–V21. Shared by the dls command line, the MCP tools and the built-in AI lesson writer.
+// and checked against V01–V23. Shared by the dls command line, the MCP tools and the built-in AI lesson writer.
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AssetEntry, LessonSpec } from '../../schema/src/index.js';
-import { loadContext, validate, type Ctx, type Report } from '../../validator/src/index.js';
+import { isNewLesson, loadContext, validate, type Ctx, type Report } from '../../validator/src/index.js';
 import { STAGE_FILES as F, loadAssets, readJson, writeJson } from '../../cli/src/lib.js';
 
 /** 01-target.json, 02-director.json and 03-assets.json of one lesson. */
@@ -92,7 +92,10 @@ export function issues(r: Report) {
   return r.results.filter(x => !x.ok).flatMap(x => x.issues.map(i => ({ rule: x.id, level: x.level, rule_name: x.name, path: i.path, msg: i.msg, fix: i.fix ?? null })));
 }
 
-/** Assemble and validate. Stage-level problems (missing parts, unknown assets) come back as a failed report too. */
+/**
+ * Assemble and validate a lesson being written: the rules for new lessons apply (V20, V23 are errors).
+ * Stage-level problems (missing parts, unknown assets) come back as a failed report too.
+ */
 export function checkStages(root: string, s: Stages, ctx?: Partial<Ctx>): { spec: LessonSpec | null; report: Report; key: string } {
   const key = `${s?.target?.lesson_id ?? '?'}@${s?.target?.version ?? '?'}`;
   let spec: LessonSpec;
@@ -101,5 +104,5 @@ export function checkStages(root: string, s: Stages, ctx?: Partial<Ctx>): { spec
     if (!(e instanceof StageError)) throw e;
     return { spec: null, key, report: { lesson: key, ok: false, errors: 1, warnings: 0, results: [{ id: 'S00', name: '阶段文件能组装成一节课', basis: 'Skill 阶段 4', level: 'error', ok: false, issues: [{ path: '$', msg: e.message }] }] } };
   }
-  return { spec, key, report: validate(spec, { ...loadContext(root), ...ctx }) };
+  return { spec, key, report: validate(spec, { ...loadContext(root), ...ctx }, { newLesson: isNewLesson(key) }) };
 }

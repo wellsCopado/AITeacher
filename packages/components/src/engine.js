@@ -418,7 +418,8 @@ export function create(stage, kind, params, onPick, hooks){
     organism(cmd){ if(!st.org) return; if(cmd==='anatomy'){ st.orgFollow=true; const f=st.org.frame?st.org.frame():null; glide({dist:f?Math.max(0.46,f.anatomy*1.25):0.46, el:1.3}); } st.org.cmd(cmd); },
     organismState(){ return st.org&&st.org.ready ? {mode:st.org.mode, exploded:!!st.org.exploded} : null; },
     // a still picture of the setup (a challenge's illustration): the reef's tape laid round the edge, nothing moving
-    still(){ st.walk=null; st.fill=null; if(reef) st.tape.forEach(m=>{m.visible=true}); },
+    // view: overview (the default angle), top (straight down, as far as the orbit goes) or side (nearly level)
+    still(view){ st.walk=null; st.fill=null; if(reef) st.tape.forEach(m=>{m.visible=true}); if(view==='top') orbit.el=orbit.elMax; else if(view==='side') orbit.el=Math.max(orbit.elMin,0.22); },
     fill(){ if(!garden)return; st.tiles.forEach(m=>{m.visible=false;m.userData.t0=0}); st.fill={next:0,t0:performance.now()}; },
     reveal(){ if(garden)return; if(st.cell){ st.cell.reveal(); return; } st.cubes.forEach(m=>{m.visible=false;m.userData.t0=0}); st.reveal={rows:0,t0:performance.now()}; },
     setRot(on){ st.rotTarget = on? Math.PI/2 : 0; st.cell?.setRot(on); },

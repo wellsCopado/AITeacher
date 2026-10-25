@@ -68,7 +68,7 @@ export function guide(root: string, topic: GuideTopic | string = 'all'): string 
 }
 
 /** The reference lesson: a complete, passing set of stage files to copy the shape from. */
-export const EXAMPLE_LESSON = ['L-PA', '1.0'];
+export const EXAMPLE_LESSON = ['L-PA', '1.1'];
 export function exampleStages(root: string): Stages {
   const dir = join(root, 'content', 'lessons', ...EXAMPLE_LESSON);
   return { target: readJson(join(dir, F.target)), director: readJson(join(dir, F.director)), assets: readJson(join(dir, F.assets)) };

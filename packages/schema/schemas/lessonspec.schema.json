@@ -677,6 +677,31 @@
                     "description": "孩子能改的参数，例如 [\"rows\"]"
                   }
                 }
+              },
+              "picture": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "params"
+                ],
+                "description": "题目的配图：用这节课的 3D 场景按这些数摆出来（不播动画）。params 用组件的参数名，例如 {\"a\": 6, \"b\": 4} 或 {\"rows\": 3, \"cols\": 4}；只写题目里给出的数，不要把答案摆出来。动手题不写（场景从 task.start 开始）。",
+                "properties": {
+                  "params": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "additionalProperties": {
+                      "type": "integer"
+                    }
+                  },
+                  "view": {
+                    "enum": [
+                      "overview",
+                      "top",
+                      "side"
+                    ],
+                    "description": "相机：overview 斜看全景（默认）、top 正上方俯视、side 侧面平视"
+                  }
+                }
               }
             }
           },
@@ -709,6 +734,31 @@
                   "type": "string"
                 },
                 "description": "孩子能改的参数，例如 [\"rows\"]"
+              }
+            }
+          },
+          "picture": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "params"
+            ],
+            "description": "题目的配图：用这节课的 3D 场景按这些数摆出来（不播动画）。params 用组件的参数名，例如 {\"a\": 6, \"b\": 4} 或 {\"rows\": 3, \"cols\": 4}；只写题目里给出的数，不要把答案摆出来。动手题不写（场景从 task.start 开始）。",
+            "properties": {
+              "params": {
+                "type": "object",
+                "minProperties": 1,
+                "additionalProperties": {
+                  "type": "integer"
+                }
+              },
+              "view": {
+                "enum": [
+                  "overview",
+                  "top",
+                  "side"
+                ],
+                "description": "相机：overview 斜看全景（默认）、top 正上方俯视、side 侧面平视"
               }
             }
           }

@@ -16,7 +16,7 @@ mount(el: HTMLElement, componentId: string /* 名称@版本 */, params, opts: Mo
 | `opts.organism` | 动物素材（现在是俯视图 + 关节信息；换成真三维后改成 GLB 地址 + 骨骼动作名） |
 | `run(action)` | 播一个动作，播完 Promise 才 resolve。动作名必须在 `content/components.json` 里登记 |
 | `focus(anchor)` / `zoom(f)` / `reset()` / `toggleLabels()` | 镜头对准某个锚点、缩放、回到默认机位、显示或隐藏标注 |
-| `still()` | 不播动画，直接显示完成状态（挑战配图用）。改成显式配图后为 `still(params, view)` |
+| `still(view?)` | 不播动画，直接显示完成状态（挑战配图用）。参数在挂载时按题目的 `picture.params` 给；`view` 是相机预设：`overview`（默认）、`top`、`side` |
 | `dispose()` | 释放所有 GPU 资源、事件、定时器；连续挂载卸载 20 次内存不涨 |
 
 主持人接口见 [host.md](host.md)。

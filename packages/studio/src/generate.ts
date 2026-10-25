@@ -27,12 +27,13 @@ const OUTPUT_RULES = `## 输出格式（必须严格遵守）
 - 结构和“示例课”完全一样（字段名、层级、类型都一样），内容是为这个孩子新写的，不要照抄示例的题目和讲解。
 - 上下文里 fixed 的值原样使用：tenant_id、for_child、version、learner_profile.grade、learner_profile.language、curriculum_mapping 的 region / system / grade / status / verified_by。lesson_id 用所选组件的 new_lesson_id。
 - director.theme 原样复制所选组件的 suggested_theme；end_chat 里 kind 为 next_lesson_wish 的那一题原样复制 wish_question。
+- 上下文的 next_lesson_wish 不为空时，这节课就是按孩子自己说的这个心愿准备的：parent_tip 写一句“按（孩子）的心愿「主题」准备”。
 - suggested_theme 里有 subject（主角）时：这节课就是讲它的。theme.skin 和 component_params 里的 theme 从 themes_ready 里选最接近它真实环境的场景；标题、说明页、讲解和题目都围绕它写（例如 shrimp 讲解位置写成它的名字和它真实的样子），不要写成别的动物或东西。它的画面由系统另外做，你在 assets.pending 里列出它（系统会自动补）。
 - 课内进度看上下文 school：家长写了就按它选知识点；没写就按年级和日期推断，在 parent_tip 里写“课内进度是推断的”。不要因为资料不全而不写课。
 - scene_component_ids 只能用 components[].id；component_params 必须符合该组件的 params_schema；热点 anchor 只能用 hotspot_anchors；activity_graph 里的 action 只能用 actions。
 - primary_concept 只能用所选组件 teaches 里的知识点，误区从它的 misconceptions 里选。
 - assets.use 只能用 assets 里状态为“采用”或“采用标记”的 asset_id；状态为“待采购”的写进 assets.pending，until_ready 写“不展示……”。
-- 每个热点 language_pack：中文 1 条、英文 3 条。每道题都写 worked_example（2–5 步，最后一步说出全部答案）和 twin（同一方法换数字或情境，field 与原题相同）。题目和 twin 里写清“几行、每行几个”或“长几米、宽几米”，播放器按这些数用课里的 3D 场景给题目配图。挑战题以选择题（3–4 个选项，每个错误选项对应一个误区）和应用题（主题里的真实情境）为主，没有 options 的填空题最多 1 道；组件的 hands_on 里有 build 时，至少 1 道动手题：写 task: { type: "build", start: {写全 hands_on.build 的每个参数}, controls: [孩子能改的参数] }，answers 一个 control 一条（field 就是参数名，value 是要摆成的整数），不写 options，start 不等于答案，twin 也写 task；题目要让答案唯一（例如写“长比宽长”）。写 encouragement.persist（2–5 句，和主题相连）。
+- 每个热点 language_pack：中文 1 条、英文 3 条。每道题都写 worked_example（2–5 步，最后一步说出全部答案）和 twin（同一方法换数字或情境，field 与原题相同）。不是动手题的每道题和它的 twin 都写 picture: { params: {组件参数: 题目里给出的数}, view?: "overview"|"top"|"side" }，播放器按它用课里的 3D 场景配图；只摆题目给出的数，不把答案摆出来；场景标的是米，题目也用米。挑战题以选择题（3–4 个选项，每个错误选项对应一个误区）和应用题（主题里的真实情境）为主，没有 options 的填空题最多 1 道；组件的 hands_on 里有 build 时，至少 1 道动手题：写 task: { type: "build", start: {写全 hands_on.build 的每个参数}, controls: [孩子能改的参数] }，answers 一个 control 一条（field 就是参数名，value 是要摆成的整数），不写 options，start 不等于答案，twin 也写 task；题目要让答案唯一（例如写“长比宽长”）。写 encouragement.persist（2–5 句，和主题相连）。
 - 数字要自己算对；参考算例必须和公式一致。事实不确定就写“待科学审核”，不要编。`;
 
 export function authorMessages(root: string, ctx: StudioContext, req: LessonRequest): Message[] {
@@ -95,8 +96,6 @@ export async function generateLesson(o: {
   const messages = authorMessages(o.root, o.ctx, o.request ?? {});
   const max = o.rounds ?? 4;
   let last: GenerateResult = { ok: false, stages: null, spec: null, report: null, rounds: 0 };
-  // a lesson that passes but has too many fill-ins or no hands-on question (V20) gets one more round; if that round breaks it, the passing one stands
-  let passed: GenerateResult | null = null;
   for (let round = 1; round <= max; round++) {
     log(round === 1 ? '模型正在写课…' : `第 ${round} 轮：模型按校验意见修改…`);
     const reply = await o.chat(messages);
@@ -111,17 +110,10 @@ export async function generateLesson(o: {
     }
     const { spec, report } = checkStages(o.root, stages, o.validatorCtx);
     last = { ok: report.ok, stages, spec, report, rounds: round };
-    if (report.ok) {
-      const kinds = issues(report).filter(i => i.rule === 'V20');
-      if (!kinds.length || passed || round === max) { log(`校验通过（${report.warnings} 条警告）：${spec!.title}`); return last; }
-      passed = last;
-      log(`校验通过，但题型要改：${kinds.length} 处（少出填空，多出选择题和动手题）`);
-      messages.push({ role: 'user', content: `校验通过了，但题型不符合要求（V20）。只改挑战题，其余保持不变，重新输出完整 JSON：\n${kinds.map(i => `- ${i.path}：${i.msg}${i.fix ? `（怎么改：${i.fix}）` : ''}`).join('\n')}` });
-      continue;
-    }
+    if (report.ok) { log(`校验通过（${report.warnings} 条警告）：${spec!.title}`); return last; }
     const list = issues(report).filter(i => i.level === 'error');
     log(`校验没通过：${list.length} 个问题（${[...new Set(list.map(i => i.rule))].join('、')}）`);
     messages.push({ role: 'user', content: `校验没通过，请逐条改正后重新输出完整 JSON（target、director、assets 三部分都要）：\n${list.map(i => `- [${i.rule}] ${i.path}：${i.msg}${i.fix ? `（怎么改：${i.fix}）` : ''}`).join('\n')}` });
   }
-  return passed ?? last;
+  return last;
 }

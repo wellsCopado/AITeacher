@@ -3,8 +3,9 @@
 import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { join, resolve, basename } from 'node:path';
 import type { CheckedItem, InterestObservation, LearningJudgment, LessonSpec, ReteachTicket } from '../../schema/src/index.js';
-import { checkJudgment, loadContext, validate, type JudgmentReport, type Report } from '../../validator/src/index.js';
+import { checkJudgment, isNewLesson, loadContext, validate, type JudgmentReport, type Report } from '../../validator/src/index.js';
 import { buildPreview } from './preview.js';
+import { assetCheck, assetSheet, geometryLint, saveChecks } from './assets.js';
 import {
   assemble, chatWith, childList, createMcp, designPrompt, generateLesson, guide, localBackend, modelFromEnv, readStages, serveStdio,
   StageError, studioContext, writeStages, PROVIDERS,
@@ -64,7 +65,7 @@ function runValidate(target: string, flags: Flags): { sp: LessonSpec; report: Re
   const file = isDir ? join(target, F.spec) : target;
   if (!existsSync(file)) throw new UsageError(`${file} 不存在，先运行 dls assemble`);
   const sp = readJson<LessonSpec>(file);
-  const report = validate(sp, loadContext(root, previousFor(sp, flags)));
+  const report = validate(sp, loadContext(root, previousFor(sp, flags)), { newLesson: isNewLesson(`${sp.lesson_id}@${sp.version}`) });
   return { sp, report, dir: isDir ? target : null };
 }
 
@@ -366,6 +367,41 @@ const commands: Record<string, (pos: string[], flags: Flags) => number | Promise
     return 0;
   },
 
+  /**
+   * Acceptance checks for a 3D asset (photoreal-3d-production acceptance.md A). Without an id: only A5, the scene
+   * code's geometry against the allowlist. --save writes stats and results into the asset's manifest.json.
+   */
+  async 'asset-check'(pos, flags) {
+    const mark = (ok: boolean | null) => (ok === null ? '—' : ok ? '✓' : '✗');
+    if (!pos[0]) {
+      const l = geometryLint(root);
+      for (const u of l.unlisted) console.log(`✗ ${u.file}：${u.geometry} 没写进白名单（第 ${u.lines.join('、')} 行）`);
+      for (const s of l.stale) console.log(`✗ 白名单里的 ${s.file} ${s.geometry} 已经不用了，删掉这条`);
+      for (const p of l.pending) console.log(`… ${p.file} ${p.geometry === '*' ? '' : p.geometry + '：'}${p.what}（待替换，${p.gap}）`);
+      const ok = !l.unlisted.length && !l.stale.length;
+      const gaps = [...new Set(l.pending.map(p => p.gap))].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
+      console.log(`\nA5 代码几何：${ok ? '白名单齐全' : '有没登记的几何体'}；代码拼的复杂物体还有 ${gaps.length} 项等着替换：${gaps.join('、')}（见 gaps.md）`);
+      return ok ? 0 : 1;
+    }
+    const r = await assetCheck(root, pos[0]);
+    if (flags.json) console.log(JSON.stringify(r, null, 2));
+    else {
+      console.log(`素材 ${r.asset_id}${r.file ? `（${r.file}）` : ''}`);
+      for (const c of r.results) console.log(`${mark(c.ok)} ${c.id} ${c.name}：${c.detail}`);
+      console.log(r.ok ? '\n自动检查没有不通过的项。下一步：dls asset-sheet 出对照图，交给家长确认' : '\n有不通过的项（✗），改好再交给家长');
+    }
+    if (flags.save) { saveChecks(root, r, new Date().toISOString()); if (!flags.json) console.log(`已写进 ${r.manifest ?? `content/assets/${r.asset_id}/manifest.json`}`); }
+    return r.ok ? 0 : 1;
+  },
+
+  /** The comparison sheet (acceptance.md B): our renders next to real photos, content/assets/<id>/sheet.png. */
+  async 'asset-sheet'(pos, flags) {
+    const r = await assetSheet(root, need(pos[0], '资产 id'), { out: str(flags, 'out') });
+    console.log(`已生成对照图 ${r.out}`);
+    for (const v of r.views) if (!v.photo) console.log(`  ${v.view}：缺这个角度的参考照片（manifest.json 的 reference_photos 里写 angle: "${v.view}"）`);
+    return 0;
+  },
+
   /** Everything a model needs to write the next lesson for one child (also what the MCP tool adw_get_context returns). */
   context(_pos, flags) {
     const child = need(str(flags, 'child'), `--child（${childList(root).map(c => c.id).join(' / ')}）`);
@@ -490,7 +526,7 @@ const HELP = `dls — discovery-learning-studio 命令行
   dls theme <目录> --component <组件> [--write]   阶段 2：按孩子兴趣建议主题和课末心愿
   dls assets <目录>                       阶段 3：核验素材（许可、写实底线）
   dls assemble <目录>                     阶段 4：组装 lessonspec.json
-  dls validate <目录|文件> [--previous <文件>] [--json]   阶段 5：V01–V21
+  dls validate <目录|文件> [--previous <文件>] [--json]   阶段 5：V01–V23
   dls preview <目录|文件> [--out <文件>]         生成可直接打开的课程预览
   dls review <目录> [--init] [--approve <类别,…|all> --by <审核人>]   阶段 6：审核清单
   dls submit <目录> --server <地址>       阶段 6：交给家长端审核并发布（推荐）
@@ -500,6 +536,8 @@ const HELP = `dls — discovery-learning-studio 命令行
   dls tickets --server <地址>             重教需求，以及开始重教版的命令
   dls interest [add] --child <孩子> [--topic … --source … --state … --said …]
   dls skill [<名称> [<文件>]]              读项目里的 Skill（不写名称时列出全部），给不会自己读文件夹的模型用
+  dls asset-check [<资产id>] [--json] [--save]   3D 素材的自动检查 A1–A9（不写 id 时只查 A5：场景代码里的几何体）
+  dls asset-sheet <资产id> [--out <文件>]   对照图：我们的渲染和同角度真实照片并排，存成 content/assets/<id>/sheet.png
   dls context --child <孩子> [--json]      做课需要的全部信息（兴趣、可用组件、建议主题、新课 id）
   dls design --child <孩子>                给 ChatGPT 等聊天模型的设计说明：和它谈好方案，再交给 dls generate --wish
   dls generate --child <孩子> [--wish <要求>] [--component <组件>] [--submit --server <地址>]

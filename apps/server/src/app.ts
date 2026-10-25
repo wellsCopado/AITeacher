@@ -6,13 +6,14 @@ import { randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { ChildProfile, InterestObservation, LessonSpec, ReteachTicket } from '../../../packages/schema/src/index.js';
-import { loadContext, mechanism, validate } from '../../../packages/validator/src/index.js';
+import { isNewLesson, loadContext, mechanism, validate } from '../../../packages/validator/src/index.js';
 import { contentHash, readJson, REVIEW_CHECKLIST } from '../../../packages/cli/src/lib.js';
 import { Store, type EventIn, type Role } from './db.js';
 import { HttpError, TZ, addDays, fail, isDate, isKey, sha, shanghaiDate } from './http.js';
 import { homeworkRoutes, reteachHistory } from './homework.js';
 import { mediaRoutes } from './media.js';
 import { studioRoutes } from './studio.js';
+import { wishBook } from './wishes.js';
 import type { CodexOpts } from '../../../packages/studio/src/codex.js';
 import { macSay, SYSTEM_VOICE, type Lang, type Synth } from './tts.js';
 
@@ -54,6 +55,10 @@ export async function buildApp(o: AppOptions) {
   const store = new Store(o.dbPath, tenant);
   const children = readJson<Record<string, ChildProfile>>(join(o.root, 'content', 'children.json'));
   seed(store, o.root, tenant, children, iso());
+  const wishes = wishBook({ store, root: o.root, iso });
+  wishes.migrate();
+  /** Starts getting a new prep list's topic ready (finding real photos…); set once the studio routes are up. */
+  let prepare = (_id: string) => {};
 
   const app = Fastify({ logger: o.logger ?? false, bodyLimit: 8 * 1024 * 1024 });
   app.decorate('store', store);
@@ -124,11 +129,14 @@ export async function buildApp(o: AppOptions) {
   const childParam = (v: unknown) => { const c = String(v ?? ''); if (!store.hasChild(c)) fail(400, '没有这个孩子'); return c; };
   // Automatic schedule (the parent's choice, on unless turned off): each child gets one lesson a day, the oldest
   // published one they haven't finished. Today's pick is written down the first time anyone looks, so it stays
-  // the same all day; the parent can change or cancel any day, and that day is then theirs.
+  // the same all day; the parent can change or cancel any day, and that day is then theirs. A newer version of a
+  // lesson takes the old one's place, and a lesson finished in any version counts as learned.
   const autoOn = () => (store.setting('schedule.auto') ?? '1') === '1';
   const unfinished = (child: string) => {
-    const done = new Set(store.sessions(child).filter(s => s.finished).map(s => s.lesson_key));
-    return store.lessons().filter(l => l.for_child === child && !done.has(l.key)).reverse().map(l => l.key);
+    const done = new Set(store.sessions(child).filter(s => s.finished).map(s => s.lesson_key.split('@')[0]));
+    const latest = new Map<string, string>();
+    for (const l of store.lessons().reverse()) if (l.for_child === child) latest.set(l.lesson_id, l.key);
+    return [...latest].filter(([id]) => !done.has(id)).map(([, key]) => key);
   };
   const ensureAuto = (date: string, child: string) => {
     if (!autoOn() || date !== today() || store.dayMode(date, child)) return;
@@ -184,25 +192,28 @@ export async function buildApp(o: AppOptions) {
     const first = events.map(e => e.at).sort()[0];
     // Pads may sync late; the session belongs to the day its first event happened, never a future day.
     const startedOn = existing?.started_on ?? (first ? [shanghaiDate(new Date(first)), today()].sort()[0] : today());
+    const preps: string[] = [];
     const fresh = store.tx(() => {
       store.ensureSession(key, child, lessonKey, startedOn, iso());
       const f = store.addEvents(key, events, iso());
       for (const e of f) {
+        // the child's wish is written down at once and becomes the next lesson's prep list (pipeline P0)
         if (e.type === 'next_lesson_wish' && typeof e.answer === 'string' && e.answer.trim()) {
-          const topic = e.answer.trim().slice(0, 40);
-          store.addInterest({ child, topic, source: '孩子自述', said: topic, observed_on: startedOn.slice(0, 7), state: '下一课心愿', lesson_ref: lessonKey }, iso());
+          const { prep } = wishes.record({ child, said: e.answer, on: startedOn, lesson_from: lessonKey, source: '孩子自述' });
+          if (prep?.status === '准备中') preps.push(prep.id);
         }
         if (e.type === 'lesson_end') store.finishSession(key);
       }
       return f;
     });
+    for (const id of preps) prepare(id);
     return { accepted: fresh.length, duplicates: events.length - fresh.length };
   });
 
   // ---- parent ----
   app.get('/v1/lessons', parent, async () => store.lessons());
   /** Everything a lesson must pass before children can see it; the server re-runs V01–V15 with its own records. */
-  const vet = (sp: LessonSpec) => {
+  const vet = (sp: LessonSpec, intake = false) => {
     if (!sp || typeof sp !== 'object' || !isKey(`${sp.lesson_id}@${sp.version}`)) fail(400, '不是一份课程文件');
     if (!store.hasChild(sp.for_child)) fail(400, '没有这个孩子');
     const key = `${sp.lesson_id}@${sp.version}`;
@@ -215,7 +226,8 @@ export async function buildApp(o: AppOptions) {
       ticket = store.tickets(sp.for_child).find(t => t.judgment_ref === sp.trigger_judgment_ref && t.concept_id === sp.primary_concept.id && t.status === '需求登记');
       if (!ticket) fail(400, `判断 ${sp.trigger_judgment_ref} 没有对「${sp.primary_concept.name}」的待做重教需求`);
     }
-    const report = validate(sp, { ...loadContext(o.root, previous), interests: store.interests(), reteach: reteachHistory(store) });
+    // a lesson handed in now follows the rules for new lessons; one already waiting or frozen keeps the rules it came in under
+    const report = validate(sp, { ...loadContext(o.root, previous), interests: store.interests(), reteach: reteachHistory(store) }, { newLesson: intake && isNewLesson(key) });
     return { key, ticket, report };
   };
   const publish = (sp: LessonSpec, ticket?: ReteachTicket) => store.tx(() => {
@@ -245,10 +257,10 @@ export async function buildApp(o: AppOptions) {
   app.get('/v1/review-checklist', parent, async () => REVIEW_CHECKLIST);
   app.post('/v1/drafts', agentOrParent, async (req, reply) => {
     const { review_records: _r, content_hash: _h, published_at: _p, ...sp } = req.body as LessonSpec;
-    const { key, report } = vet(sp as LessonSpec);
+    const { key, report } = vet(sp as LessonSpec, true);
     if (store.lesson(key)) fail(409, `${key} 已发布且已冻结；修改请升版本号`);
     if (!report.ok) return reply.code(422).send({ error: '服务器校验未通过', report });
-    store.upsertDraft(sp as LessonSpec, req.who ?? '家长', iso());
+    store.tx(() => { wishes.follow(sp as LessonSpec, key); store.upsertDraft(sp as LessonSpec, req.who ?? '家长', iso()); });
     return reply.code(201).send({ key, status: '待审核', warnings: report.warnings });
   });
   app.get('/v1/drafts', parent, async () => store.drafts().map(d => {
@@ -258,6 +270,7 @@ export async function buildApp(o: AppOptions) {
       ...d, child: sp.for_child, concept: sp.primary_concept.name, theme: { name: sp.theme.name, why: sp.theme.why },
       challenges: sp.challenges.map(c => ({ prompt: c.prompt, with_theme: c.with_theme, answers: c.answers.map(a => `${a.label ? a.label + ' ' : ''}${a.value}${a.unit ? ' ' + a.unit : ''}`) })),
       pending_assets: (sp.pending_assets ?? []).map(p => p.asset_id),
+      replaces: sp.previous_version ? `${sp.lesson_id}@${sp.previous_version}` : null,
       subject: sp.theme.subject ? { ...sp.theme.subject, ready: store.mediaFor(sp.theme.subject.asset_id).some(m => m.confirmed) } : null,
       offscreen: sp.offscreen?.task ?? null,
       ok: report.ok,
@@ -376,6 +389,11 @@ export async function buildApp(o: AppOptions) {
     const states: InterestObservation['state'][] = ['家长指定', '下一课心愿', '近期最喜欢', '喜欢', '曾经喜欢', '只用于安全工程题材'];
     const state = states.includes(b.state as InterestObservation['state']) ? b.state! : '喜欢';
     const source = b.source === '孩子自述' ? '孩子自述' : '家长报告';
+    if (state === '下一课心愿') {
+      const { interest, prep } = store.tx(() => wishes.record({ child, said: b.said ? String(b.said) : topic, topic, on: today(), lesson_from: null, source }));
+      if (prep) prepare(prep.id);
+      return interest;
+    }
     return store.addInterest({ child, topic, source, said: b.said ? String(b.said).slice(0, 200) : null, observed_on: today().slice(0, 7), state, lesson_ref: null }, iso());
   });
 
@@ -384,7 +402,7 @@ export async function buildApp(o: AppOptions) {
     const sp = readJson<LessonSpec>(f);
     const key = `${sp.lesson_id}@${sp.version}`;
     if (sp.tenant_id !== tenant || store.lesson(key) || store.draft(key)) continue;
-    try { if (vet(sp).report.ok) store.upsertDraft(sp, 'content/lessons', iso()); } catch { /* not ready: the Skill will submit it */ }
+    try { if (vet(sp, true).report.ok) store.upsertDraft(sp, 'content/lessons', iso()); } catch { /* not ready: the Skill will submit it */ }
   }
 
   homeworkRoutes(app, { store, root: o.root, dataDir: o.dataDir ?? join(dirname(o.dbPath), 'homework'), today, iso, parent, childParam, pin: o.pin });
@@ -428,7 +446,7 @@ export async function buildApp(o: AppOptions) {
   });
 
   const media = mediaRoutes(app, { store, root: o.root, mediaDir: join(dirname(o.dbPath), 'media'), iso, parent, anyone });
-  studioRoutes(app, { store, root: o.root, tenant, iso, parent, agentOrParent, issue, vet, media, fetchImpl: o.fetchImpl, codex: o.codex });
+  prepare = studioRoutes(app, { store, root: o.root, tenant, iso, parent, agentOrParent, issue, vet, media, wishes, fetchImpl: o.fetchImpl, codex: o.codex }).prepare;
 
   // ---- static apps ----
   if (o.serveApps) {
