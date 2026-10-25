@@ -7,6 +7,6 @@
 | PerimeterArea | 1.2 | 周长与面积的区别 | a, b（1–10 m 整数）, theme, showUnits | reef, garden | fence, tile, unit, shrimp | walk, fill, focus |
 | ArrayMultiplier | 1.0 | 乘法的意义 | rows, cols（1–9）, theme | blocks、robot_factory | row, col, total | reveal, rotate |
 
-ArrayMultiplier 的 `robot_factory`（机器人工厂）：一台真实尺寸的六轴工业机械臂从身后的传送带抓起一整行齿轮，一行一行放到托盘上（reveal），转台把托盘转 90°（rotate），行变成列。相邻两行一行钢、一行黄铜，方便数行。热点 `row` 在第一行左边，`col` 在第一列后面，`total` 在托盘上方。素材写 `M-robot-cell`、`H-warehouse`。主题是机器人、机械臂、工厂时用它，不用积木代替。
+ArrayMultiplier 的 `robot_factory`（机器人工厂）：一台真实尺寸的六轴工业机械臂从身后的传送带抓起一整行齿轮，一行一行放到托盘上（reveal），转台把托盘转 90°（rotate），行变成列。相邻两行一行钢、一行黄铜，方便数行。热点 `row` 在第一行左边，`col` 在第一列后面，`total` 在托盘上方。素材写 `M-robot-cell`、`H-warehouse`。主题是机器人、机械臂、工厂时用它，不用积木代替。现在的机械臂是代码拼的，家长 2026-10-25 判定不够写实，正在换成真实型号的模型（`skills/photoreal-3d-production/reference/gaps.md` G1），接口和参数不变。
 
 需要新的知识点或交互时，不要在 LessonSpec 里变通，向家长说明需要开发新组件（M2 起）。主题皮肤“待开发”的同理，开素材工单。

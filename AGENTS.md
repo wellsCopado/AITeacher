@@ -8,6 +8,7 @@
 | --- | --- |
 | 做一节课、按作业重教、改家长退回的课 | `skills/discovery-learning-studio/SKILL.md` 和它的 `reference/` |
 | 看作业照片、写判断、触发重教 | `skills/homework-analysis/SKILL.md` 和它的 `reference/` |
+| 做 3D 场景和组件、给课的主角找或做写实素材、做主持人、替换不达标的画面 | `skills/photoreal-3d-production/SKILL.md` 和它的 `reference/`（先读 `reference/gaps.md`） |
 
 `.agents/skills/`（Codex）、`.claude/skills/`（Claude Code）、`.qoder/rules/`（Qoder）里只放指向上面目录的入口，规则不在那里另写。
 
@@ -15,7 +16,7 @@
 
 - 和家长沟通用中文。孩子相关文字适龄、简短。
 - 制作课程一律走 `skills/discovery-learning-studio` 的六个阶段，用 `pnpm -s dls` 落盘和校验；不要手改 `content/published/` 下已发布的文件。
-- 写实底线 BL14、兴趣来自孩子本人（BL05）、数学优先（BL01）是硬约束。
+- 写实底线 BL14、兴趣来自孩子本人（BL05）、数学优先（BL01）是硬约束。写实的具体规格和验收在 `skills/photoreal-3d-production`：复杂物体（机器、机器人、动物、人、建筑）只能来自素材文件或视频，不能在代码里用几何体拼。
 - 改了校验规则或 Schema，同时更新 `test/` 并跑 `pnpm test` 和 `pnpm typecheck`。
 - 发布只能由家长在家长端「课程库」点按钮完成。`dls review --approve` 只在家长明确确认对应类别后运行。AI 助手没有发布权限，也不要想办法绕过。
 - 看作业、写判断一律走 `skills/homework-analysis`，用 `pnpm -s dls homework …`；家长没勾选“同意 AI 识别”的作业不看照片，照片只放 `content/homework/`（不进 git）。
