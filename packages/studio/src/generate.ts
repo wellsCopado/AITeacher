@@ -32,7 +32,7 @@ const OUTPUT_RULES = `## 输出格式（必须严格遵守）
 - scene_component_ids 只能用 components[].id；component_params 必须符合该组件的 params_schema；热点 anchor 只能用 hotspot_anchors；activity_graph 里的 action 只能用 actions。
 - primary_concept 只能用所选组件 teaches 里的知识点，误区从它的 misconceptions 里选。
 - assets.use 只能用 assets 里状态为“采用”或“采用标记”的 asset_id；状态为“待采购”的写进 assets.pending，until_ready 写“不展示……”。
-- 每个热点 language_pack：中文 1 条、英文 3 条。每道题都写 worked_example（2–5 步，最后一步说出全部答案）和 twin（同一方法换数字或情境，field 与原题相同）。写 encouragement.persist（2–5 句，和主题相连）。
+- 每个热点 language_pack：中文 1 条、英文 3 条。每道题都写 worked_example（2–5 步，最后一步说出全部答案）和 twin（同一方法换数字或情境，field 与原题相同）。题目和 twin 里写清“几行、每行几个”或“长几米、宽几米”，播放器按这些数用课里的 3D 场景给题目配图。写 encouragement.persist（2–5 句，和主题相连）。
 - 数字要自己算对；参考算例必须和公式一致。事实不确定就写“待科学审核”，不要编。`;
 
 export function authorMessages(root: string, ctx: StudioContext, req: LessonRequest): Message[] {

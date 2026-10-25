@@ -85,7 +85,7 @@ pnpm -s dls theme content/lessons/L-XXX/1.0 --component PerimeterArea --write
 
 把建议告诉家长；家长可以改。工具提示“待开发”的主题皮肤，要转告家长需要开素材工单，这节课先用可用的主题。
 
-再补全 `02-director.json`：标题、说明页 `intro`、`scene_component_ids`、`component_params`、实验模型（变量范围 + 公式 + 参考算例，必须含越界算例）、活动图、热点（中文 1 条 + 英文 3 条）、≤ 3 道挑战（至少一道不带主题的迁移题；**每道题都带分步演示 `worked_example` 和同类题 `twin`**）、答错时的鼓励 `encouragement.persist`、课末反思问题、评估计划、可选离屏任务、家长提示、出处。每个活动节点和热点都写 `teaches`。字段说明见 [reference/lessonspec.md](reference/lessonspec.md)，组件能力见 [reference/components.md](reference/components.md)，主题映射见 [reference/themes.md](reference/themes.md)。
+再补全 `02-director.json`：标题、说明页 `intro`、`scene_component_ids`、`component_params`、实验模型（变量范围 + 公式 + 参考算例，必须含越界算例）、活动图、热点（中文 1 条 + 英文 3 条）、≤ 3 道挑战（至少一道不带主题的迁移题；**每道题都带分步演示 `worked_example` 和同类题 `twin`**；题目里写清“几行、每行几个”或“长、宽”，播放器按这些数用课里的 3D 场景给每道题配图）、答错时的鼓励 `encouragement.persist`、课末反思问题、评估计划、可选离屏任务、家长提示、出处。每个活动节点和热点都写 `teaches`。字段说明见 [reference/lessonspec.md](reference/lessonspec.md)，组件能力见 [reference/components.md](reference/components.md)，主题映射见 [reference/themes.md](reference/themes.md)。
 
 ### 3. 素材检索核验 → `03-assets.json`
 

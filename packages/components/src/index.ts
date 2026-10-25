@@ -2,6 +2,8 @@
 // The photoreal scene engine (engine.js) is the prototype's, kept as-is so its look stays what was signed off.
 // @ts-expect-error engine.js is plain JS without types
 import { create } from './engine.js';
+// @ts-expect-error host.js is plain JS without types
+import { createHost } from './host.js';
 
 export interface HotspotBinding { anchor: string; label: string }
 export interface MountOptions {
@@ -29,8 +31,14 @@ export interface Instance {
   /** The animal in the scene: show, strike, slow (strike in slow motion), anatomy (apart / together), hide. */
   organism(cmd: string): void;
   organismState(): { mode: string; exploded: boolean } | null;
+  /** Show the finished setup without animation (a challenge's picture). */
+  still(): void;
   dispose(): void;
 }
+
+/** The robot host of the end-of-lesson chat: talks while a line is read, nods at an answer, waves goodbye. */
+export interface Host { talk(on: boolean): void; nod(): void; wave(): void; dispose(): void }
+export function mountHost(el: HTMLElement, opts: { reduced?: () => boolean } = {}): Host { return createHost(el, opts); }
 
 interface Def {
   version: string;
@@ -94,6 +102,7 @@ export function mount(el: HTMLElement, componentId: string, params: Record<strin
     toggleLabels: () => engine.toggleLabels(),
     organism: cmd => engine.organism?.(cmd),
     organismState: () => engine.organismState?.() ?? null,
+    still: () => engine.still(),
     dispose: () => { pending.clear(); engine.dispose(); },
   };
 }

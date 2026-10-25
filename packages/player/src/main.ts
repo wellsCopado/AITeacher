@@ -1,7 +1,7 @@
 // Lesson player: renders one frozen LessonSpec with the pre-reviewed components.
 // Used by `dls preview` (with the parent side panel) and by the Pad app (`kid: true`, events sent to the server).
 import type { Challenge, LessonSpec } from '../../schema/src/index.js';
-import { mount, type Instance } from '../../components/src/index.js';
+import { mount, mountHost, type Host, type Instance } from '../../components/src/index.js';
 import { pointerKey, utterance } from './language.js';
 import { checkAttempt, type Attempt } from './check.js';
 import { answerText, DEMO_AFTER, encourageWrong, findGood, praiseRight, workedSteps } from './encourage.js';
@@ -61,6 +61,9 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
   const startedAt = Date.now();
   let step = 0;
   let scene: Instance | null = null;
+  /** The 3D picture of the question on screen, and the robot host of the chat at the end. */
+  let pic: Instance | null = null, host: Host | null = null;
+  const reducedMotion = () => typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   const hintsUsed: Record<string, number> = {};
   const skin = sp.theme.skin ?? '';
   const organismPending = (sp.pending_assets ?? []).filter(p => p.kind === 'organism');
@@ -106,7 +109,8 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
   // A soft tap on every button press, so the child hears that the Pad got it.
   root.addEventListener('click', e => { if ((e.target as HTMLElement).closest('button')) voice.tap(); });
 
-  const say = (text: string) => voice.speak(text, 'zh');
+  // the robot host (when one is on screen) talks while a line is read
+  const say = (text: string) => { host?.talk(true); const p = voice.speak(text, 'zh'); void p.finally(() => host?.talk(false)); return p; };
   function guide(text: string, speak = true) { $('#gtext').textContent = text; if (speak) void say(text); }
   /** Read lines one after another with a subtitle for each; true if the child is still on this step at the end. */
   async function narrate(lines: { text: string; el?: Element | null }[]) {
@@ -237,7 +241,7 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
 
   let demoWatch: ((e: Event) => void) | null = null;
   function go(i: number) {
-    scene?.dispose(); scene = null;
+    scene?.dispose(); scene = null; pic?.dispose(); pic = null; host?.dispose(); host = null;
     if (demoWatch) root.removeEventListener('adw:event', demoWatch); demoWatch = null;
     clock?.stop(); subClock?.stop(); voice.stop(); epoch++;
     const cap = root.querySelector('#cap') as HTMLElement | null; if (cap) cap.hidden = true;
@@ -412,9 +416,37 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
     box.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>('input,select,button').forEach(x => { x.disabled = true; });
   }
   function challengeCard(c: Challenge, i: number) {
-    return `<div class="card" data-ch="${esc(c.id)}" hidden><p data-prompt><b>第 ${i + 1} 题（共 ${sp.challenges.length} 题）</b> ${esc(c.prompt)}</p><div class="ans">${answerInputs(c)}</div>
+    return `<div class="card" data-ch="${esc(c.id)}" hidden><p data-prompt><b>第 ${i + 1} 题（共 ${sp.challenges.length} 题）</b> ${esc(c.prompt)}</p>
+      <div class="cpic"><div class="stage mini" data-pic></div><span class="pictag">按题目里的数摆出来的，可以转着看</span></div><div class="ans">${answerInputs(c)}</div>
       <div class="row"><button class="btn primary" data-chk>检查</button><button class="btn" data-hint>提示</button><button class="btn" data-read>🔊 再读一遍</button><button class="btn primary" data-go hidden>${i + 1 < sp.challenges.length ? '下一题' : '题目做完了'}</button></div>
       <p class="fb" aria-live="polite"></p><div class="worked" hidden></div><div class="twin" hidden></div></div>`;
+  }
+
+  // Every question comes with a picture (图文): the lesson's own 3D scene set up with the numbers in the question
+  // (rows and gears in a row, a field's length and width). A question that doesn't name the theme still gets the
+  // lesson's scene, so a robot lesson never falls back to plain blocks.
+  // One picture at a time; it moves on with the question and changes for the child's own try after a demo.
+  function pictureParams(text: string) {
+    const comp = sp.scene_component_ids[0], name = comp.split('@')[0];
+    const p: Record<string, unknown> = { ...(sp.component_params[name] as Record<string, unknown>) };
+    const n = (re: RegExp) => { const m = re.exec(text); return m ? Number(m[1] ?? m[2]) : undefined; };
+    const nums = (text.match(/\d+/g) ?? []).map(Number);
+    const fits = (v: number | undefined, max: number): v is number => v !== undefined && v >= 1 && v <= max && Number.isInteger(v);
+    if (name === 'ArrayMultiplier') {
+      const rows = n(/(\d+)\s*(?:行|排)/) ?? nums[0], cols = n(/每(?:行|排)\s*(?:有|放|摆)?\s*(\d+)|(\d+)\s*列/) ?? nums[1];
+      if (fits(rows, 9) && fits(cols, 9)) Object.assign(p, { rows, cols });
+    } else if (name === 'PerimeterArea') {
+      const a = n(/长\s*(?:是|为)?\s*(\d+)/) ?? nums[0], b = n(/宽\s*(?:是|为)?\s*(\d+)/) ?? nums[1];
+      if (fits(a, 10) && fits(b, 10)) Object.assign(p, { a, b });
+    }
+    return { comp, p };
+  }
+  function picture(card: HTMLElement, text: string) {
+    const el = card.querySelector<HTMLElement>('[data-pic]'); if (!el) return;
+    pic?.dispose(); pic = null;
+    const { comp, p } = pictureParams(text);
+    try { pic = mount(el, comp, p, { hotspots: [], onHotspot: () => undefined }); pic.still(); log('picture', { params: p }); }
+    catch { el.closest('.cpic')?.remove(); }
   }
 
   // One question at a time: each is shown with a subtitle and read aloud, and the next one opens once this one
@@ -441,9 +473,11 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
       cur = i;
       if (i >= sp.challenges.length) {
         root.querySelectorAll<HTMLElement>('[data-ch]').forEach(el => { el.hidden = false; });
+        pic?.dispose(); pic = null; root.querySelectorAll('.cpic').forEach(n => n.remove());
         guide('题目都做完了，点「去聊聊」。'); subGuide(''); unlock(next); return;
       }
       const c = sp.challenges[i];
+      picture(root.querySelector(`[data-ch="${c.id}"]`) as HTMLElement, c.prompt);
       guide(`第 ${i + 1} 题（共 ${sp.challenges.length} 题）：先听题，再作答。`, false);
       void narrate([{ text: c.prompt, el: root.querySelector(`[data-ch="${c.id}"] [data-prompt]`) }]);
       questionClock(i, per);
@@ -507,6 +541,7 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
       if (epoch !== mine || cur !== i) return;
       // Now the child uses the same method alone, on a similar question.
       const tw = c.twin ?? { prompt: c.prompt, answers: c.answers, options: c.options };
+      if (c.twin) picture(card, tw.prompt);
       const box = card.querySelector('.twin') as HTMLElement;
       box.hidden = false;
       box.innerHTML = `<p class="wtitle">✋ 轮到你自己做一次</p><p data-tprompt>${esc(tw.prompt)}</p><div class="ans">${answerInputs(tw)}</div>
@@ -535,16 +570,21 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
     };
   }
 
+  // The chat at the end is hosted by a robot that talks, nods at answers and waves goodbye.
+  function withHost(html: string) {
+    $('#body').innerHTML = `<div class="hostwrap"><div class="host" id="host" aria-hidden="true"><span class="hostname">机器人助手</span></div><div class="hostside">${html}</div></div>`;
+    try { host = mountHost($('#host'), { reduced: reducedMotion }); } catch { $('#host').remove(); }
+  }
   function chat() {
     const qs = sp.end_chat.questions;
-    $('#body').innerHTML = `<div class="card"><p class="muted small">说不说都可以，只用来准备下一次课。</p>
+    withHost(`<div class="card"><p class="muted small">说不说都可以，只用来准备下一次课。</p>
       ${qs.map(q => `<div class="q" data-q="${esc(q.id)}"><p><b>${esc(q.prompt)}</b></p><div class="row wrap">${q.options.map(o => `<button class="btn opt" data-a="${esc(o)}">${esc(o)}</button>`).join('')}${q.allow_own_words ? `<input class="own" maxlength="20" placeholder="我自己说一个（20 字以内）" aria-label="我自己说一个">` : ''}</div></div>`).join('')}
-      </div><div class="row"><button class="btn primary" id="done">说完了</button><button class="btn" id="skip">跳过</button></div>`;
+      </div><div class="row"><button class="btn primary" id="done">说完了</button><button class="btn" id="skip">跳过</button></div>`);
     const answers: Record<string, string> = {};
     qs.forEach(q => {
       const box = root.querySelector(`[data-q="${q.id}"]`) as HTMLElement;
       box.querySelectorAll<HTMLButtonElement>('[data-a]').forEach(b => b.onclick = () => {
-        answers[q.id] = b.dataset.a!; box.querySelectorAll('[data-a]').forEach(x => x.classList.toggle('on', x === b));
+        answers[q.id] = b.dataset.a!; box.querySelectorAll('[data-a]').forEach(x => x.classList.toggle('on', x === b)); host?.nod();
         const own = box.querySelector('.own') as HTMLInputElement | null; if (own) own.value = '';
       });
       const own = box.querySelector('.own') as HTMLInputElement | null;
@@ -555,7 +595,7 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
     $('#skip').onclick = () => { log('chat_skipped'); go(4); };
     // What the child already picked still counts when time runs out.
     onTimeout[3] = record;
-    void narrate(qs.map(q => ({ text: q.prompt, el: root.querySelector(`[data-q="${q.id}"] p`) })));
+    void narrate([{ text: `${opts.childName ? `${opts.childName}，` : ''}今天辛苦啦！我是机器人助手，想听听你的想法。` }, ...qs.map(q => ({ text: q.prompt, el: root.querySelector(`[data-q="${q.id}"] p`) }))]);
   }
 
   function finish() {
@@ -563,13 +603,14 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
     const overTime = (Date.now() - startedAt) / 1000 * scale >= STEP_KEYS.reduce((a, k) => a + times[k], 0);
     const answered = events.filter(e => e.type === 'answer');
     const solved = new Set(answered.filter(e => e.correct).map(e => e.challenge));
-    $('#body').innerHTML = `<div class="card"><p class="lead">今天的探索结束了。</p>
+    withHost(`<div class="card"><p class="lead">今天的探索结束了。</p>
       <p>${solved.size ? `你做对了 ${solved.size} 道题${[...solved].length < sp.challenges.length ? '，其他的下次再试' : ''}。` : '今天主要在看和试，题目下次再做也可以。'}</p>
       <p class="muted small">这里只说看到的事情，不打分、不排名。</p></div>
       ${sp.offscreen ? `<div class="card"><p><b>可以不做的家里小任务</b></p><p>${esc(sp.offscreen.task)}</p><p class="muted small">${sp.offscreen.adult ? '需要大人陪同 · ' : ''}材料：${esc((sp.offscreen.materials ?? []).join('、'))} · 没材料就跳过。</p></div>` : ''}
-      <div class="row">${overTime ? '' : '<button class="btn" id="again">再玩一次演示</button>'}${opts.onExit ? '<button class="btn" id="exit">回到今天的课</button>' : ''}</div>`;
+      <div class="row">${overTime ? '' : '<button class="btn" id="again">再玩一次演示</button>'}${opts.onExit ? '<button class="btn" id="exit">回到今天的课</button>' : ''}</div>`);
+    host?.wave();
     root.querySelector<HTMLButtonElement>('#again')?.addEventListener('click', () => go(1));
-    say('今天的探索结束了。');
+    say('今天的探索结束了，下次见！');
     if (opts.onExit) $('#exit').onclick = opts.onExit;
     log('lesson_end', { solved: [...solved] });
   }
@@ -582,7 +623,7 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
     <button class="btn primary big" id="start">🔊 开始上课</button>
     <p class="muted small">点了没有声音：按 iPad 侧面的音量加键，再看控制中心里的静音铃铛是不是开着。</p></div>`;
   $('#start').onclick = () => { voice.unlock(); log('start'); go(0); };
-  return { events, get scene() { return scene; }, dispose: () => { scene?.dispose(); clock?.stop(); subClock?.stop(); voice.stop(); } };
+  return { events, get scene() { return scene; }, dispose: () => { scene?.dispose(); pic?.dispose(); host?.dispose(); clock?.stop(); subClock?.stop(); voice.stop(); } };
 }
 
 declare global { interface Window { __LESSON__?: LessonSpec; __CHILD_NAME__?: string } }
