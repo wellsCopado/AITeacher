@@ -31,7 +31,8 @@ export interface AssetEntry {
 export interface InterestObservation {
   id: string; tenant_id: string; child: string; topic: string;
   source: '孩子自述' | '家长报告' | '老师反馈'; said?: string | null; observed_on: string;
-  state: '近期最喜欢' | '喜欢' | '曾经喜欢' | '下一课心愿' | '只用于安全工程题材'; lesson_ref?: string | null;
+  /** 家长指定: the parent named this topic for the next lesson; it comes before everything else. */
+  state: '家长指定' | '近期最喜欢' | '喜欢' | '曾经喜欢' | '下一课心愿' | '只用于安全工程题材'; lesson_ref?: string | null;
 }
 export interface Hotspot {
   id: string; label: string; anchor: string; teaches: string | null;
@@ -67,7 +68,11 @@ export interface LessonSpec {
     region: string; system: string; grade: number; term?: string; source: string; publisher?: string; unit?: string;
     status: '参考·待核对' | '先修补强' | '已核对本年级' | '兴趣拓展'; verified_by?: string | null; checked_on?: string;
   };
-  theme: { id: string; name: string; skin?: string; interest_refs: string[]; neutral?: boolean; why: string; no_husbandry: true };
+  theme: {
+    id: string; name: string; skin?: string; interest_refs: string[]; neutral?: boolean; why: string; no_husbandry: true;
+    /** What the theme is about and must be seen in the lesson (an animal, a robot…), not only named in the text. */
+    subject?: { name: string; asset_id: string; kind: 'organism' | 'object' };
+  };
   intro: { headline: string; paragraphs: string[]; note?: string };
   learner_profile: { grade: number; scaffold?: string[]; language: { default: 'zh'; cycle_enabled: boolean }; recent_judgment_ref?: string | null; est_minutes?: [number, number] };
   scene_component_ids: string[];

@@ -14,6 +14,16 @@ export interface ContextSources {
   /** Lesson keys already used anywhere (drafts, published, local folders), so a new lesson gets a free id. */
   takenKeys?: string[];
   tenant?: string;
+  /** Where the child is in school maths, in the parent's words (e.g. 第二单元 表内乘法（一）), if the parent wrote it. */
+  progress?: string | null;
+  /** Today (YYYY-MM-DD), for guessing the term and unit when there is no progress note. */
+  today?: string;
+}
+
+/** 上海: the first term runs September to January, the second February to June. */
+export function termOf(date: string) {
+  const m = Number(date.slice(5, 7));
+  return m >= 9 || m === 1 ? '第一学期' : m <= 6 ? '第二学期' : '暑假';
 }
 
 const ABBR: Record<string, string> = { PerimeterArea: 'PA', ArrayMultiplier: 'ARR' };
@@ -43,8 +53,11 @@ export function studioContext(root: string, child: string, src: ContextSources =
   const concepts = readJson<Record<string, { name: string; misconceptions: string[] }>>(join(root, 'content', 'concepts.json'));
   const taken = [...new Set([...(src.takenKeys ?? []), ...localTakenKeys(root), ...published.map(p => `${p.lesson_id}@${p.version}`)])];
   const usable = Object.entries(components).filter(([, c]) => c.status === '已审');
+  const today = src.today ?? new Date().toISOString().slice(0, 10);
   return {
     child: { id: child, label: profile.name, grade: profile.grade, region: profile.region, system: profile.system },
+    /** School progress: the parent's note, or a guess from grade and date that the lesson must call a guess. */
+    school: { today, term: termOf(today), progress: src.progress?.trim() || null },
     tenant_id: tenant,
     interests: interests.map(x => ({ id: x.id, topic: x.topic, source: x.source, state: x.state, observed_on: x.observed_on })),
     components: usable.map(([name, c]) => {

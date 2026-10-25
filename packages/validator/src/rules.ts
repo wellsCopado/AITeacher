@@ -264,6 +264,18 @@ export const RULES: Rule[] = [
     },
   },
   {
+    id: 'V19', name: '主题讲的东西要看得到：有主角时，主角的写实画面或 3D 已在素材里或列为待制作', basis: 'BL02 / BL14', level: 'error',
+    check(sp) {
+      const t = sp.theme, issues: Issue[] = [];
+      if (t.id.startsWith('topic-') && !t.subject) issues.push({ path: '$.theme', msg: '这个主题还没有专门场景，要写 theme.subject（主角）', fix: '原样用上下文 suggested_theme 里的 subject' });
+      if (!t.subject) return issues;
+      const listed = (sp.pending_assets ?? []).some(p => p.asset_id === t.subject!.asset_id) || (sp.object_asset_versions ?? []).some(a => a.asset_id === t.subject!.asset_id);
+      if (!listed) issues.push({ path: '$.pending_assets', msg: `主角「${t.subject.name}」（${t.subject.asset_id}）不在素材里`, fix: `在 03-assets 的 pending 里加 ${t.subject.asset_id}，until_ready 写“不展示……”` });
+      if (!sp.title.includes(t.subject.name) && !sp.intro?.headline?.includes(t.subject.name)) issues.push({ path: '$.title', msg: `标题或说明页标题里要出现主角「${t.subject.name}」` });
+      return issues;
+    },
+  },
+  {
     id: 'V15', name: '同一机制连续 3 次重教未见效时必须换机制', basis: 'FR24', level: 'error',
     check(sp, ctx) {
       if (!sp.trigger_judgment_ref) return [];

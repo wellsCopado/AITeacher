@@ -9,7 +9,7 @@ import { randomBytes } from 'node:crypto';
 import type { LessonSpec, ReteachTicket } from '../../../packages/schema/src/index.js';
 import type { Ctx, Report } from '../../../packages/validator/src/index.js';
 import {
-  BRIEF_HEADER, PROVIDERS, chatWith, checkStages, codexImage, codexStatus, createMcp, designPrompt, disassemble, exampleStages, generateLesson, guide,
+  BRIEF_HEADER, PROVIDERS, briefFields, chatWith, checkStages, codexImage, codexStatus, createMcp, designPrompt, disassemble, exampleStages, generateLesson, guide,
   isCodex, listModels, outcome, studioContext,
   type Chat, type CodexOpts, type GuideTopic, type LessonRequest, type Message, type ModelConfig, type Stages, type StudioBackend,
 } from '../../../packages/studio/src/index.js';
@@ -124,10 +124,20 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
 
   // ---- what lesson writing sees from this server ----
   const published = () => store.lessons().map(l => store.lesson(l.key)!).filter(Boolean);
+  const progress = (child: string) => store.setting(`progress.${child}`);
   const context = (child: string) => {
     if (!store.hasChild(child)) fail(400, `没有这个孩子：${child}（可选：${store.children().map(c => c.id).join('、')}）`);
-    return studioContext(root, child, { interests: store.interests(), published: published(), takenKeys: [...store.lessons().map(l => l.key), ...store.drafts().map(x => x.key)], tenant: d.tenant });
+    return studioContext(root, child, { interests: store.interests(), published: published(), takenKeys: [...store.lessons().map(l => l.key), ...store.drafts().map(x => x.key)], tenant: d.tenant, progress: progress(child), today: iso().slice(0, 10) });
   };
+  /** 哥哥 / 妹妹 or an id → the child's id. */
+  const childId = (s: string) => store.children().find(c => c.id === s || c.name === s)?.id;
+  // ---- where each child is in school maths, in the parent's words (the lesson writer guesses from the date without it) ----
+  app.get('/v1/progress', d.parent, async () => Object.fromEntries(store.children().map(c => [c.id, progress(c.id) ?? ''])));
+  app.put('/v1/progress/:child', d.parent, async (req) => {
+    const child = childId((req.params as { child: string }).child) ?? fail(404, '没有这个孩子');
+    store.setSetting(`progress.${child}`, String((req.body as { text?: unknown })?.text ?? '').trim().slice(0, 300));
+    return { child, text: progress(child) };
+  });
   const valCtx = (s: Stages): Partial<Ctx> => {
     const t = s?.target ?? {};
     return { interests: store.interests(), reteach: reteachHistory(store), previous: t.previous_version ? store.lesson(`${t.lesson_id}@${t.previous_version}`) ?? null : null };
@@ -148,11 +158,15 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
 
   // ---- the built-in lesson writer (a job): 课程库 → AI 出一节课, or an assistant handing over an agreed plan ----
   const jobs = new Map<string, Job>();
-  const startJob = (b: { child?: string; wish?: string; component?: string; model?: string; revise?: string }, planner?: string): Job => {
+  const startJob = (b: { child?: string; wish?: string; component?: string; model?: string; revise?: string; topic?: string }, planner?: string): Job => {
     const m = pick(b.model);
+    // an agreed plan says for whom and about what; the parent's own 主题 box says what it is about
+    const plan = b.wish ? briefFields(String(b.wish)) : {};
+    if (!b.revise && plan.child && childId(plan.child)) b.child = childId(plan.child);
+    const topic = String(b.topic ?? '').trim().slice(0, 20) || plan.topic;
     if ([...jobs.values()].some(j => j.status === 'running')) fail(409, '上一节课还在写，写完再开始下一节');
     const request: LessonRequest = { wish: b.wish ? String(b.wish).slice(0, 8000) : undefined, component: b.component || undefined };
-    let child = String(b.child ?? '');
+    let child = childId(String(b.child ?? '')) ?? String(b.child ?? '');
     if (b.revise) {
       const draft = store.draft(b.revise) ?? fail(404, '没有这节待审核的课');
       const row = store.drafts().find(x => x.key === b.revise)!;
@@ -160,6 +174,7 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
       request.revise = { stages: disassemble(draft), note: row.note! };
       child = draft.for_child;
     }
+    const directed = topic && !b.revise && store.hasChild(child) ? store.directTopic(child, topic, iso().slice(0, 7), iso()) : null;
     const ctx = context(child);
     const job: Job = { id: randomBytes(6).toString('hex'), child, model: m.label, status: 'running', started_at: iso(), log: [], ...(planner ? { planner } : {}) };
     jobs.set(job.id, job);
@@ -178,6 +193,9 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
         const s = submit(r.spec, `AI 出课 · ${m.label}${planner ? ` · 方案：${planner}` : ''}`);
         if (!s.report.ok) { job.status = 'failed'; job.error = '服务器校验没通过'; return; }
         Object.assign(job, { status: 'done', key: s.key, title: r.spec.title });
+        if (directed && r.spec.theme.interest_refs.includes(directed.id)) store.topicUsed(directed.id, s.key);
+        const subj = r.spec.theme.subject;
+        if (subj) log(store.mediaFor(subj.asset_id).some(x => x.confirmed) ? `主角「${subj.name}」的画面已经有了` : `主角「${subj.name}」还没有画面：在“生物素材”里加照片或让 ChatGPT 画，确认后这节课才能发布`);
         log(`已放进“课程库 → 等你审核”：${r.spec.title}`);
       } catch (e) { job.status = 'failed'; job.error = (e as Error).message; log(`出错：${(e as Error).message}`); }
     })();
@@ -185,7 +203,10 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
   };
   app.post('/v1/studio/generate', d.parent, async (req, reply) => reply.code(202).send({ job: startJob((req.body ?? {}) as Record<string, string>).id }));
   /** What to paste into ChatGPT (or any chat) to plan the next lesson with it; the plan comes back to 课程方案. */
-  app.get('/v1/studio/design-prompt', d.parent, async (req) => ({ text: designPrompt(context(String((req.query as { child?: string }).child ?? ''))) }));
+  app.get('/v1/studio/design-prompt', d.parent, async (req) => {
+    const child = childId(String((req.query as { child?: string }).child ?? '')) ?? fail(400, '选一个孩子');
+    return { text: designPrompt(context(child), store.children().filter(c => c.id !== child).map(c => context(c.id))) };
+  });
 
   // ---- in the parent app with ChatGPT (or any model): plan the lesson in a chat, draw pictures from real photos ----
   const tasks = new Map<string, Task>();
@@ -201,10 +222,11 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
   app.post('/v1/studio/plan', d.parent, async (req, reply) => {
     const b = (req.body ?? {}) as { child?: string; model?: string; messages?: Message[] };
     const m = pick(b.model);
+    const child = childId(String(b.child ?? '')) ?? fail(400, '选一个孩子');
     const msgs = (Array.isArray(b.messages) ? b.messages : []).slice(-40)
       .map(x => ({ role: x?.role === 'assistant' ? 'assistant' as const : 'user' as const, content: String(x?.content ?? '').slice(0, 8000) })).filter(x => x.content.trim());
     if (!msgs.length || msgs[msgs.length - 1].role !== 'user') fail(400, '先写一句你想要的');
-    const system = `${designPrompt(context(String(b.child ?? '')))}\n\n现在你在家长端的“和 AI 商量方案”里直接和家长对话：每次回复简短（300 字以内），一次只问一两个问题。家长说“好了”“就这样”或者方案已经谈定，就按上面的格式输出完整的${BRIEF_HEADER}，前后不要加别的话。`;
+    const system = `${designPrompt(context(child), store.children().filter(c => c.id !== child).map(c => context(c.id)))}\n\n现在你在家长端的“和 AI 商量方案”里直接和家长对话：每次回复简短（300 字以内），一次只问一两个问题。家长说“好了”“就这样”或者方案已经谈定，就按上面的格式输出完整的${BRIEF_HEADER}，前后不要加别的话。`;
     const t = startTask(m, {}, async t => {
       const text = (await chatWith({ ...m, json_mode: false }, { fetchImpl: d.fetchImpl, codex: d.codex, timeoutMs: 10 * 60_000 })([{ role: 'system', content: system }, ...msgs])).trim();
       const at = text.indexOf(BRIEF_HEADER);

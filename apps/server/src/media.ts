@@ -48,8 +48,12 @@ function builtins(root: string, asset?: string) {
 
 export function mediaRoutes(app: FastifyInstance, d: Deps) {
   const { store } = d;
-  const organisms = () => readJson<AssetEntry[]>(join(d.root, 'content', 'assets', 'registry.json'))
-    .filter(a => a.kind === 'organism' && a.status !== '拒绝');
+  // the registry's animals, then whatever lessons are about (博比特虫, 机器人…) that still needs its pictures
+  const organisms = (): { asset_id: string; name?: string; status: string; real_scale?: string }[] => {
+    const reg = readJson<AssetEntry[]>(join(d.root, 'content', 'assets', 'registry.json')).filter(a => a.kind === 'organism' && a.status !== '拒绝');
+    return [...reg, ...store.subjects().filter(s => !reg.some(a => a.asset_id === s.asset_id))
+      .map(s => ({ asset_id: s.asset_id, name: s.name, status: store.mediaFor(s.asset_id).some(m => m.confirmed) ? '采用标记' : '待制作' }))];
+  };
 
   app.get('/v1/organisms', d.parent, async () => organisms().map(a => ({
     asset_id: a.asset_id, name: a.name, status: a.status, real_scale: a.real_scale ?? null,

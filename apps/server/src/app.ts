@@ -258,6 +258,7 @@ export async function buildApp(o: AppOptions) {
       ...d, child: sp.for_child, concept: sp.primary_concept.name, theme: { name: sp.theme.name, why: sp.theme.why },
       challenges: sp.challenges.map(c => ({ prompt: c.prompt, with_theme: c.with_theme, answers: c.answers.map(a => `${a.label ? a.label + ' ' : ''}${a.value}${a.unit ? ' ' + a.unit : ''}`) })),
       pending_assets: (sp.pending_assets ?? []).map(p => p.asset_id),
+      subject: sp.theme.subject ? { ...sp.theme.subject, ready: store.mediaFor(sp.theme.subject.asset_id).some(m => m.confirmed) } : null,
       offscreen: sp.offscreen?.task ?? null,
       ok: report.ok,
       issues: report.results.filter(r => !r.ok).flatMap(r => r.issues.map(i => ({ rule: r.id, level: r.level, msg: i.msg }))),
@@ -273,6 +274,8 @@ export async function buildApp(o: AppOptions) {
       if (missing.length) fail(400, `「${cat}」还有没勾的：${missing.join('；')}`);
     }
     if (store.lesson(key)) fail(409, `${key} 已经发布过了`);
+    const subj = draft.theme.subject;
+    if (subj && !store.mediaFor(subj.asset_id).some(m => m.confirmed)) fail(409, `这节课的主角「${subj.name}」还没有画面：在「课程库 → 生物素材」里加实拍照片，或让 ChatGPT 做好写实图并点“确认可用”，之后才能发布`);
     const { ticket, report } = vet(draft);
     if (!report.ok) return reply.code(422).send({ error: '服务器校验未通过', report });
     const at = iso();
@@ -370,7 +373,7 @@ export async function buildApp(o: AppOptions) {
     const child = childParam(b.child);
     const topic = String(b.topic ?? '').trim().slice(0, 40);
     if (!topic) fail(400, '缺少兴趣主题');
-    const states: InterestObservation['state'][] = ['下一课心愿', '近期最喜欢', '喜欢', '曾经喜欢', '只用于安全工程题材'];
+    const states: InterestObservation['state'][] = ['家长指定', '下一课心愿', '近期最喜欢', '喜欢', '曾经喜欢', '只用于安全工程题材'];
     const state = states.includes(b.state as InterestObservation['state']) ? b.state! : '喜欢';
     const source = b.source === '孩子自述' ? '孩子自述' : '家长报告';
     return store.addInterest({ child, topic, source, said: b.said ? String(b.said).slice(0, 200) : null, observed_on: today().slice(0, 7), state, lesson_ref: null }, iso());

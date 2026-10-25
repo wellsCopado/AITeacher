@@ -186,6 +186,32 @@
         },
         "no_husbandry": {
           "const": true
+        },
+        "subject": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "asset_id",
+            "kind"
+          ],
+          "description": "主题讲的那个东西（动物、机器人……），课里必须看得到它的写实画面或 3D，不能只出现在文字里",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "asset_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "kind": {
+              "enum": [
+                "organism",
+                "object"
+              ]
+            }
+          }
         }
       }
     },

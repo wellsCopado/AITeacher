@@ -284,6 +284,51 @@ describe('server: models, AI lesson writer, MCP for agents', () => {
     expect((await req('GET', '/v1/drafts', p)).body.find((x: { key: string }) => x.key === 'L-PA-2@1.0').submitted_by).toBe('AI 出课 · DeepSeek · deepseek-v4-pro · 方案：Codex');
   });
 
+  it('does what the parent names: child and topic, with the subject shown before it can be published', async () => {
+    const p = await login();
+    await req('POST', '/v1/studio/models', p, { provider: 'deepseek', base_url: 'https://api.deepseek.com', model: 'deepseek-v4-pro', api_key: 'sk-1' });
+    await req('PUT', '/v1/studio/settings', p, { consent: true });
+    await req('PUT', '/v1/progress/meimei', p, { text: '第二单元 表内乘法（一）' });
+    expect((await req('GET', '/v1/progress', p)).body).toMatchObject({ meimei: '第二单元 表内乘法（一）', gege: '' });
+
+    const titled = (t: string) => { const e = example(); e.director.title = t; return reply(e); };
+    modelReplies = [titled('珊瑚礁沙底：博比特虫的伏击圈有多大')];
+    const { job } = (await req('POST', '/v1/studio/generate', p, { child: 'gege', topic: '博比特虫' })).body;
+    const done = await until(`/v1/studio/jobs/${job}`, p);
+    expect(done.status, JSON.stringify(done)).toBe('done');
+    const sent = JSON.stringify(calls.at(-1)!.body);
+    expect(sent).toContain('博比特虫');
+    expect(sent).toContain('家长指定');
+    const draft = (await req('GET', `/v1/drafts/${done.key}`, p)).body;
+    expect(draft.theme).toMatchObject({ name: '博比特虫', subject: { name: '博比特虫', kind: 'organism' } });
+    const subject = draft.theme.subject.asset_id;
+    expect(draft.pending_assets.map((x: { asset_id: string }) => x.asset_id)).toContain(subject);
+    expect(draft.pending_assets.map((x: { asset_id: string }) => x.asset_id)).not.toContain('M-peacock-mantis-shrimp'); // no shrimp standing in for the worm
+    // the parent's topic was used: it stays an interest, no longer a standing order
+    expect((await req('GET', '/v1/interests?child=gege', p)).body.find((x: { topic: string }) => x.topic === '博比特虫')).toMatchObject({ state: '喜欢', lesson_ref: done.key });
+
+    // 生物素材 lists the worm as still to be made; publishing waits for its picture
+    const worm = (await req('GET', '/v1/organisms', p)).body.find((o: { asset_id: string }) => o.asset_id === subject);
+    expect(worm).toMatchObject({ name: '博比特虫', status: '待制作' });
+    expect((await req('GET', '/v1/drafts', p)).body.find((x: { key: string }) => x.key === done.key).subject).toMatchObject({ name: '博比特虫', ready: false });
+    const checklist = (await req('GET', '/v1/review-checklist', p)).body;
+    const approve = () => req('POST', `/v1/drafts/${done.key}/approve`, p, { checked: checklist });
+    const blocked = await approve();
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.error).toContain('博比特虫');
+    const PNG = Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010806000000', 'hex').toString('base64');
+    await req('POST', `/v1/organisms/${subject}/media`, p, { mime: 'image/png', data: PNG, real: true, origin: '实拍', credit: '海洋馆', license: '自己拍的' });
+    expect((await approve()).status).toBe(201);
+
+    // an agreed plan for 妹妹 is written for 妹妹, about what it says, whoever was selected
+    modelReplies = [titled('机器人工厂：机械臂摆零件')];
+    const brief = `${BRIEF_HEADER}\n孩子：妹妹（2 年级）\n主题：机器人（工厂里的机械臂）\n主角：工业机械臂\n知识点：乘法的意义`;
+    const j2 = (await req('POST', '/v1/studio/generate', p, { child: 'gege', wish: brief })).body.job;
+    expect(await until(`/v1/studio/jobs/${j2}`, p)).toMatchObject({ child: 'meimei' });
+    expect(JSON.stringify(calls.at(-1)!.body)).toContain('第二单元 表内乘法（一）'); // her school progress went along
+    expect((await req('GET', '/v1/interests?child=meimei', p)).body.some((x: { topic: string }) => x.topic === '机器人')).toBe(true);
+  });
+
   it('takes a picture from an assistant only through a one-time address, and shows it to children only after the parent confirms', async () => {
     const p = await login();
     const { token } = (await req('POST', '/v1/agents', p, { label: 'Codex' })).body;

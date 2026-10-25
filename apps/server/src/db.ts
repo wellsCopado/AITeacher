@@ -162,6 +162,21 @@ export class Store {
       rec.id, this.tenant, rec.child, rec.topic, rec.source, rec.said ?? null, rec.observed_on, rec.state, rec.lesson_ref ?? null, now);
     return rec;
   }
+  /** The parent named a topic for this child's next lesson: it replaces any earlier one that hasn't been used. */
+  directTopic(child: string, topic: string, month: string, now: string): InterestObservation {
+    this.run("update interests set state='喜欢' where tenant_id=? and child=? and state='家长指定'", this.tenant, child);
+    return this.addInterest({ child, topic, source: '家长报告', said: null, observed_on: month, state: '家长指定', lesson_ref: null }, now);
+  }
+  /** A parent-named topic got its lesson: it stays one of the child's interests. */
+  topicUsed(id: string, lessonKey: string) { this.run("update interests set state='喜欢', lesson_ref=? where tenant_id=? and id=? and state='家长指定'", lessonKey, this.tenant, id); }
+
+  /** What lessons are about and must show (博比特虫, 机器人…), from drafts and published lessons. */
+  subjects(): { asset_id: string; name: string; kind: 'organism' | 'object' }[] {
+    const all = [...this.drafts().map(d => this.draft(d.key)), ...this.lessons().map(l => this.lesson(l.key))];
+    const seen = new Map<string, { asset_id: string; name: string; kind: 'organism' | 'object' }>();
+    for (const sp of all) { const s = sp?.theme.subject; if (s && !seen.has(s.asset_id)) seen.set(s.asset_id, { ...s }); }
+    return [...seen.values()];
+  }
 
   // auth
   addToken(hash: string, role: Role, label: string, now: string) { this.run('insert into tokens (hash, tenant_id, role, label, created_at) values (?,?,?,?,?)', hash, this.tenant, role, label, now); }

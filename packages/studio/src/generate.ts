@@ -4,6 +4,7 @@
 import type { LessonSpec } from '../../schema/src/index.js';
 import type { Report } from '../../validator/src/index.js';
 import type { Ctx } from '../../validator/src/index.js';
+import { isCustomTheme } from '../../cli/src/lib.js';
 import { checkStages, issues, type Stages } from './lesson.js';
 import { exampleStages, guide } from './guide.js';
 import type { StudioContext } from './context.js';
@@ -26,6 +27,8 @@ const OUTPUT_RULES = `## 输出格式（必须严格遵守）
 - 结构和“示例课”完全一样（字段名、层级、类型都一样），内容是为这个孩子新写的，不要照抄示例的题目和讲解。
 - 上下文里 fixed 的值原样使用：tenant_id、for_child、version、learner_profile.grade、learner_profile.language、curriculum_mapping 的 region / system / grade / status / verified_by。lesson_id 用所选组件的 new_lesson_id。
 - director.theme 原样复制所选组件的 suggested_theme；end_chat 里 kind 为 next_lesson_wish 的那一题原样复制 wish_question。
+- suggested_theme 里有 subject（主角）时：这节课就是讲它的。theme.skin 和 component_params 里的 theme 从 themes_ready 里选最接近它真实环境的场景；标题、说明页、讲解和题目都围绕它写（例如 shrimp 讲解位置写成它的名字和它真实的样子），不要写成别的动物或东西。它的画面由系统另外做，你在 assets.pending 里列出它（系统会自动补）。
+- 课内进度看上下文 school：家长写了就按它选知识点；没写就按年级和日期推断，在 parent_tip 里写“课内进度是推断的”。不要因为资料不全而不写课。
 - scene_component_ids 只能用 components[].id；component_params 必须符合该组件的 params_schema；热点 anchor 只能用 hotspot_anchors；activity_graph 里的 action 只能用 actions。
 - primary_concept 只能用所选组件 teaches 里的知识点，误区从它的 misconceptions 里选。
 - assets.use 只能用 assets 里状态为“采用”或“采用标记”的 asset_id；状态为“待采购”的写进 assets.pending，until_ready 写“不展示……”。
@@ -59,9 +62,24 @@ export function normalize(raw: any, ctx: StudioContext, keep?: Record<string, an
   Object.assign(t, { lesson_id: keep?.lesson_id ?? comp.new_lesson_id, version: keep?.version ?? f.version, tenant_id: f.tenant_id, for_child: f.for_child, previous_version: keep?.previous_version ?? null, trigger_judgment_ref: keep?.trigger_judgment_ref ?? null });
   t.learner_profile = { ...(t.learner_profile ?? {}), grade: f.learner_profile.grade, language: f.learner_profile.language, recent_judgment_ref: null };
   t.curriculum_mapping = { term: '', source: '沪学习 App 参考目录', publisher: '待核对', unit: '待核对', ...(t.curriculum_mapping ?? {}), ...f.curriculum_mapping, checked_on: new Date().toISOString().slice(0, 10) };
-  // the theme comes from the child's own interests (V14), not from the model's imagination
-  if (!comp.themes_ready.some(x => x.id === s.director.theme?.id) || (s.director.theme?.interest_refs ?? []).some((r: string) => !ctx.interests.some(i => i.id === r))) s.director.theme = comp.suggested_theme;
-  s.director.theme = { ...s.director.theme, no_husbandry: true };
+  // the theme comes from what the parent named or the child's own interests (V14), not from the model's imagination;
+  // for a subject without its own scene the model only picks which ready scene fits it best
+  const sug = comp.suggested_theme, mt = s.director.theme, ready = comp.themes_ready.map(x => x.id);
+  const refsOk = !!mt && Array.isArray(mt.interest_refs) && mt.interest_refs.every((r: string) => ctx.interests.some(i => i.id === r));
+  const ownOk = refsOk && (ready.includes(mt.id) || (isCustomTheme(mt) && ready.includes(mt.skin) && !!mt.subject?.asset_id));
+  let theme = sug;
+  if (keep && ownOk) theme = mt;
+  else if (isCustomTheme(sug)) theme = { ...sug, skin: ready.includes(mt?.skin) ? mt.skin : sug.skin, subject: { ...sug.subject!, kind: ['organism', 'object'].includes(mt?.subject?.kind) ? mt.subject.kind : sug.subject!.kind } };
+  else if (ownOk && ready.includes(mt.id)) theme = mt;
+  s.director.theme = { ...theme, no_husbandry: true };
+  if (theme.skin && s.director.component_params?.[comp.name]) s.director.component_params[comp.name].theme = theme.skin;
+  // the subject has to be seen: it waits in pending until its pictures or 3D are made and confirmed (V19)
+  const subj = s.director.theme.subject as { name: string; asset_id: string; kind: string } | undefined;
+  if (subj) {
+    const pending = ((s.assets.pending ?? []) as { asset_id: string; kind: string }[]).filter(p => p.asset_id !== subj.asset_id && !(subj.kind === 'organism' && p.kind === 'organism'));
+    s.assets.pending = [...pending, { asset_id: subj.asset_id, kind: subj.kind, realism_required: 'ai_from_photo', status: '待制作', until_ready: `不展示：${subj.name}的写实画面或 3D 做好、家长确认后才出现` }];
+    s.assets.use = ((s.assets.use ?? []) as string[]).filter(id => id !== subj.asset_id);
+  }
   const qs = (s.director.end_chat?.questions ?? []).filter((q: { kind?: string }) => q?.kind !== 'next_lesson_wish');
   s.director.end_chat = { skippable: true, questions: [...qs.slice(0, 2), comp.wish_question] };
   s.assets.scope = 'family';

@@ -12,6 +12,8 @@ interface Draft {
   key: string; title: string; child: string; status: string; note: string | null; concept: string; theme: { name: string; why: string };
   challenges: { prompt: string; with_theme: boolean; answers: string[] }[]; pending_assets: string[]; offscreen: string | null;
   ok: boolean; issues: { rule: string; level: string; msg: string }[]; submitted_by: string;
+  /** What the lesson is about and must show; it can't be published before its picture is confirmed. */
+  subject: { name: string; asset_id: string; kind: string; ready: boolean } | null;
 }
 interface Organism {
   asset_id: string; name: string; status: string; real_scale: string | null;
@@ -146,12 +148,13 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
         <p class="muted small">${esc(name(d.child))} · ${esc(d.concept)} · ${esc(d.key)} · 主题「${esc(d.theme.name)}」：${esc(d.theme.why)} · 由 ${esc(d.submitted_by)} 交来</p>
         ${d.note ? `<p class="toast bad">你退回时写的：${esc(d.note)} <button class="btn revise">让 AI 按意见改</button></p>` : ''}
         <ol>${d.challenges.map(c => `<li>${esc(c.prompt)} <span class="muted small">答案：${c.answers.map(esc).join('，')}${c.with_theme ? '' : ' · 不带主题的迁移题'}</span></li>`).join('')}</ol>
-        ${d.pending_assets.length ? `<p class="small">还没到位、不展示的素材：${d.pending_assets.map(esc).join('、')}</p>` : ''}
+        ${d.subject ? d.subject.ready ? `<p class="small">主角「${esc(d.subject.name)}」的画面已确认。</p>` : `<p class="toast bad small">主角「${esc(d.subject.name)}」还没有画面，发布前要先有：到下面「生物素材 → ${esc(d.subject.name)}」加实拍照片，或让 ChatGPT 画一张并确认。</p>` : ''}
+        ${d.pending_assets.filter(a => a !== d.subject?.asset_id).length ? `<p class="small">还没到位、不展示的素材：${d.pending_assets.filter(a => a !== d.subject?.asset_id).map(esc).join('、')}</p>` : ''}
         ${d.offscreen ? `<p class="small">家里的小任务：${esc(d.offscreen)}</p>` : ''}
         ${d.issues.length ? `<ul class="small">${d.issues.map(i => `<li class="${i.level === 'error' ? 'toast bad' : ''}">${esc(i.rule)} ${i.level === 'warn' ? '提示' : '错误'}：${esc(i.msg)}</li>`).join('')}</ul>` : ''}
         <p><a class="btn" href="${preview(d.key)}" target="_blank" rel="noopener">预览这节课</a></p>
         <div class="checks">${Object.entries(checklist).map(([cat, items]) => `<fieldset><legend>${esc(cat)}</legend>${items.map(i => `<label><input type="checkbox" data-cat="${esc(cat)}" value="${esc(i)}"> ${esc(i)}</label>`).join('')}</fieldset>`).join('')}</div>
-        <div class="row"><button class="btn primary approve" ${d.ok ? '' : 'disabled'}>审核通过并发布</button>
+        <div class="row"><button class="btn primary approve" ${d.ok && (!d.subject || d.subject.ready) ? '' : 'disabled'}>审核通过并发布</button>
           <input class="note" placeholder="要改的地方（退回时必填）" maxlength="500"><button class="btn reject">退回修改</button></div></div>`).join('')}
       <h3>已发布</h3><p class="muted">发布后内容冻结，改动要升版本号重新审核。</p>
       <table><tr><th>课程</th><th>给谁</th><th>发布时间</th><th>临时授权</th></tr>${lessons.map(l => `<tr><td>${esc(l.title)}<div class="muted small">${esc(l.key)} · <a href="${preview(l.key)}" target="_blank" rel="noopener">预览</a></div></td><td>${esc(name(l.for_child))}</td><td>${esc(l.published_at.slice(0, 16).replace('T', ' '))}</td>
@@ -252,9 +255,11 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
   },
 
   async 兴趣与心愿() {
-    const list = await api<Interest[]>('/v1/interests');
-    view().innerHTML = `<p class="muted">每个孩子只用自己的兴趣（BL05）。孩子在课末说的“下一课想学什么”会自动记在这里，下一节课优先用它。</p>
-      ${kids.map(k => `<div class="card"><h3>${esc(k.name)}</h3><ul>${list.filter(x => x.child === k.id).map(x => `<li><b>${esc(x.topic)}</b> · ${esc(x.state)} · ${esc(x.source)}${x.said && x.said !== x.topic ? `：“${esc(x.said)}”` : ''} · ${esc(x.observed_on)}${x.lesson_ref ? ` · 来自 ${esc(title(x.lesson_ref))}` : ''}</li>`).join('') || '<li class="muted">还没有记录</li>'}</ul></div>`).join('')}
+    const [list, progress] = await Promise.all([api<Interest[]>('/v1/interests'), api<Record<string, string>>('/v1/progress')]);
+    view().innerHTML = `<p class="muted">你在「AI 出一节课」里指定的主题最优先；没指定时用这个孩子自己的兴趣，不拿另一个孩子的套用。孩子在课末说的“下一课想学什么”会自动记在这里。</p>
+      ${kids.map(k => `<div class="card"><h3>${esc(k.name)}</h3>
+        <form class="progress row" data-c="${esc(k.id)}"><label class="grow">课内数学进度 <input name="text" maxlength="300" value="${esc(progress[k.id] ?? '')}" placeholder="例如：第二单元 表内乘法（一），刚学完 5 的乘法。不填就按年级和月份推断"></label><button class="btn">保存</button></form>
+        <ul>${list.filter(x => x.child === k.id).map(x => `<li><b>${esc(x.topic)}</b> · ${esc(x.state)} · ${esc(x.source)}${x.said && x.said !== x.topic ? `：“${esc(x.said)}”` : ''} · ${esc(x.observed_on)}${x.lesson_ref ? ` · 来自 ${esc(title(x.lesson_ref))}` : ''}</li>`).join('') || '<li class="muted">还没有记录</li>'}</ul></div>`).join('')}
       <form id="add" class="card row"><select name="child">${kidOptions()}</select><input name="topic" placeholder="兴趣，例如：机器人" maxlength="40" required>
         <select name="state"><option>喜欢</option><option>近期最喜欢</option><option>下一课心愿</option><option>曾经喜欢</option></select>
         <select name="source"><option>家长报告</option><option>孩子自述</option></select><input name="said" placeholder="孩子原话（可空）" maxlength="200"><button class="btn primary">记下</button></form>`;
@@ -263,6 +268,10 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
       const f = Object.fromEntries(new FormData(e.target as HTMLFormElement));
       guard(async () => { await api('/v1/interests', { method: 'POST', body: JSON.stringify(f) }); await VIEWS.兴趣与心愿(); toast('已记下'); })();
     };
+    view().querySelectorAll<HTMLFormElement>('form.progress').forEach(f => f.onsubmit = e => {
+      e.preventDefault();
+      guard(async () => { await api(`/v1/progress/${f.dataset.c}`, { method: 'PUT', body: JSON.stringify(Object.fromEntries(new FormData(f))) }); toast(`已保存${name(f.dataset.c!)}的课内进度，下一节课按它出`); })();
+    });
   },
 
   async 作业() { await homeworkView(ctx()); },
