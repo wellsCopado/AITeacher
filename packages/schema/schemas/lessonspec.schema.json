@@ -169,7 +169,7 @@
         },
         "skin": {
           "type": "string",
-          "description": "组件主题皮肤，如 reef、garden、blocks"
+          "description": "组件主题皮肤，如 reef、garden、blocks、robot_factory"
         },
         "interest_refs": {
           "type": "array",

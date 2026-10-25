@@ -20,7 +20,7 @@
     "versions": ["1.0"],
     "status": "已审",
     "teaches": ["M2.MUL.meaning_groups"],
-    "themes": ["blocks"],
+    "themes": ["blocks", "robot_factory"],
     "hotspotAnchors": ["row", "col", "total"],
     "actions": ["reveal", "rotate"],
     "paramsSchema": {
@@ -28,7 +28,7 @@
       "properties": {
         "rows": { "type": "integer", "minimum": 1, "maximum": 9 },
         "cols": { "type": "integer", "minimum": 1, "maximum": 9 },
-        "theme": { "enum": ["blocks"] }
+        "theme": { "enum": ["blocks", "robot_factory"] }
       }
     }
   }

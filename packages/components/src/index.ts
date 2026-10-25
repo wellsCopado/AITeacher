@@ -50,7 +50,7 @@ export const COMPONENTS: Record<string, Def> = {
   ArrayMultiplier: {
     version: '1.0', engineKind: 'ArrayMultiplier',
     hotspotAnchors: ['row', 'col', 'total'], actions: ['reveal', 'rotate'],
-    toEngine: p => ({ r: p.rows, c: p.cols }),
+    toEngine: p => ({ r: p.rows, c: p.cols, theme: p.theme }),
   },
 };
 

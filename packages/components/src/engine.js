@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {EXRLoader} from 'three/addons/loaders/EXRLoader.js';
 import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js';
 import {createOrganism} from './organism.js';
+import {createRobotCell} from './robot-cell.js';
 
 /* Photoreal scene engine: PBR materials, real HDRI lighting, soft shadows, ACES tone mapping.
    Lesson state stays in the app; the engine only renders it and reports animation progress. */
@@ -40,6 +41,7 @@ function woodMat(color, rep, rot=0, rough=0.62){
 export function create(stage, kind, params, onPick, hooks){
   const garden = kind==='PerimeterArea';
   const reef = garden && params.theme==='reef';
+  const robots = kind==='ArrayMultiplier' && params.theme==='robot_factory';
   const renderer = new THREE.WebGLRenderer({antialias:true, powerPreference:'high-performance'});
   renderer.setPixelRatio(Math.min(1.75, window.devicePixelRatio||1));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -64,9 +66,9 @@ export function create(stage, kind, params, onPick, hooks){
       const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; scene.environment = envRT.texture; scene.background = t; }
     renderer.toneMappingExposure = 0.9;
   } else {
-    envRT = pm.fromEquirectangular(hdr(garden?'park':'apartment'));
+    envRT = pm.fromEquirectangular(hdr(garden?'park':robots?'warehouse':'apartment'));
     scene.environment = envRT.texture; scene.background = envRT.texture;
-    scene.backgroundBlurriness = garden ? 0.04 : 0.55; scene.backgroundIntensity = garden ? 0.95 : 0.8;
+    scene.backgroundBlurriness = garden ? 0.04 : robots ? 0.12 : 0.55; scene.backgroundIntensity = garden ? 0.95 : 0.8;
   }
   const cam = new THREE.PerspectiveCamera(38, 1.6, 0.05, 600);
 
@@ -149,7 +151,8 @@ export function create(stage, kind, params, onPick, hooks){
     M.tray = woodMat(0xf3dfc2,[0.8,0.8],Math.PI/2,0.55);
     const solid=(color,rot)=>new THREE.MeshStandardMaterial({color,map:tex('woodS',{rot}),roughnessMap:tex('woodSR',{srgb:false,rot}),bumpMap:tex('woodSR',{srgb:false,rot}),bumpScale:0.4,roughness:0.85});
     M.beech = solid(0xf4dcb6,0); M.walnut = solid(0x6f4a33,Math.PI/2);
-    const t = new THREE.Mesh(new RoundedBoxGeometry(30,0.8,20,2,0.08), M.table); t.position.y=-0.4; t.receiveShadow=true; scene.add(t);
+    // the blocks sit on a big wooden table; the robot factory brings its own concrete floor
+    if(!robots){ const t = new THREE.Mesh(new RoundedBoxGeometry(30,0.8,20,2,0.08), M.table); t.position.y=-0.4; t.receiveShadow=true; scene.add(t); }
   }
 
   /* ---------- builders ---------- */
@@ -272,6 +275,7 @@ export function create(stage, kind, params, onPick, hooks){
     w.group.rotation.y += reduced()? dy : dy*0.25; w.spin.rotation.x = d / w.r; }
 
   function buildArray(){
+    if(robots) return buildRobots();
     clear(); const {r,c} = st.params, s=1, gap=0.14, W=c*(s+gap)-gap, D=r*(s+gap)-gap;
     const tray = new THREE.Group(); world.add(tray); st.tray=tray; tray.rotation.y = st.rotTarget;
     const board = new THREE.Mesh(new RoundedBoxGeometry(W+0.9,0.16,D+0.9,2,0.04), M.tray); board.position.y=0.08; board.receiveShadow=true; board.castShadow=true; tray.add(board);
@@ -286,6 +290,16 @@ export function create(stage, kind, params, onPick, hooks){
     st.anchors.total=()=>tray.localToWorld(new THREE.Vector3(0,2.0,0));
     const R=Math.max(W,D)/2+3; Object.assign(sun.shadow.camera,{left:-R,right:R,top:R,bottom:-R,near:1,far:40}); sun.shadow.camera.updateProjectionMatrix();
     orbit.target.set(0,0.6,0); const k=r+'x'+c; if(st.lastAB!==k){st.lastAB=k; orbit.dist=clamp(Math.max(W,D)*1.25+5,orbit.min,orbit.max);}
+    buildLabels();
+  }
+  // the robot factory: an industrial arm sets the array down row by row (robot-cell.js)
+  function buildRobots(){
+    st.cell?.dispose(); clear();
+    const cell=createRobotCell({world, params:st.params, reduced, sun, hooks}); st.cell=cell;
+    st.pickables.push(...cell.pickables); Object.assign(st.anchors, cell.anchors);
+    const R=cell.shadowR; Object.assign(sun.shadow.camera,{left:-R,right:R,top:R,bottom:-R,near:1,far:40}); sun.shadow.camera.updateProjectionMatrix();
+    orbit.min=cell.view.min; orbit.target.copy(cell.view.target); if(!def){ orbit.az=cell.view.az; orbit.el=cell.view.el; }
+    const k=st.params.r+'x'+st.params.c; if(st.lastAB!==k){st.lastAB=k; orbit.dist=clamp(cell.view.dist,orbit.min,orbit.max);}
     buildLabels();
   }
   function puff(x,z,count,spread,up){ if(!st.puff||reduced()) return; const p=st.puff, a=p.pts.geometry.attributes.position, n=st.puff.life.length;
@@ -361,6 +375,7 @@ export function create(stage, kind, params, onPick, hooks){
         while(f.next<n && (now-f.t0)/1000 >= f.next*per){ const m=st.tiles[f.next]; m.visible=true; m.userData.t0=now; f.next++; hooks.onFill&&hooks.onFill(f.next); }
         st.tiles.forEach(m=>{ if(m.visible&&m.userData.t0){ const t=(now-m.userData.t0)/420; m.position.y=0.085+0.6*settle(t); if(t>=1)m.userData.t0=0; } });
         if(f.next>=n && st.tiles.every(m=>!m.userData.t0)){ st.fill=null; hooks.onFillDone&&hooks.onFillDone(); } }
+    } else if(st.cell){ st.cell.update(dt, now);
     } else {
       if(st.tray){ const d=st.rotTarget-st.tray.rotation.y; st.tray.rotation.y += reduced()? d : d*Math.min(1,dt*4); }
       if(st.reveal){ const f=st.reveal, {r,c}=st.params, rowDur=reduced()?0:0.9;
@@ -393,13 +408,13 @@ export function create(stage, kind, params, onPick, hooks){
     organism(cmd){ if(!st.org) return; if(cmd==='anatomy'){ st.orgFollow=true; const f=st.org.frame?st.org.frame():null; glide({dist:f?Math.max(0.46,f.anatomy*1.25):0.46, el:1.3}); } st.org.cmd(cmd); },
     organismState(){ return st.org&&st.org.ready ? {mode:st.org.mode, exploded:!!st.org.exploded} : null; },
     fill(){ if(!garden)return; st.tiles.forEach(m=>{m.visible=false;m.userData.t0=0}); st.fill={next:0,t0:performance.now()}; },
-    reveal(){ if(garden)return; st.cubes.forEach(m=>{m.visible=false;m.userData.t0=0}); st.reveal={rows:0,t0:performance.now()}; },
-    setRot(on){ st.rotTarget = on? Math.PI/2 : 0; },
+    reveal(){ if(garden)return; if(st.cell){ st.cell.reveal(); return; } st.cubes.forEach(m=>{m.visible=false;m.userData.t0=0}); st.reveal={rows:0,t0:performance.now()}; },
+    setRot(on){ st.rotTarget = on? Math.PI/2 : 0; st.cell?.setRot(on); },
     showAllTiles(n){ if(garden) st.tiles.forEach((m,i)=>{m.visible=i<n;m.position.y=0.085}); },
-    reset(){ if(def){ follow=false; st.orgFollow=false; glide({...def, target:new THREE.Vector3(0,reef?0:garden?0.2:0.6,0)}); } },
+    reset(){ if(def){ follow=false; st.orgFollow=false; glide({...def, target:st.cell?st.cell.view.target.clone():new THREE.Vector3(0,reef?0:garden?0.2:0.6,0)}); } },
     zoom(f){ if(goal) goal.dist=clamp(goal.dist*f,orbit.min,orbit.max); else orbit.dist=clamp(orbit.dist*f,orbit.min,orbit.max); },
     toggleLabels(){ st.hideLabels=!st.hideLabels; },
-    dispose(){ st.dead=true; st.org?.dispose(); cancelAnimationFrame(st.raf); ro.disconnect(); stage.querySelectorAll('.hs,.dimlab').forEach(n=>n.remove());
+    dispose(){ st.dead=true; st.org?.dispose(); st.cell?.dispose(); cancelAnimationFrame(st.raf); ro.disconnect(); stage.querySelectorAll('.hs,.dimlab').forEach(n=>n.remove());
       scene.traverse(n=>{ if(n.isMesh){ n.geometry.dispose(); } }); envRT.dispose(); pm.dispose(); renderer.dispose(); renderer.domElement.remove(); }
   };
 }

@@ -70,7 +70,8 @@ export function normalize(raw: any, ctx: StudioContext, keep?: Record<string, an
   let theme = sug;
   if (keep && ownOk) theme = mt;
   else if (isCustomTheme(sug)) theme = { ...sug, skin: ready.includes(mt?.skin) ? mt.skin : sug.skin, subject: { ...sug.subject!, kind: ['organism', 'object'].includes(mt?.subject?.kind) ? mt.subject.kind : sug.subject!.kind } };
-  else if (ownOk && ready.includes(mt.id)) theme = mt;
+  // the model may only bring in a theme of its own when nothing was named and no interest fits (never blocks for a robot)
+  else if (ownOk && ready.includes(mt.id) && sug.neutral && mt.interest_refs.length) theme = mt;
   s.director.theme = { ...theme, no_husbandry: true };
   if (theme.skin && s.director.component_params?.[comp.name]) s.director.component_params[comp.name].theme = theme.skin;
   // the subject has to be seen: it waits in pending until its pictures or 3D are made and confirmed (V19)

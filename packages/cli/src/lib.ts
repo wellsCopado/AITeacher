@@ -72,8 +72,11 @@ export function suggestTheme(opts: {
     .sort((a, b) => STATE_RANK[a.state] - STATE_RANK[b.state] || b.observed_on.localeCompare(a.observed_on));
   const notes: string[] = [];
   let theme: LessonSpec['theme'] | null = null;
+  // "机器人工厂" or "工厂里的机器人" finds the 机器人 scenes too
+  const keys = Object.keys(themes.topics).sort((a, b) => b.length - a.length);
+  const skinsOf = (topic: string) => themes.topics[topic] ?? themes.topics[keys.find(k => topic.includes(k)) ?? keys.find(k => k.includes(topic)) ?? ''] ?? [];
   for (const rec of mine) {
-    const skins = themes.topics[rec.topic] ?? [];
+    const skins = skinsOf(rec.topic);
     const fit = skins.map(s => ({ id: s, ...themes.skins[s] })).filter(s => s.component === component);
     const ready = fit.find(s => s.status === '已有');
     const why = `${rec.source}：${rec.topic}（${rec.state}）`;

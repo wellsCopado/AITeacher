@@ -28,9 +28,12 @@ describe('theme rotation', () => {
     const worm = run('gege', [io('IO-0003', 'gege', '螳螂虾', '近期最喜欢'), io('IO-0010', 'gege', '博比特虫', '家长指定')]);
     expect(worm.theme).toMatchObject({ name: '博比特虫', interest_refs: ['IO-0010'], subject: { name: '博比特虫', kind: 'organism' } });
     expect(worm.theme.subject!.asset_id).toBe(run('gege', [io('IO-0011', 'gege', '博比特虫', '家长指定')]).theme.subject!.asset_id); // one id per subject
+    // 妹妹's robot lesson for multiplication gets the real robot factory, not blocks
     const robot = run('meimei', [io('IO-0006', 'gege', '机器人', '喜欢'), io('IO-0012', 'meimei', '机器人', '家长指定')], [], 'ArrayMultiplier');
-    expect(robot.theme).toMatchObject({ name: '机器人', interest_refs: ['IO-0012'], subject: { kind: 'object' } });
-    expect(robot.theme.neutral).toBeUndefined();
+    expect(robot.theme).toMatchObject({ id: 'robot_factory', skin: 'robot_factory', interest_refs: ['IO-0012'] });
+    expect(run('meimei', [io('IO-0013', 'meimei', '工厂里的机器人', '家长指定')], [], 'ArrayMultiplier').theme.skin).toBe('robot_factory');
+    // for perimeter and area there is no robot scene yet: the robot itself becomes the subject to make
+    expect(run('meimei', [io('IO-0012', 'meimei', '机器人', '家长指定')]).theme).toMatchObject({ name: '机器人', subject: { kind: 'object' } });
   });
   it("never uses a sibling's interests", () => {
     const s = run('meimei', [io('IO-0002', 'gege', '螳螂虾', '近期最喜欢')], [], 'ArrayMultiplier');

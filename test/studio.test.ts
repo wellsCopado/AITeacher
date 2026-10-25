@@ -321,10 +321,16 @@ describe('server: models, AI lesson writer, MCP for agents', () => {
     expect((await approve()).status).toBe(201);
 
     // an agreed plan for 妹妹 is written for 妹妹, about what it says, whoever was selected
-    modelReplies = [titled('机器人工厂：机械臂摆零件')];
+    const arr = JSON.parse(JSON.stringify(Object.fromEntries((['target', 'director', 'assets'] as const).map((k, i) => [k, JSON.parse(readFileSync(join(root, 'content/lessons/L-ARR/1.0', ['01-target.json', '02-director.json', '03-assets.json'][i]), 'utf8'))]))));
+    arr.director.title = '机器人工厂：机械臂摆零件';
+    modelReplies = [reply(arr)];
     const brief = `${BRIEF_HEADER}\n孩子：妹妹（2 年级）\n主题：机器人（工厂里的机械臂）\n主角：工业机械臂\n知识点：乘法的意义`;
     const j2 = (await req('POST', '/v1/studio/generate', p, { child: 'gege', wish: brief })).body.job;
-    expect(await until(`/v1/studio/jobs/${j2}`, p)).toMatchObject({ child: 'meimei' });
+    const d2 = await until(`/v1/studio/jobs/${j2}`, p);
+    expect(d2).toMatchObject({ child: 'meimei' });
+    // the model wrote it on blocks, the parent named a robot: the robot scene is used anyway (no blocks for a robot)
+    expect((await req('GET', `/v1/drafts/${d2.key}`, p)).body.theme).toMatchObject({ skin: 'robot_factory', id: 'robot_factory' });
+    expect((await req('GET', `/v1/drafts/${d2.key}`, p)).body.component_params.ArrayMultiplier.theme).toBe('robot_factory');
     expect(JSON.stringify(calls.at(-1)!.body)).toContain('第二单元 表内乘法（一）'); // her school progress went along
     expect((await req('GET', '/v1/interests?child=meimei', p)).body.some((x: { topic: string }) => x.topic === '机器人')).toBe(true);
   });

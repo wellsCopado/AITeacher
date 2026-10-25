@@ -14,6 +14,7 @@ const ACTION_LABELS: Record<string, Record<string, string>> = {
   reef: { walk: '拉卷尺围一圈', fill: '放样方', focus: '看看螳螂虾的洞' },
   garden: { walk: '测距轮走一圈', fill: '铺地砖' },
   blocks: { reveal: '一行一行摆', rotate: '转个方向' },
+  robot_factory: { reveal: '机械臂一行一行摆', rotate: '转台转 90°' },
 };
 const STEPS = ['说明', '互动演示', '挑战', '聊聊（可跳过）'];
 const STEP_GUIDE = [
