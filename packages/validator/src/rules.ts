@@ -276,6 +276,18 @@ export const RULES: Rule[] = [
     },
   },
   {
+    id: 'V20', name: '挑战题以选择题和应用题为主，没有选项的填空题最多 1 道', basis: '家长要求：少出填空，多出选择、应用和动手题', level: 'warn',
+    check(sp) {
+      const out: Issue[] = [];
+      const fills = sp.challenges.map((c, i) => ({ c, i })).filter(x => !x.c.options);
+      fills.slice(1).forEach(({ i }) => out.push({ path: `$.challenges[${i}]`, msg: `第 ${i + 1} 题是填空题，这节课已经有 1 道填空题了`, fix: '改成选择题：写 3–4 个 options，每个错误选项对应一个常见误区；同类题也写 options' }));
+      sp.challenges.forEach((c, i) => {
+        if (c.options && c.options.length > 4) out.push({ path: `$.challenges[${i}].options`, msg: `第 ${i + 1} 题有 ${c.options.length} 个选项，太多了`, fix: '留 2–4 个，错误选项各对应一个误区' });
+      });
+      return out;
+    },
+  },
+  {
     id: 'V15', name: '同一机制连续 3 次重教未见效时必须换机制', basis: 'FR24', level: 'error',
     check(sp, ctx) {
       if (!sp.trigger_judgment_ref) return [];

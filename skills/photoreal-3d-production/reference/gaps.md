@@ -27,6 +27,10 @@
 | G8 | 大素材的存放和加载：不再写进 `assets.js`；服务器按资产 id 提供文件，Pad 缓存，核对 sha256 | asset-sourcing.md 第 3 节 |
 | G9 | 场景清单 `scene_bill`：Schema、校验、写课规则、素材流程按清单逐项解析 | pipeline.md P3 |
 | G10 | 家长端：课的预览和它的素材对照图放在一处确认；选择主持人（真人 / 机器人）、上传或录制主持人视频、同意记录 | pipeline.md P8；host.md |
+| G15 | 动手操作题：Schema（`kind`、`task`）、校验、播放器、组件的 `startTask` 等，做完后在做课 Skill 的 challenge-types.md 里打开，并把“每节至少 1 道动手题”加进校验 | component-contract.md 第 5 节 |
+| G16 | 心愿 → 下一课准备单 → 提前收集素材 | pipeline.md P0 |
+| G17 | 示例课按新题型重写一版（L-PA 1.1：选择题、应用题、动手题），换成新的示例后把 V20 从警告升为错误 | `skills/discovery-learning-studio/reference/challenge-types.md` |
+| G18 | 服务器让 ChatGPT（Codex）找动物照片的任务（`packages/studio/src/codex.ts` 的 `codexResearch`）改成按 research.md 的收集、理解、整理三步，产出 `sources.json`、`brief.md`、`plan.md` | research.md |
 | G11 | 资产库 Schema 扩展：`kind` 加 `host`、`video`，manifest 字段（asset-sourcing.md 第 4 节），状态加“待确认” | asset-sourcing.md |
 
 ## P2：之后

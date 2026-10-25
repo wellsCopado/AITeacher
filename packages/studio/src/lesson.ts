@@ -1,5 +1,5 @@
 // The three stage files a lesson is written as (01-target, 02-director, 03-assets), turned into one LessonSpec
-// and checked against V01–V19. Shared by the dls command line, the MCP tools and the built-in AI lesson writer.
+// and checked against V01–V20. Shared by the dls command line, the MCP tools and the built-in AI lesson writer.
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AssetEntry, LessonSpec } from '../../schema/src/index.js';

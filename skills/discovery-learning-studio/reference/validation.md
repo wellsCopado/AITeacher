@@ -1,4 +1,4 @@
-# 自动校验 V01–V19
+# 自动校验 V01–V20
 
 `dls validate` 输出每条规则的结果；✗ 为错误（阻止发布），! 为警告。
 
@@ -22,4 +22,5 @@
 | V16 | 每步时间上限 | `timing.steps` 里各步秒数（explain/demo/challenge/chat）加起来不超过 `est_minutes` 上限；不写就按预计时长自动分配 |
 | V17 | 错三次演示 + 同类题 | 每道题写 `worked_example.steps`（2–5 步，最后一步说出全部答案）和 `twin`（换数字或情境，`field` 与原题一致，选择题的同类题也带 `options`） |
 | V18 | 坚持的理由 | 写 `encouragement.persist` 至少 2 句，和主题相连；“真棒”“加油”这种空话不算 |
+| V20 | 题型（警告） | 挑战题以选择题和应用题为主，没有选项的填空题最多 1 道，选项 2–4 个。见 [challenge-types.md](challenge-types.md) |
 | V19 | 主角要看得到 | 主题有主角（`theme.subject`）时，把它列进 `pending_assets`（系统会自动补），标题或说明页标题里写出它的名字；画面做好、家长确认后才能发布 |

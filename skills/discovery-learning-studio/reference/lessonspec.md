@@ -18,7 +18,7 @@ Schema：`packages/schema/schemas/lessonspec.schema.json`（以它为准）。�
 - **experiment_model_version**：`outputs.*.expr` 只能用数字、变量、`+ - * /` 和括号。参考算例至少 3 条合法 + 1 条 `expect: reject_out_of_range`。
 - **activity_graph.type**：explain / demo / contrast / predict / transfer / chat。重教版必须有 contrast。
 - **hotspots**：`anchor` 必须是组件提供的锚点；`facts` 每条写出处，不确定写“待科学审核”。
-- **challenges**：≤ 3 道；`with_theme: false` 的题用于迁移；`answers.value` 可以是数字或文字；选择题加 `options`。每道题还要写：
+- **challenges**：2–3 道；以选择题和应用题为主，没有 `options` 的填空题最多 1 道（题型怎么写见 [challenge-types.md](challenge-types.md)）；`with_theme: false` 的题用于迁移；`answers.value` 可以是数字或文字；选择题加 `options`，值和答案一字不差。每道题还要写：
   - `worked_example.steps`：孩子错 3 次后 Pad 一步步演示（字幕 + 朗读）。2–5 步，最后一步说出全部答案。
   - `twin`：演示后孩子自己做的同类题，`{ prompt, answers, options? }`。同一方法换数字或情境，`field` 和原题一致。
 

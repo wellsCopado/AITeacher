@@ -23,10 +23,10 @@ describe('safe formulas', () => {
 });
 
 describe('sample lessons', () => {
-  it('哥哥 L-PA@1.0 passes with no warnings', () => {
+  it('哥哥 L-PA@1.0 passes; written before the question-type rule, it only warns about its fill-ins (V20)', () => {
     const r = validate(load('L-PA', '1.0'), ctx());
     expect(r.ok).toBe(true);
-    expect(r.warnings).toBe(0);
+    expect(r.results.filter(x => !x.ok).map(x => x.id)).toEqual(['V20']);
   });
   it('妹妹 L-ARR@1.0 passes and warns about the family-only wood texture', () => {
     const r = validate(load('L-ARR', '1.0'), ctx());
@@ -90,6 +90,16 @@ describe('each rule catches its failure', () => {
     expect(failed(sp)).toContain('V18');
     const sp2 = clone(base); sp2.encouragement = { persist: ['加油！', '螳螂虾的洞也是一点一点挖出来的。'] };
     expect(failed(sp2)).toContain('V18');
+  });
+  it('V20 challenges are mostly choice questions, at most one fill-in (a warning)', () => {
+    const sp = clone(base);
+    sp.challenges.forEach(c => { c.options = ['16', '15', '31']; c.answers = [c.answers[0]]; c.answers[0].value = '16'; });
+    expect(failed(sp)).not.toContain('V20');
+    delete sp.challenges[0].options; delete sp.challenges[1].options;
+    const r = validate(sp, ctx()).results.find(x => x.id === 'V20')!;
+    expect(r.ok).toBe(false); expect(r.level).toBe('warn'); expect(r.issues).toHaveLength(1);
+    sp.challenges[2].options = ['1', '2', '3', '4', '5'];
+    expect(validate(sp, ctx()).results.find(x => x.id === 'V20')!.issues).toHaveLength(2);
   });
   it('V06 unknown component, unreviewed version, code in content', () => {
     const sp = clone(base); sp.scene_component_ids = ['FancyGame@1.0'];

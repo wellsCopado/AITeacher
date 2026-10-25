@@ -31,11 +31,15 @@ description: 为 AI Discovery World 找、做、接入和验收写实 3D 素材�
 | 步骤 | 做什么 | 产出 | 细则 |
 | --- | --- | --- | --- |
 | 1 拆清单 | 从课的主题和数学动作拆出画面里要出现的每样东西：主角、环境、道具、测量工具、数学标注 | 场景清单（每项：类型、真实尺寸、要看的角度、要做的动作、写实等级） | [reference/pipeline.md](reference/pipeline.md) |
-| 2 找素材 | 每一项按来源顺序找：资产库 → 免费授权库 → 厂家 CAD → 依据照片生成 → 实拍照片 / 视频 | 下载的原始文件 + 来源记录 | [reference/asset-sourcing.md](reference/asset-sourcing.md) |
-| 3 做成可用文件 | 统一成 GLB（PBR 贴图、真实尺寸、压缩），需要动的绑骨骼或关节；实时做不到的预渲染成视频 | `content/assets/<asset_id>/` 下的文件 + 登记 | [reference/realism-spec.md](reference/realism-spec.md) |
-| 4 接进组件 | 按组件接口装进场景：热点锚点、动作、挑战配图状态、减少动态、释放资源 | 组件代码 + 测试 | [reference/component-contract.md](reference/component-contract.md) |
-| 5 自检 | 跑自动检查，出对照图（我们的截图 vs 真实照片），过一遍自检清单 | 检查结果 + 对照图 | [reference/acceptance.md](reference/acceptance.md) |
-| 6 家长确认 | 在家长端「素材确认」里看对照图和预览，点“确认可用”或写退回意见 | 素材状态“采用”或退回 | [reference/acceptance.md](reference/acceptance.md) |
+| 2 收集 | 先求全、不挑：实拍照片、视频、事实资料、所有 3D 来源候选、环境资料，各有最低数量 | `research/sources.json` | [reference/research.md](reference/research.md) |
+| 3 理解 | 看完资料写说明：尺寸、结构、外观、怎么动、在哪里、孩子会觉得什么有意思、和数学怎么连、资料矛盾 | `research/brief.md` | [reference/research.md](reference/research.md) |
+| 4 整理 | 有了理解才挑：精选参考照片，比较所有 3D 候选，定修改、动作、环境方案 | `research/plan.md` | [reference/research.md](reference/research.md)、[reference/asset-sourcing.md](reference/asset-sourcing.md) |
+| 5 制作 | 统一成 GLB（PBR 贴图、真实尺寸、压缩），需要动的绑骨骼或关节；实时做不到的预渲染成视频 | `content/assets/<asset_id>/` 下的文件 + 登记 | [reference/realism-spec.md](reference/realism-spec.md) |
+| 6 接进组件 | 按组件接口装进场景：热点锚点、动作、挑战配图、动手题、减少动态、释放资源 | 组件代码 + 测试 | [reference/component-contract.md](reference/component-contract.md) |
+| 7 自检 | 跑自动检查，出对照图（我们的截图 vs 真实照片），过一遍自检清单 | 检查结果 + 对照图 | [reference/acceptance.md](reference/acceptance.md) |
+| 8 家长确认 | 在家长端「素材确认」里看对照图和预览，点“确认可用”或写退回意见 | 素材状态“采用”或退回 | [reference/acceptance.md](reference/acceptance.md) |
+
+第 2–4 步不能省、不能并成一步：**先收全、弄懂，最后才整理**。拿前几个搜索结果就开始做，是之前画面不像、主角不对的主要原因。
 
 课末主持人（机器人或真人）的规格单独写在 [reference/host.md](reference/host.md)。现在仓库里哪些东西不达标、要换成什么，见 [reference/gaps.md](reference/gaps.md)，**动手前先读它**。
 

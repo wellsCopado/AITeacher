@@ -20,10 +20,11 @@ description: 为 AI Discovery World 制作、校验并交给家长审核一节�
 - **资料不全也不停下**：课内进度看上下文 `school`；家长没填就按年级和日期推断，在 `parent_tip` 里写明“推断”。不要停下来问家长要教材、“沪学习”的单元或别的资料。
 - **写实底线**（BL14）：所有 3D 和动画写实，标准是“截图放进纪录片里不违和，不像动画片”，细则见 `skills/photoreal-3d-production/reference/realism-spec.md`。生物只能用扫描、实拍或依据真实照片的 AI 生成素材（须 ≥ 3 张参考照片、核对人、标注“AI 依据照片生成”）。素材没到位就写进 `pending_assets`，写明“不展示”，绝不用卡通或简化模型代替。
 - **准确可追溯**（BL03）：数值、单位、事实都写出处；不确定的写“待科学审核”，不编造。数字自己算一遍，参考算例必须和公式一致。
-- **课末必问心愿**：每节课结束问“下一次课你想学什么”，选项来自这个孩子自己的兴趣或选项，允许自己说一个。
+- **课末必问心愿，下一课按心愿准备**：每节课结束问“下一次课你想学什么”，选项来自这个孩子自己的兴趣或选项，允许自己说一个。孩子说的会自动记下；家长没另外指定时，下一节课就按这个孩子最新、还没安排过的心愿做（上下文的 `suggested_theme` 已经按这个顺序给出），`parent_tip` 里写明“按某月某日孩子说的心愿准备”。
 - **讲解固定“一中三英”**（V05）：每个热点中文 1 条 + 英文 3 条循环讲，没有纯中文选项。英文只用于讲解，不考英语（BL06）。
 - **上课流程固定**：四步按顺序解锁、每步每题有倒计时、到时间自动前进、文字自动出字幕并朗读。流程在播放器里，你要把说明、题目、提示写得短、适合读出来。
 - **夸奖要具体、给孩子信心**（V18）：答错时先夸真正做对的部分，再说要看哪里，再给坚持的理由。写 `encouragement.persist`，和主题相连，不写空话。
+- **题型以选择题和应用题为主**（V20）：每节 2–3 道题，至少 1 道选择题、1 道应用题，没有选项的填空题最多 1 道；选择题的错误选项各对应一个真实误区。动手操作题（点、滑、拖放组装）在播放器支持后每节至少 1 道。见 [reference/challenge-types.md](reference/challenge-types.md)。
 - **错三次先演示、再做同类题**（V17）：每道题都写 `worked_example`（2–5 步，最后一步说出答案）和 `twin`（同一方法换数字或情境）。
 - **不做养殖经营**（BL12），**不开放聊天、不外链**（BL11）。
 - **人工审核不可替代**：发布只能由家长在家长端「课程库」点按钮完成。没有服务器时，只有家长在对话里明确确认某一类后，才能运行 `dls review --approve <类别> --by <家长称呼>`。
@@ -50,7 +51,7 @@ pnpm -s dls context --child gege --json   # 完整内容
 
 通过 MCP 时用 `adw_get_context`（见下面“三种做课方式”）。
 
-照着示例课 `content/lessons/L-PA/1.0/` 的结构写（字段、层级、类型一样），内容为这个孩子新写，不抄示例的题目和讲解。
+照着示例课 `content/lessons/L-PA/1.0/` 的结构写（字段、层级、类型一样），内容为这个孩子新写，不抄示例的题目和讲解。示例课是题型规则之前写的，3 道都是填空题，**题型不要照它**，按 [reference/challenge-types.md](reference/challenge-types.md) 写。
 
 ## 六个阶段
 
@@ -62,7 +63,7 @@ pnpm -s dls context --child gege --json   # 完整内容
 | 2 导演设计 | `02-director.json` | `dls theme --write` | 主题引用这个孩子的兴趣；每道题有演示和同类题；有 `encouragement.persist`；课末有心愿题 |
 | 3 素材核验 | `03-assets.json` | `dls assets` | 只用登记过的素材；没到位的在 `pending` 里写“不展示” |
 | 4 组装 | `lessonspec.json` | `dls assemble` | 能组装，没有未登记素材 |
-| 5 自动校验 | `05-validation.json` | `dls validate`、`dls preview` | V01–V19 没有错误；警告告诉家长 |
+| 5 自动校验 | `05-validation.json` | `dls validate`、`dls preview` | V01–V20 没有错误；警告告诉家长 |
 | 6 家长审核 | 家长端「课程库 → 等你审核」 | `dls submit` | 家长看过、勾完四类审核、点发布（只有家长能做） |
 
 ### 1. 目标锁定 → `01-target.json`
@@ -88,7 +89,7 @@ pnpm -s dls theme content/lessons/L-XXX/1.0 --component PerimeterArea --write
 
 把建议告诉家长；家长可以改。工具提示“待开发”的主题皮肤，要转告家长需要开素材工单，这节课先用可用的主题。
 
-再补全 `02-director.json`：标题、说明页 `intro`、`scene_component_ids`、`component_params`、实验模型（变量范围 + 公式 + 参考算例，必须含越界算例）、活动图、热点（中文 1 条 + 英文 3 条）、≤ 3 道挑战（至少一道不带主题的迁移题；**每道题都带分步演示 `worked_example` 和同类题 `twin`**；题目里写清“几行、每行几个”或“长、宽”，播放器按这些数用课里的 3D 场景给每道题配图）、答错时的鼓励 `encouragement.persist`、课末反思问题、评估计划、可选离屏任务、家长提示、出处。每个活动节点和热点都写 `teaches`。字段说明见 [reference/lessonspec.md](reference/lessonspec.md)，组件能力见 [reference/components.md](reference/components.md)，主题映射见 [reference/themes.md](reference/themes.md)。
+再补全 `02-director.json`：标题、说明页 `intro`、`scene_component_ids`、`component_params`、实验模型（变量范围 + 公式 + 参考算例，必须含越界算例）、活动图、热点（中文 1 条 + 英文 3 条）、≤ 3 道挑战（以选择题和应用题为主、填空最多 1 道，见 [reference/challenge-types.md](reference/challenge-types.md)；至少一道不带主题的迁移题；**每道题都带分步演示 `worked_example` 和同类题 `twin`**；题目里写清“几行、每行几个”或“长、宽”，播放器按这些数用课里的 3D 场景给每道题配图）、答错时的鼓励 `encouragement.persist`、课末反思问题、评估计划、可选离屏任务、家长提示、出处。每个活动节点和热点都写 `teaches`。字段说明见 [reference/lessonspec.md](reference/lessonspec.md)，组件能力见 [reference/components.md](reference/components.md)，主题映射见 [reference/themes.md](reference/themes.md)。
 
 ### 3. 素材检索核验 → `03-assets.json`
 
@@ -110,7 +111,7 @@ pnpm -s dls assemble content/lessons/L-XXX/1.0
 pnpm -s dls validate content/lessons/L-XXX/1.0
 ```
 
-V01–V19 全部无错误才能继续；警告要告诉家长。按每条问题后面的“→”提示修改阶段文件，再从阶段 4 重跑。规则解释见 [reference/validation.md](reference/validation.md)。
+V01–V20 全部无错误才能继续；警告要告诉家长。按每条问题后面的“→”提示修改阶段文件，再从阶段 4 重跑。规则解释见 [reference/validation.md](reference/validation.md)。
 
 ### 预览（阶段 5 之后、审核之前）
 
@@ -196,7 +197,7 @@ pnpm -s dls sync --server http://<服务器地址>:8787
 pnpm -s dls interest add --child gege --topic 机器人 --source 孩子自述 --state 下一课心愿 --lesson L-PA@1.0
 ```
 
-下一节课的阶段 2 会优先用它。
+下一节课的阶段 2 会优先用它：家长没另外指定时，主题就是这个孩子最新、还没安排过的心愿。服务器还会按心愿提前收集素材（`skills/photoreal-3d-production/reference/pipeline.md` P0）。
 
 ## 交付给家长时
 

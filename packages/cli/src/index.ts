@@ -6,7 +6,7 @@ import type { CheckedItem, InterestObservation, LearningJudgment, LessonSpec, Re
 import { checkJudgment, loadContext, validate, type JudgmentReport, type Report } from '../../validator/src/index.js';
 import { buildPreview } from './preview.js';
 import {
-  assemble, chatWith, childList, createMcp, designPrompt, generateLesson, localBackend, modelFromEnv, readStages, serveStdio,
+  assemble, chatWith, childList, createMcp, designPrompt, generateLesson, guide, localBackend, modelFromEnv, readStages, serveStdio,
   StageError, studioContext, writeStages, PROVIDERS,
 } from '../../studio/src/index.js';
 import { writeFileSync } from 'node:fs';
@@ -358,6 +358,14 @@ const commands: Record<string, (pos: string[], flags: Flags) => number | Promise
     return 0;
   },
 
+  /** Any Skill as plain text, for models and agents that don't load skill folders (also the MCP tool adw_read_skill). */
+  skill(pos) {
+    const [name, file] = pos;
+    try { console.log(name ? guide(root, `skill:${name}${file ? `/${file}` : ''}`) : guide(root, 'skills')); }
+    catch (e) { throw new UsageError((e as Error).message); }
+    return 0;
+  },
+
   /** Everything a model needs to write the next lesson for one child (also what the MCP tool adw_get_context returns). */
   context(_pos, flags) {
     const child = need(str(flags, 'child'), `--child（${childList(root).map(c => c.id).join(' / ')}）`);
@@ -482,7 +490,7 @@ const HELP = `dls — discovery-learning-studio 命令行
   dls theme <目录> --component <组件> [--write]   阶段 2：按孩子兴趣建议主题和课末心愿
   dls assets <目录>                       阶段 3：核验素材（许可、写实底线）
   dls assemble <目录>                     阶段 4：组装 lessonspec.json
-  dls validate <目录|文件> [--previous <文件>] [--json]   阶段 5：V01–V19
+  dls validate <目录|文件> [--previous <文件>] [--json]   阶段 5：V01–V20
   dls preview <目录|文件> [--out <文件>]         生成可直接打开的课程预览
   dls review <目录> [--init] [--approve <类别,…|all> --by <审核人>]   阶段 6：审核清单
   dls submit <目录> --server <地址>       阶段 6：交给家长端审核并发布（推荐）
@@ -491,6 +499,7 @@ const HELP = `dls — discovery-learning-studio 命令行
   dls homework list|pull|recognize|draft|check|submit [<作业编号>] --server <地址>   作业判断（homework-analysis Skill）
   dls tickets --server <地址>             重教需求，以及开始重教版的命令
   dls interest [add] --child <孩子> [--topic … --source … --state … --said …]
+  dls skill [<名称> [<文件>]]              读项目里的 Skill（不写名称时列出全部），给不会自己读文件夹的模型用
   dls context --child <孩子> [--json]      做课需要的全部信息（兴趣、可用组件、建议主题、新课 id）
   dls design --child <孩子>                给 ChatGPT 等聊天模型的设计说明：和它谈好方案，再交给 dls generate --wish
   dls generate --child <孩子> [--wish <要求>] [--component <组件>] [--submit --server <地址>]

@@ -110,11 +110,25 @@ describe('MCP', () => {
     expect(init.result.instructions).toContain('adw_submit_for_review');
     expect(await mcp.handle({ jsonrpc: '2.0', method: 'notifications/initialized' })).toBeNull();
     const list = await mcp.handle({ jsonrpc: '2.0', id: 2, method: 'tools/list' }) as { result: { tools: { name: string }[] } };
-    expect(list.result.tools.map(t => t.name)).toEqual(['adw_read_guide', 'adw_get_context', 'adw_get_example', 'adw_check_lesson', 'adw_submit_for_review', 'adw_list_lessons', 'adw_get_lesson']);
+    expect(list.result.tools.map(t => t.name)).toEqual(['adw_read_guide', 'adw_read_skill', 'adw_get_context', 'adw_get_example', 'adw_check_lesson', 'adw_submit_for_review', 'adw_list_lessons', 'adw_get_lesson']);
     expect(list.result.tools.some(t => /publish|approve/.test(t.name))).toBe(false); // publishing stays the parent's button
     expect(await mcp.handle({ jsonrpc: '2.0', id: 3, method: 'nope' })).toMatchObject({ error: { code: -32601 } });
     const batch = await mcp.handle([{ jsonrpc: '2.0', id: 4, method: 'ping' }, { jsonrpc: '2.0', method: 'notifications/x' }]) as object[];
     expect(batch).toHaveLength(1);
+  });
+
+  it('serves every Skill to any model: the list, a whole Skill, one file, and nothing outside it', async () => {
+    const index = (await call('adw_read_skill')).content[0].text;
+    for (const s of ['discovery-learning-studio', 'photoreal-3d-production', 'homework-analysis']) expect(index).toContain(`## ${s}`);
+    const whole = (await call('adw_read_skill', { skill: 'photoreal-3d-production' })).content[0].text;
+    expect(whole).toContain('skills/photoreal-3d-production/SKILL.md');
+    expect(whole).toContain('收集 → 理解 → 整理');
+    expect(whole).not.toMatch(/^---\nname:/m); // frontmatter is stripped
+    const one = (await call('adw_read_skill', { skill: 'photoreal-3d-production', file: 'reference/host.md' })).content[0].text;
+    expect(one.startsWith('<!-- skills/photoreal-3d-production/reference/host.md -->')).toBe(true);
+    expect((await call('adw_read_skill', { skill: 'photoreal-3d-production', file: '../../AGENTS.md' })).isError).toBe(true);
+    expect((await call('adw_read_skill', { skill: 'nope' })).isError).toBe(true);
+    expect((await call('adw_read_guide', { topic: 'author' })).content[0].text).toContain('reference/challenge-types.md');
   });
 
   it('gives context, the example, and checks a lesson', async () => {

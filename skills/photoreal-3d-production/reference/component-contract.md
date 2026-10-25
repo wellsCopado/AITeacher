@@ -61,3 +61,45 @@ mount(el: HTMLElement, componentId: string /* 名称@版本 */, params, opts: Mo
 ```
 
 新组件登记进 `content/components.json`，`status` 先写“待审”，家长看过对照图和预览后改“已审”（只有家长能改）。
+
+## 5. 动手操作题（要做）
+
+家长要求挑战题里有孩子亲手做的题：点选、滑动、拖放组装、旋转（题型说明见 `skills/discovery-learning-studio/reference/challenge-types.md`）。实现时 Schema、校验、播放器、组件一起改：
+
+### LessonSpec
+
+```json
+{
+  "id": "c2", "kind": "hands_on", "with_theme": true,
+  "prompt": "让机械臂摆出 3 行、每行 4 个齿轮。",
+  "task": {
+    "type": "place",                       // select | slide | place | rotate
+    "start": { "rows": 1, "cols": 4 },     // 开始时的场景参数（在组件参数范围内）
+    "controls": ["rows"],                  // 孩子能改的东西（slide / place 用）
+    "goal": "rows == 3 && cols == 4",      // 判对的条件，只能用参数、数字、+ - * / ( ) 和比较、&& ||
+    "partial": [{ "when": "rows * cols == 12", "praise": "总数对了，再看看是不是 3 行" }]
+  },
+  "worked_example": { "steps": ["…", "…"] },   // 演示时场景自己做一遍
+  "twin": { "prompt": "…", "task": { … } }
+}
+```
+
+- `goal` 和 `partial` 用和实验模型相同的安全表达式求值器（扩展比较和逻辑运算），校验时检查变量都是组件参数、`goal` 能达到、`start` 不满足 `goal`。
+- `partial` 让播放器在孩子没做对时，先夸做对的部分（和现有夸奖规则一致）。
+- 错三次：场景按 `worked_example` 一步步自己做一遍，然后给 `twin` 让孩子再做。
+
+### 组件
+
+```ts
+startTask(task: HandsOnTask, cb: { onChange(state: Record<string, number>): void }): void  // 打开操作，场景回到 start
+taskState(): Record<string, number>
+demoTask(task: HandsOnTask): Promise<void>   // 演示：场景自己做到 goal
+endTask(): void                               // 关掉操作
+```
+
+- 操作的对象就是场景里的写实素材（真实的齿轮、样方框），不是另外画的按钮。
+- 触摸目标至少 44 × 44 pt；拖放按真实单位吸附到格点或槽位，吸附时有轻微的声音；松手放不进去的回到原处，不弹跳。
+- 场景角上实时显示当前的数（“3 行 × 4 个 = 12 个”“长 6 米”），这是数学标注层。
+- 有“重来”按钮，回到 `start`。
+- 减少动态效果打开时，拖放照样可用，只是没有过渡动画。
+- 每道动手题至少给 60 秒。

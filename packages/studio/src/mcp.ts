@@ -39,7 +39,7 @@ const stagesSchema = {
 };
 
 export const INSTRUCTIONS = `AI Discovery World 做课工具。给哥哥（四年级）或妹妹（二年级）写以数学为主、包在孩子自己兴趣里的写实 3D 互动课。
-顺序：1) adw_read_guide 读 Skill（topic=all），2) adw_get_context 拿这个孩子的兴趣、可用组件、建议主题、新课 id，3) adw_get_example 看一节完整的示例课，
+顺序：1) adw_read_guide 读 Skill（topic=all；做 3D 素材、主持人或看作业用 adw_read_skill 读对应的 Skill），2) adw_get_context 拿这个孩子的兴趣、可用组件、建议主题、新课 id，3) adw_get_example 看一节完整的示例课，
 4) 写 target / director / assets 三部分，用 adw_check_lesson 校验，按每条问题的 fix 改到全部通过，5) adw_submit_for_review 交给家长审核。
 只想谈方案、不自己写课时：和家长谈好方案后，用 adw_write_with_model 交给家长配置的大模型（例如 DeepSeek）按 Skill 写成完整的课，用 adw_job_status 看进度。
 生成了写实的生物图片时：用 adw_prepare_image_upload 拿一次性上传地址，按返回的 curl 命令上传，家长确认后孩子才看得到。
@@ -53,12 +53,15 @@ export function createMcp(b: StudioBackend, info = { name: 'adw-lesson-studio', 
     { name: 'adw_read_guide', description: `读做课 Skill（规则、固定上课流程、字段说明、组件、主题、校验规则）。topic：${Object.keys(GUIDE_TOPICS).join(' / ')} / all。第一次用先读 all。`,
       inputSchema: { type: 'object', properties: { topic: { type: 'string', enum: [...Object.keys(GUIDE_TOPICS), 'all'], default: 'all' } } },
       run: a => b.guide(a?.topic ?? 'all') },
+    { name: 'adw_read_skill', description: `读项目里的任意一份 Skill（普通 Markdown）：${b.guide('skills').split('\n').filter(l => l.startsWith('## ')).map(l => l.slice(3)).join('、')}。不写 skill 时返回目录（每份做什么、有哪些文件）；写 skill 不写 file 时返回整份；file 例如 reference/research.md。`,
+      inputSchema: { type: 'object', properties: { skill: { type: 'string' }, file: { type: 'string' } } },
+      run: a => a?.skill ? b.guide(`skill:${a.skill}${a.file ? `/${a.file}` : ''}`) : b.guide('skills') },
     { name: 'adw_get_context', description: '一个孩子做课需要的全部信息：年级、自己的兴趣和下一课心愿、可用 3D 组件（参数范围、热点锚点、动作）、建议主题和课末心愿题、能用的素材、新课 id、必须原样使用的固定字段。',
       inputSchema: { type: 'object', required: ['child'], properties: { child: { type: 'string', description: `孩子 id：${b.children().map(c => `${c.id}（${c.label}，${c.grade} 年级）`).join('、')}` } } },
       run: a => b.context(String(a?.child ?? '')) },
     { name: 'adw_get_example', description: '一节完整、校验通过的示例课（target / director / assets），照它的结构写，内容要新写。', inputSchema: { type: 'object', properties: {} },
       run: () => b.example() },
-    { name: 'adw_check_lesson', description: `组装并校验一节课（V01–V19）。返回每个问题的位置、原因和怎么改。${b.where === 'local' ? '同时把三份阶段文件写到 content/lessons/<id>/<版本>/。' : ''}`,
+    { name: 'adw_check_lesson', description: `组装并校验一节课（V01–V20）。返回每个问题的位置、原因和怎么改。${b.where === 'local' ? '同时把三份阶段文件写到 content/lessons/<id>/<版本>/。' : ''}`,
       inputSchema: stagesSchema, run: a => b.check(a as Stages) },
     { name: 'adw_submit_for_review', description: '校验通过的课交给家长审核（家长端「课程库 → 等你审核」）。家长看过、勾完四类审核才会发布。', inputSchema: stagesSchema,
       run: a => b.submit(a as Stages) },

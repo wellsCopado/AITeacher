@@ -10,7 +10,7 @@
 | 看作业照片、写判断、触发重教 | `skills/homework-analysis/SKILL.md` 和它的 `reference/` |
 | 做 3D 场景和组件、给课的主角找或做写实素材、做主持人、替换不达标的画面 | `skills/photoreal-3d-production/SKILL.md` 和它的 `reference/`（先读 `reference/gaps.md`） |
 
-`.agents/skills/`（Codex）、`.claude/skills/`（Claude Code）、`.qoder/rules/`（Qoder）里只放指向上面目录的入口，规则不在那里另写。
+`.agents/skills/`（Codex）、`.claude/skills/`（Claude Code）、`.qoder/rules/`（Qoder）里只放指向上面目录的入口，规则不在那里另写。不能直接读文件夹的模型用 `pnpm -s dls skill` 或 MCP 的 `adw_read_skill` 读，见 `skills/README.md`。
 
 ## 项目约定
 
@@ -29,7 +29,8 @@
 pnpm install                         # 第一次
 pnpm -s dls context --child gege     # 做课需要的上下文：兴趣、可用组件、建议主题、新课 id
 pnpm -s dls design --child gege      # 给 ChatGPT 等聊天模型的设计说明（谈好的【课程方案】再交给 dls generate --wish）
-pnpm -s dls validate <课目录>        # 校验 V01–V19
+pnpm -s dls validate <课目录>        # 校验 V01–V20
+pnpm -s dls skill [<名称> [<文件>]]  # 读任意一份 Skill（不写名称时列出全部）
 pnpm -s dls mcp                      # 以 MCP（stdio）提供做课工具
 pnpm test && pnpm typecheck          # 改代码后
 ```

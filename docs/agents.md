@@ -74,6 +74,7 @@ ADW_LLM_PROVIDER=deepseek ADW_LLM_API_KEY=sk-… pnpm -s dls generate --child ge
    | 工具 | 做什么 |
    | --- | --- |
    | `adw_read_guide` | 读 Skill（规则、上课流程、字段说明、组件、主题、校验规则） |
+   | `adw_read_skill` | 读项目里的任意一份 Skill：不带参数列出全部；做 3D 素材、主持人、动手题的 agent 读 `photoreal-3d-production` |
    | `adw_get_context` | 孩子的年级、兴趣和心愿、可用组件、建议主题、新课 id |
    | `adw_get_example` | 一节完整、校验通过的示例课 |
    | `adw_check_lesson` | 校验，返回每个问题的位置和改法 |
