@@ -14,7 +14,7 @@ input,select{font:inherit;padding:6px 8px;border:1px solid var(--line);border-ra
 table{width:100%;border-collapse:collapse;background:var(--surface);border-radius:12px;overflow:hidden}th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
 @media (max-width:640px){table,tbody,tr,td,th{display:block}th{display:none}td{border:0;padding:4px 8px}tr{border-bottom:1px solid var(--line);padding:6px 0}}
 .toast{min-height:1.4em;color:var(--accent)}.toast.bad{color:var(--bad)}
-.login{max-width:360px;margin:12vh auto}.login form{display:flex;gap:8px}.login input{flex:1;font-size:22px;letter-spacing:4px}
+.login{max-width:360px;margin:12vh auto}.login form{display:flex;gap:8px}.login input{flex:1;min-width:0;font-size:22px;letter-spacing:4px}.login .btn{flex:none;white-space:nowrap}
 .badge{display:inline-block;font-size:12px;padding:1px 8px;border-radius:999px;border:1px solid var(--line);background:var(--bg)}.badge.warn{border-color:#c98a1a;color:#9a6400}
 .photos{display:flex;gap:8px;flex-wrap:wrap}.photos img{height:160px;border-radius:8px;border:1px solid var(--line)}
 .items textarea,.items input,.items select{width:100%;min-width:90px}.items tr.check{background:color-mix(in srgb,#f2b43a 14%,transparent)}.items tr.done{opacity:.75}

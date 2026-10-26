@@ -11,7 +11,9 @@ echo "6ef7a58375aa68fb492b58edd97607bee8ee5c5c  $jar" | sha1sum -c - >/dev/null
 javac -nowarn -d "$work" -cp "$jar" "$here/Sign.java"
 out="$here/../release"
 mkdir -p "$out"
-java -cp "$work:$jar" Sign sign "$2/adw-pad.p12" "$2/password.txt" adw "$1" "$out/ai-discovery-world-pad.apk"
+# apksig 2.3.0 (the newest on Maven Central) reaches into JDK internals
+java --add-exports java.base/sun.security.x509=ALL-UNNAMED --add-exports java.base/sun.security.pkcs=ALL-UNNAMED --add-exports java.base/sun.security.util=ALL-UNNAMED \
+  -cp "$work:$jar" Sign sign "$2/adw-pad.p12" "$2/password.txt" adw "$1" "$out/ai-discovery-world-pad.apk"
 # Android 11+ refuses an APK whose uncompressed entries (resources.arsc) are not 4-byte aligned
 python3 - "$out/ai-discovery-world-pad.apk" <<'PY'
 import struct, sys, zipfile
