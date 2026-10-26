@@ -398,6 +398,18 @@ describe('server: models, AI lesson writer, MCP for agents', () => {
     expect(d2.status, JSON.stringify(d2)).toBe('done');
     preps = (await req('GET', '/v1/preps', p)).body;
     expect(preps.find((x: { id: string }) => x.id === second.id)).toMatchObject({ status: '已安排', lesson_ref: d2.key });
+
+    // the parent doesn't take the 螳螂虾 lesson: the wish goes back in the queue, and lesson writing hears why
+    expect((await req('POST', `/v1/drafts/${done.key}/discard`, p, { reason: '画面太假' })).body.wishes_back).toEqual(['螳螂虾']);
+    preps = (await req('GET', '/v1/preps', p)).body;
+    expect(preps.find((x: { id: string }) => x.id === first.id)).toMatchObject({ status: '准备中', lesson_ref: null });
+    expect((await req('GET', '/v1/interests?child=gege', p)).body.find((x: { said: string }) => x.said === '我想看螳螂虾打架').state).toBe('下一课心愿');
+    const ctx = JSON.parse((await req('POST', '/mcp', token, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'adw_get_context', arguments: { child: 'gege' } } })).body.result.content[0].text);
+    expect(ctx.parent_declined.lessons).toEqual([expect.objectContaining({ title: draft.title, reason: '画面太假' })]);
+    expect(ctx.next_lesson_wish.topic).toBe('螳螂虾');
+    await req('POST', `/v1/drafts/${done.key}/restore`, p);
+    preps = (await req('GET', '/v1/preps', p)).body;
+    expect(preps.find((x: { id: string }) => x.id === first.id)).toMatchObject({ status: '已安排', lesson_ref: done.key });
   });
 
   it('takes a picture from an assistant only through a one-time address, and shows it to children only after the parent confirms', async () => {

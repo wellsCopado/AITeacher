@@ -134,10 +134,15 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
   // ---- what lesson writing sees from this server ----
   const published = () => store.lessons().map(l => store.lesson(l.key)!).filter(Boolean);
   const progress = (child: string) => store.setting(`progress.${child}`);
+  /** Lessons the parent didn't take, most recent last, with the reason; never the children's words. */
+  const declined = (child: string) => store.drafts().filter(x => x.status === '不采用' && x.for_child === child).slice(-10).map(x => {
+    const sp = store.draft(x.key)!;
+    return { title: x.title, theme: sp.theme.name, concept: sp.primary_concept.name, reason: x.note };
+  });
   /** What a lesson for this child is written from; it follows the first queued wish, or the prep list the parent picked. */
   const context = (child: string, prep?: string) => {
     if (!store.hasChild(child)) fail(400, `没有这个孩子：${child}（可选：${store.children().map(c => c.id).join('、')}）`);
-    return studioContext(root, child, { interests: d.wishes.interestsFor(child, prep), wishOn: d.wishes.head(child, prep)?.wished_on, published: published(), takenKeys: [...store.lessons().map(l => l.key), ...store.drafts().map(x => x.key)], tenant: d.tenant, progress: progress(child), today: iso().slice(0, 10) });
+    return studioContext(root, child, { interests: d.wishes.interestsFor(child, prep), wishOn: d.wishes.head(child, prep)?.wished_on, published: published(), takenKeys: [...store.lessons().map(l => l.key), ...store.drafts().map(x => x.key)], declined: declined(child), tenant: d.tenant, progress: progress(child), today: iso().slice(0, 10) });
   };
   /** 哥哥 / 妹妹 or an id → the child's id. */
   const childId = (s: string) => store.children().find(c => c.id === s || c.name === s)?.id;

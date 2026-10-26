@@ -40,6 +40,9 @@ export interface Voice {
   /** Resolves when the line has been read out (or, without sound, after the time it takes to read it). */
   speak(text: string, lang: Lang): Promise<void>;
   stop(): void;
+  /** Pause: the line being read stops, and it and every later line wait for release(); the stopped line is read again. */
+  hold(): void;
+  release(): void;
   /** Call inside a tap: iPad Safari only lets a page make sound after one. */
   unlock(): void;
   tap(): void;
@@ -126,55 +129,75 @@ export function createVoice(scale = 1, fetchAudio?: FetchAudio): Voice {
     });
   };
 
+  // pause: `holds` counts holds, `stops` counts stops, so a line knows whether it was cut by a pause (read it again) or a stop (drop it)
+  let held = false, holds = 0, stops = 0;
+  const waiting = new Set<() => void>();
+  const whileHeld = () => held ? new Promise<void>(res => waiting.add(res)) : Promise.resolve();
+  const cut = () => { gen++; if (el && !el.paused) el.pause(); endCurrent?.(); synth?.cancel(); cancels.forEach(f => f()); cancels.clear(); };
+  const freeWaiting = () => { waiting.forEach(f => f()); waiting.clear(); };
+
   const v: Voice = {
     muted: false,
     get available() { return serverOk || !!synth; },
     get source() { return serverOk ? 'server' : synth ? 'device' : 'none'; },
     async speak(text, lang) {
-      const est = readingTime(text) * 1000 / scale;
-      const parts = runs(text, lang);
-      const my = ++gen;
-      if (v.muted || !parts.length) return wait(est);
-      if (serverOk && el) {
-        try {
-          if (synth?.speaking) synth.cancel();
-          const bufs = parts.map(r => clip(r.text, r.lang));
-          for (const b of bufs) { const buf = await b; if (my !== gen) return; await playClip(buf, my); }
-          return;
-        } catch (e) {
-          if (my !== gen) return;
-          // No server voice (not a Mac) or the Pad refused to play: use the device voice from now on.
-          if (!(e instanceof DOMException && e.name === 'NotAllowedError')) serverOk = false;
-        }
+      const s0 = stops;
+      for (;;) {
+        await whileHeld();
+        if (stops !== s0) return;
+        const h0 = holds;
+        await once(text, lang);
+        if (stops !== s0 || holds === h0) return;
       }
-      if (!synth) return wait(est);
-      // cancel() right before speak() makes Safari drop the new line, so only cancel when something is playing
-      if ((synth.speaking || synth.pending) && !warmOnly) synth.cancel();
-      warmOnly = false;
-      live.length = 0;
-      return new Promise<void>(res => {
-        let done = false;
-        const finish = () => { if (!done) { done = true; res(); } };
-        parts.forEach((r, i) => {
-          const u = new SpeechSynthesisUtterance(r.text);
-          u.lang = r.lang === 'zh' ? 'zh-CN' : 'en-US';
-          const voice = pick(r.lang); if (voice) u.voice = voice;
-          u.rate = r.lang === 'en' ? 0.92 : 1;
-          // A voice that fails (e.g. sound not unlocked yet) still gives the child time to read the subtitle.
-          if (i === parts.length - 1) { u.onend = finish; u.onerror = () => { void wait(est).then(finish); }; }
-          live.push(u);
-          synth.speak(u);
-        });
-        // Some devices never fire onend; never let a lesson hang on that.
-        setTimeout(finish, est * 1.6 + 1500 / scale);
-        cancels.add(finish);
-      });
     },
     unlock() { unlock(); },
-    stop() { gen++; if (el && !el.paused) el.pause(); endCurrent?.(); synth?.cancel(); cancels.forEach(f => f()); cancels.clear(); },
+    stop() { stops++; cut(); freeWaiting(); },
+    hold() { if (held) return; held = true; holds++; cut(); },
+    release() { held = false; freeWaiting(); },
     tap() { tone([1320], 0.05, 0.05, 'triangle'); },
     chime() { tone([660, 880, 1320], 0.22, 0.08); },
     tick() { tone([880], 0.08, 0.06); },
   };
+
+  async function once(text: string, lang: Lang): Promise<void> {
+    const est = readingTime(text) * 1000 / scale;
+    const parts = runs(text, lang);
+    const my = ++gen;
+    if (v.muted || !parts.length) return wait(est);
+    if (serverOk && el) {
+      try {
+        if (synth?.speaking) synth.cancel();
+        const bufs = parts.map(r => clip(r.text, r.lang));
+        for (const b of bufs) { const buf = await b; if (my !== gen) return; await playClip(buf, my); }
+        return;
+      } catch (e) {
+        if (my !== gen) return;
+        // No server voice (not a Mac) or the Pad refused to play: use the device voice from now on.
+        if (!(e instanceof DOMException && e.name === 'NotAllowedError')) serverOk = false;
+      }
+    }
+    if (!synth) return wait(est);
+    // cancel() right before speak() makes Safari drop the new line, so only cancel when something is playing
+    if ((synth.speaking || synth.pending) && !warmOnly) synth.cancel();
+    warmOnly = false;
+    live.length = 0;
+    return new Promise<void>(res => {
+      let done = false;
+      const finish = () => { if (!done) { done = true; res(); } };
+      parts.forEach((r, i) => {
+        const u = new SpeechSynthesisUtterance(r.text);
+        u.lang = r.lang === 'zh' ? 'zh-CN' : 'en-US';
+        const voice = pick(r.lang); if (voice) u.voice = voice;
+        u.rate = r.lang === 'en' ? 0.92 : 1;
+        // A voice that fails (e.g. sound not unlocked yet) still gives the child time to read the subtitle.
+        if (i === parts.length - 1) { u.onend = finish; u.onerror = () => { void wait(est).then(finish); }; }
+        live.push(u);
+        synth.speak(u);
+      });
+      // Some devices never fire onend; never let a lesson hang on that.
+      setTimeout(finish, est * 1.6 + 1500 / scale);
+      cancels.add(finish);
+    });
+  }
   return v;
 }

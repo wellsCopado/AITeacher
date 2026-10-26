@@ -198,6 +198,9 @@ describe('family server', () => {
     expect((await req('GET', '/v1/sessions/sess-0000001/events', pad)).status).toBe(403);
     // three misses, the step-by-step demo, then the similar question done alone
     const at = '2026-10-24T02:05:00Z', miss = { id: 'x', at, type: 'answer', challenge: 'c2', correct: false, hints: 1 };
+    const exited = summarize([{ id: 'a', at: '2026-10-26T10:00:00Z', type: 'start' }, { id: 'b', at: '2026-10-26T10:04:00Z', type: 'lesson_exit', step: '互动演示' }, { id: 'c', at: '2026-10-26T15:00:00Z', type: 'start', resumed_at: '互动演示' }, { id: 'd', at: '2026-10-26T15:03:00Z', type: 'step', step: '挑战' }]);
+    expect(exited).toContain('用了大约 7 分钟');
+    expect(exited).toContain('中途退出 1 次（在「互动演示」）');
     const helped = summarize([miss, miss, miss, { id: 'w', at, type: 'worked_example', challenge: 'c2' }, { id: 't', at, type: 'answer', challenge: 'c2', twin: true, correct: true }]);
     expect(helped).toContain('挑战 c2：试了 3 次，还没做对，用了 1 级提示，看了一遍分步演示，同类题自己做对了。');
   });
@@ -286,6 +289,15 @@ describe('lesson review in the parent app', () => {
     expect(refused.status).toBe(422);
     expect(refused.body.report.results.filter((r: { ok: boolean; level: string }) => !r.ok && r.level === 'error').map((r: { id: string }) => r.id)).toEqual(['V20', 'V23']);
     expect((await req('POST', '/v1/drafts', t, spec('L-PA'))).status).toBe(409); // already published
+
+    // the parent can also say no outright: it leaves the review list, can't be handed in again, and can be put back
+    expect((await req('POST', '/v1/drafts/L-ARR@1.0/discard', t, { reason: '太像上次那节了' })).body).toMatchObject({ ok: true, wishes_back: [] });
+    expect(await arrDraft()).toMatchObject({ status: '不采用', note: '太像上次那节了' });
+    expect((await req('POST', '/v1/drafts/L-ARR@1.0/discard', t, {})).status).toBe(409);
+    expect((await req('POST', '/v1/drafts', t, spec('L-ARR'))).status).toBe(409);
+    expect((await req('POST', '/v1/drafts/L-ARR@1.0/restore', t)).status).toBe(200);
+    expect(await arrDraft()).toMatchObject({ status: '待审核', note: null });
+    expect((await req('POST', '/v1/drafts/L-ARR@1.0/restore', t)).status).toBe(409);
   });
 });
 

@@ -6,7 +6,10 @@ const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&a
 /** What happened in one session, in plain sentences. */
 export function summarize(evs: Ev[], lesson?: { challenges: { id: string; prompt: string }[] }): string {
   if (!evs.length) return '<p class="muted">没有事件</p>';
-  const mins = Math.max(1, Math.round((Date.parse(evs[evs.length - 1].at) - Date.parse(evs[0].at)) / 60000));
+  // time spent in the lesson: the gaps after a pause or an exit (until the child came back) don't count
+  const ms = evs.slice(1).reduce((a, e, i) => (/^(pause|lesson_exit)$/.test(evs[i].type) ? a : a + Date.parse(e.at) - Date.parse(evs[i].at)), 0);
+  const mins = Math.max(1, Math.round(ms / 60000));
+  const exits = evs.filter(e => e.type === 'lesson_exit');
   const answers = evs.filter(e => e.type === 'answer');
   const byCh = new Map<string, Ev[]>();
   for (const a of answers) byCh.set(String(a.challenge), [...(byCh.get(String(a.challenge)) ?? []), a]);
@@ -28,6 +31,7 @@ export function summarize(evs: Ev[], lesson?: { challenges: { id: string; prompt
     }),
     ...said.map(e => `${e.type === 'next_lesson_wish' ? '下一课想学' : '孩子说'}：“${esc(e.answer)}”`),
     evs.some(e => e.type === 'chat_skipped') ? '课末聊天跳过了。' : '',
+    exits.length ? `中途退出 ${exits.length} 次（在「${exits.map(e => esc(String(e.step ?? '').replace(/（.*）/, ''))).join('」「')}」）。` : '',
     evs.some(e => e.type === 'lesson_end') ? '' : '这节课还没走到最后。',
   ].filter(Boolean);
   return lines.map(l => `<p>${l}</p>`).join('');

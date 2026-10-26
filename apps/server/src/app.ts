@@ -260,6 +260,7 @@ export async function buildApp(o: AppOptions) {
     const { review_records: _r, content_hash: _h, published_at: _p, ...sp } = req.body as LessonSpec;
     const { key, report } = vet(sp as LessonSpec, true);
     if (store.lesson(key)) fail(409, `${key} 已发布且已冻结；修改请升版本号`);
+    if (store.drafts().some(d => d.key === key && d.status === '不采用')) fail(409, `家长没采用 ${key}；要写新课请换一个课号（adw_get_context 的 new_lesson_id）`);
     if (!report.ok) return reply.code(422).send({ error: '服务器校验未通过', report });
     store.tx(() => { wishes.follow(sp as LessonSpec, key); store.upsertDraft(sp as LessonSpec, req.who ?? '家长', iso()); });
     return reply.code(201).send({ key, status: '待审核', warnings: report.warnings });
@@ -304,6 +305,23 @@ export async function buildApp(o: AppOptions) {
     const note = String(((req.body ?? {}) as { note?: unknown }).note ?? '').trim().slice(0, 1000);
     if (!note) fail(400, '写一句要改什么');
     store.rejectDraft(key, note);
+    return { ok: true };
+  });
+  /** The parent doesn't want the lesson at all: it leaves the review list, and a wish it followed goes back in the queue. */
+  app.post('/v1/drafts/:key/discard', parent, async (req) => {
+    const key = (req.params as { key: string }).key;
+    const row = store.drafts().find(d => d.key === key) ?? fail(404, '没有这节待审核的课');
+    if (row.status === '不采用') fail(409, '这节课已经不采用了');
+    const reason = String(((req.body ?? {}) as { reason?: unknown }).reason ?? '').trim().slice(0, 1000);
+    const back = store.tx(() => { store.discardDraft(key, reason); return wishes.unfollow(key, row.title); });
+    return { ok: true, wishes_back: back.map(p => p.topic) };
+  });
+  app.post('/v1/drafts/:key/restore', parent, async (req) => {
+    const key = (req.params as { key: string }).key;
+    const row = store.drafts().find(d => d.key === key) ?? fail(404, '没有这节课');
+    if (row.status !== '不采用') fail(409, '这节课不在“没采用的课”里');
+    const draft = store.draft(key)!;
+    store.tx(() => { store.restoreDraft(key); wishes.follow(draft, key); });
     return { ok: true };
   });
 

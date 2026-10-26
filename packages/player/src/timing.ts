@@ -41,4 +41,8 @@ export class Countdown {
     return this;
   }
   stop() { if (this.id) clearInterval(this.id); this.id = null; }
+  private held = false;
+  /** The child pressed pause: the time stops where it is. */
+  pause() { if (this.id) { this.stop(); this.held = true; } }
+  resume() { if (this.held) { this.held = false; this.start(); } }
 }

@@ -162,7 +162,7 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
   },
 
   async 课程库() {
-    const [grants, drafts, checklist, organisms, writer] = await Promise.all([
+    const [grants, allDrafts, checklist, organisms, writer] = await Promise.all([
       api<{ child: string; lesson_key: string; expires_on: string; granted_by: string }[]>('/v1/grants'),
       api<Draft[]>('/v1/drafts'),
       api<Record<string, string[]>>('/v1/review-checklist'),
@@ -171,6 +171,7 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
     ]);
     const preview = (key: string) => `/pad/preview.html#key=${encodeURIComponent(key)}&t=${encodeURIComponent(token ?? '')}`;
     const jp = justPublished;
+    const drafts = allDrafts.filter(d => d.status !== '不采用'), declined = allDrafts.filter(d => d.status === '不采用');
     view().innerHTML = `${jp ? `<div class="card justpub" id="jp"><b>刚发布「${esc(jp.title)}」（${esc(name(jp.for_child))}）。</b>什么时候上？
         <div class="row"><button class="btn primary when" data-n="0">今天就上</button><button class="btn when" data-n="1">明天上</button><button class="btn when" data-n="-1">按顺序自动排</button></div></div>` : ''}${writer}
       ${drafts.length ? `<h3>等你审核（${drafts.length}）</h3><p class="muted">先点“预览”把课走一遍，再逐项勾选四类审核。全部勾上才能发布；发布后内容冻结，孩子在排课当天才看得到。</p>` : ''}
@@ -186,7 +187,9 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
         <p><a class="btn" href="${preview(d.key)}" target="_blank" rel="noopener">预览这节课</a></p>
         <div class="checks">${Object.entries(checklist).map(([cat, items]) => `<fieldset><legend>${esc(cat)}</legend>${items.map(i => `<label><input type="checkbox" data-cat="${esc(cat)}" value="${esc(i)}"> ${esc(i)}</label>`).join('')}</fieldset>`).join('')}</div>
         <div class="row"><button class="btn primary approve" ${d.ok && (!d.subject || d.subject.ready) ? '' : 'disabled'}>审核通过并发布</button>
-          <input class="note" placeholder="要改的地方（退回时必填）" maxlength="500"><button class="btn reject">退回修改</button></div></div>`).join('')}
+          <input class="note" placeholder="意见：退回要写改哪里；不要可以写原因" maxlength="500"><button class="btn reject">退回修改</button><button class="btn danger discard">不要这节课</button></div></div>`).join('')}
+      ${declined.length ? `<details class="declined"><summary>没采用的课（${declined.length}）</summary><p class="muted small">不会发布，也不会再拿来改。原因会告诉写课的 AI，以后的新课避开。</p>
+        <ul>${declined.map(d => `<li data-k="${esc(d.key)}">${esc(d.title)} <span class="muted small">${esc(name(d.child))} · ${esc(d.key)} · ${d.note ? `原因：${esc(d.note)}` : '没写原因'}</span> <button class="btn sm restore">放回审核</button></li>`).join('')}</ul></details>` : ''}
       <h3>已发布</h3><p class="muted">发布后内容冻结，改动要升版本号重新审核。</p>
       <table><tr><th>课程</th><th>给谁</th><th>发布时间</th><th>临时授权</th></tr>${lessons.map(l => `<tr><td>${esc(l.title)}<div class="muted small">${esc(l.key)} · <a href="${preview(l.key)}" target="_blank" rel="noopener">预览</a></div></td><td>${esc(name(l.for_child))}</td><td>${esc(l.published_at.slice(0, 16).replace('T', ' '))}</td>
         <td><select data-k="${esc(l.key)}"><option value="1">今天</option><option value="3">3 天</option><option value="7">7 天</option></select> <button class="btn grant" data-k="${esc(l.key)}" data-c="${esc(l.for_child)}">授权</button></td></tr>`).join('') || '<tr><td colspan="4" class="muted">还没有发布的课</td></tr>'}</table>
@@ -250,6 +253,10 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
       document.getElementById('jp')?.remove();
       toast(n < 0 ? '好的，按顺序自动排。可以在「排课」里看和改。' : `已排到${n ? '明天' : '今天'}，${name(p.for_child)}${n ? '明天' : '现在'}就能在 Pad 上看到。`);
     }));
+    view().querySelectorAll<HTMLButtonElement>('.declined .restore').forEach(b => b.onclick = guard(async () => {
+      await api(`/v1/drafts/${encodeURIComponent(b.closest<HTMLElement>('li')!.dataset.k!)}/restore`, { method: 'POST' });
+      await VIEWS.课程库(); toast('已放回“等你审核”。');
+    }));
     view().querySelectorAll<HTMLElement>('.draft').forEach(card => {
       const key = card.dataset.k!;
       card.querySelector<HTMLButtonElement>('.approve')!.onclick = guard(async () => {
@@ -265,6 +272,13 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
         await api(`/v1/drafts/${encodeURIComponent(key)}/reject`, { method: 'POST', body: JSON.stringify({ note: card.querySelector<HTMLInputElement>('.note')!.value }) });
         await VIEWS.课程库();
         toast('已退回。可以点“让 AI 按意见改”，或者对接入的 AI 助手说“看看家长退回的课”。');
+      });
+      card.querySelector<HTMLButtonElement>('.discard')!.onclick = guard(async () => {
+        const title = card.querySelector('h3')!.firstChild!.textContent!.trim();
+        if (!confirm(`不要「${title}」？\n它不会发布，会放到下面“没采用的课”里，想要时可以放回。`)) return;
+        const r = await api<{ wishes_back: string[] }>(`/v1/drafts/${encodeURIComponent(key)}/discard`, { method: 'POST', body: JSON.stringify({ reason: card.querySelector<HTMLInputElement>('.note')!.value }) });
+        await VIEWS.课程库();
+        toast(`已不采用。${r.wishes_back.length ? `心愿「${r.wishes_back.join('」「')}」回到排队，下一节课还按它准备。` : ''}`);
       });
       const revise = card.querySelector<HTMLButtonElement>('.revise');
       if (revise) revise.onclick = guard(async () => {

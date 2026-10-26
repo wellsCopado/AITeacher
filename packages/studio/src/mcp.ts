@@ -46,6 +46,7 @@ export const INSTRUCTIONS = `AI Discovery World 做课工具。给哥哥（四�
 只想谈方案、不自己写课时：和家长谈好方案后，用 adw_write_with_model 交给家长配置的大模型（例如 DeepSeek）按 Skill 写成完整的课，用 adw_job_status 看进度。
 生成了写实的生物图片时：用 adw_prepare_image_upload 拿一次性上传地址，按返回的 curl 命令上传，家长确认后孩子才看得到。
 家长退回的课：adw_list_lessons 里状态是“已退回”，note 是家长的意见；用 adw_get_lesson 取回三部分，按意见改，校验通过后再交（id 和版本不变）。
+家长不要的课：状态是“不采用”，note 是原因（可能空着）。不要再改它、不要用它的课号重交；写新课时看 adw_get_context 的 parent_declined，别重犯同样的问题。
 发布只能由家长在家长端点按钮完成，这里没有发布工具。不要编造事实，不确定写“待科学审核”。`;
 
 type Tool = { name: string; description: string; inputSchema: object; run(args: any): Promise<unknown> | unknown };

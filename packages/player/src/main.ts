@@ -45,6 +45,8 @@ export interface PlayOptions {
   /** Speeds up every countdown (tests only). */ timeScale?: number;
   /** Narration audio from the family server's voice; without it the device's own voice is used. */
   audio?: FetchAudio;
+  /** Where the child left off earlier today (step 0–3, and the seconds that step had left): the start card offers to go on from there. */
+  startAt?: { step: number; left?: number | null };
 }
 
 export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) {
@@ -88,7 +90,7 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
     <main class="pad">
       <header class="pad-head">
         <div><h1>${esc(sp.title)}</h1><p class="muted">${esc(opts.childName ?? sp.for_child)} · ${esc(sp.primary_concept.name)} · v${esc(sp.version)}</p></div>
-        <div class="row"><span class="langtag" title="每个讲解第 1 次中文，第 2 到 4 次英文">讲解 1 中 3 英</span><button class="btn sm" id="mute" aria-label="关掉声音">🔊 声音开</button></div>
+        <div class="row"><span class="langtag" title="每个讲解第 1 次中文，第 2 到 4 次英文">讲解 1 中 3 英</span><button class="btn sm" id="mute" aria-label="关掉声音">🔊 声音开</button><button class="btn sm" id="pause" hidden>⏸ 暂停</button></div>
       </header>
       <nav class="steps" id="steps"></nav>
       <div class="guide" id="guide"><div class="gtext"><b id="gstep"></b><span id="gtext"></span><span id="gsub" class="gsub"></span></div>
@@ -135,11 +137,11 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
   function lock(b: HTMLElement, why: string) { (b as HTMLButtonElement).disabled = true; b.dataset.label = b.textContent ?? ''; b.textContent = why; }
   function unlock(b: HTMLElement) { (b as HTMLButtonElement).disabled = false; if (b.dataset.label) b.textContent = b.dataset.label; b.classList.add('pulse'); }
   function subGuide(text: string) { $('#gsub').textContent = text; }
-  function startClock(seconds: number, onEnd: () => void) {
+  function startClock(seconds: number, onEnd: () => void, left = seconds) {
     clock?.stop();
     const arc = root.querySelector('#arc') as SVGCircleElement, C = 2 * Math.PI * 15.5;
     arc.style.strokeDasharray = String(C);
-    clock = new Countdown(seconds, scale, {
+    clock = new Countdown(left, scale, {
       tick: left => {
         $('#left').textContent = fmt(Math.ceil(left));
         arc.style.strokeDashoffset = String(C * (1 - left / seconds));
@@ -244,7 +246,8 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
   }
 
   let demoWatch: ((e: Event) => void) | null = null;
-  function go(i: number) {
+  function go(i: number, left?: number) {
+    if (paused) unpause(false);
     scene?.dispose(); scene = null; pic?.dispose(); pic = null; host?.dispose(); host = null;
     if (demoWatch) root.removeEventListener('adw:event', demoWatch); demoWatch = null;
     clock?.stop(); subClock?.stop(); voice.stop(); epoch++;
@@ -256,8 +259,9 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
       $('#gstep').textContent = `第 ${i + 1} 步 / 共 ${STEPS.length} 步 · ${STEPS[i]}：`;
       subGuide('');
       guide(STEP_GUIDE[i], i !== 1);
-      startClock(times[STEP_KEYS[i]], () => timeUp(i));
+      startClock(times[STEP_KEYS[i]], () => timeUp(i), left);
     }
+    $('#pause').hidden = i >= STEPS.length;
     [intro, demo, challenges, chat, finish][i]();
   }
 
@@ -670,15 +674,57 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
     log('lesson_end', { solved: [...solved] });
   }
 
+  // Pause: the step's time, the voice and the questions' own timers all stop; the child can go on or leave.
+  // Leaving keeps the place: the Pad offers to go on from this step later the same day.
+  let paused = false;
+  function pause() {
+    if (paused || step >= STEPS.length) return;
+    paused = true;
+    clock?.pause(); subClock?.pause(); voice.hold();
+    const card = h(`<div class="pausecard" role="dialog" aria-label="暂停了"><div class="card">
+      <p class="lead">⏸ 暂停了</p><p class="muted">时间停住了，休息一下。</p>
+      <div class="row"><button class="btn primary big" id="unpause">▶ 继续上课</button>${opts.onExit ? '<button class="btn" id="leave">退出，下次接着上</button>' : ''}</div></div></div>`);
+    root.querySelector('.adw')!.appendChild(card);
+    (card.querySelector('#unpause') as HTMLButtonElement).onclick = () => unpause(true);
+    card.querySelector<HTMLButtonElement>('#leave')?.addEventListener('click', leave);
+    log('pause', { step: STEPS[step], left: Math.round(clock?.remaining ?? 0) });
+  }
+  function unpause(goOn: boolean) {
+    paused = false;
+    root.querySelector('.pausecard')?.remove();
+    voice.release();
+    if (goOn) { clock?.resume(); subClock?.resume(); log('resume', { step: STEPS[step] }); }
+  }
+  function leave() {
+    log('lesson_exit', { step: STEPS[step], n: step, left: Math.round(clock?.remaining ?? 0) });
+    dispose();
+    opts.onExit?.();
+  }
+  $('#pause').onclick = pause;
+  const dispose = () => { scene?.dispose(); scene = null; pic?.dispose(); pic = null; host?.dispose(); host = null; clock?.stop(); subClock?.stop(); voice.stop(); root.querySelector('.pausecard')?.remove(); };
+
   renderPointers();
   // Start with one big tap: it turns sound on (iPad needs a tap first) and the lesson begins with the voice.
   renderSteps();
   $('#guide').hidden = true;
-  $('#body').innerHTML = `<div class="startcard"><p class="lead">${esc(sp.title)}</p><p class="muted">一共 ${STEPS.length} 步，每一步都有时间。把声音打开，准备好了就点下面。</p>
-    <button class="btn primary big" id="start">🔊 开始上课</button>
+  const at = opts.startAt && opts.startAt.step > 0 && opts.startAt.step < STEPS.length ? opts.startAt : null;
+  $('#body').innerHTML = `<div class="startcard"><p class="lead">${esc(sp.title)}</p>
+    ${at ? `<p>上次上到第 ${at.step + 1} 步「${esc(STEPS[at.step].replace(/（.*）/, ''))}」。</p>
+    <div class="row center"><button class="btn primary big" id="cont">▶ 接着上</button><button class="btn" id="start">从头开始</button></div>`
+    : `<p class="muted">一共 ${STEPS.length} 步，每一步都有时间。把声音打开，准备好了就点下面。</p>
+    <button class="btn primary big" id="start">🔊 开始上课</button>`}
     <p class="muted small">点了没有声音：按平板侧面的音量加键，再看是不是开了静音。</p></div>`;
   $('#start').onclick = () => { voice.unlock(); log('start'); go(0); };
-  return { events, get scene() { return scene; }, dispose: () => { scene?.dispose(); pic?.dispose(); host?.dispose(); clock?.stop(); subClock?.stop(); voice.stop(); } };
+  if (at) $('#cont').onclick = () => {
+    voice.unlock(); log('start', { resumed_at: STEPS[at.step] });
+    // what was left of that step, but never so little that it ends right away
+    go(at.step, at.left ? Math.min(times[STEP_KEYS[at.step]], Math.max(30, at.left)) : undefined);
+  };
+  return {
+    events, get scene() { return scene; }, dispose, pause, resume: () => unpause(true),
+    /** Where the lesson is now: the step (0–3, 4 = finished) and that step's seconds left. */
+    progress: () => ({ step, left: clock ? Math.round(clock.remaining) : null }),
+  };
 }
 
 declare global { interface Window { __LESSON__?: LessonSpec; __CHILD_NAME__?: string } }

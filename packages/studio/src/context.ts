@@ -13,6 +13,8 @@ export interface ContextSources {
   published?: LessonSpec[];
   /** Lesson keys already used anywhere (drafts, published, local folders), so a new lesson gets a free id. */
   takenKeys?: string[];
+  /** Lessons for this child the parent looked at and didn't take, with the parent's reason (may be null). */
+  declined?: { title: string; theme: string; concept: string; reason: string | null }[];
   tenant?: string;
   /** Where the child is in school maths, in the parent's words (e.g. 第二单元 表内乘法（一）), if the parent wrote it. */
   progress?: string | null;
@@ -87,6 +89,11 @@ export function studioContext(root: string, child: string, src: ContextSources =
     concepts: Object.entries(concepts).map(([id, c]) => ({ id, name: c.name, misconceptions: c.misconceptions })),
     assets: loadAssets(root).filter(a => a.status === '采用' || a.status === '采用标记' || a.status === '待采购')
       .map(a => ({ asset_id: a.asset_id, name: a.name, kind: a.kind, realism: a.realism, status: a.status, commercial_ok: a.commercial_ok })),
+    /** Lessons the parent looked at and didn't take: don't make the same mistakes again. */
+    parent_declined: src.declined?.length ? {
+      rule: '家长看过、没采用的课和原因。新课不要重犯这些问题；原因空着的，至少别用同样的主题、知识点和做法再出一遍。',
+      lessons: src.declined,
+    } : null,
     lessons_for_child: published.filter(p => p.for_child === child).map(p => ({ key: `${p.lesson_id}@${p.version}`, title: p.title, concept: p.primary_concept.id, theme: p.theme.id, published_at: p.published_at ?? null })),
     taken_keys: taken,
     fixed: {

@@ -187,7 +187,7 @@ export class Store {
 
   /** What lessons are about and must show (博比特虫, 机器人…), from drafts and published lessons. */
   subjects(): { asset_id: string; name: string; kind: 'organism' | 'object' }[] {
-    const all = [...this.drafts().map(d => this.draft(d.key)), ...this.lessons().map(l => this.lesson(l.key))];
+    const all = [...this.drafts().filter(d => d.status !== '不采用').map(d => this.draft(d.key)), ...this.lessons().map(l => this.lesson(l.key))];
     const seen = new Map<string, { asset_id: string; name: string; kind: 'organism' | 'object' }>();
     for (const sp of all) { const s = sp?.theme.subject; if (s && !seen.has(s.asset_id)) seen.set(s.asset_id, { ...s }); }
     // what a prep list is getting ready ahead of its lesson
@@ -222,6 +222,8 @@ export class Store {
   }
   /** A next-lesson wish was used or set aside: it stays one of the child's interests. */
   wishDone(child: string, topic: string) { this.run("update interests set state='喜欢' where tenant_id=? and child=? and topic=? and state='下一课心愿'", this.tenant, child, topic); }
+  /** The lesson written for a wish was not taken: the wish is a next-lesson wish again. */
+  wishAgain(interestId: string) { this.run("update interests set state='下一课心愿' where tenant_id=? and id=? and state='喜欢'", this.tenant, interestId); }
   setInterestTopic(id: string, topic: string) { this.run('update interests set topic=? where tenant_id=? and id=?', topic, this.tenant, id); }
 
   // auth
@@ -360,7 +362,7 @@ export class Store {
     return key;
   }
   drafts() {
-    return this.all<{ key: string; for_child: string; title: string; status: '待审核' | '已退回'; note: string | null; submitted_by: string; submitted_at: string }>(
+    return this.all<{ key: string; for_child: string; title: string; status: '待审核' | '已退回' | '不采用'; note: string | null; submitted_by: string; submitted_at: string }>(
       'select key, for_child, title, status, note, submitted_by, submitted_at from drafts where tenant_id=? order by submitted_at', this.tenant);
   }
   draft(key: string): LessonSpec | undefined {
@@ -368,5 +370,8 @@ export class Store {
     return r ? JSON.parse(r.spec) : undefined;
   }
   rejectDraft(key: string, note: string) { this.run("update drafts set status='已退回', note=? where tenant_id=? and key=?", note, this.tenant, key); }
+  /** The parent doesn't want this lesson at all; the reason (may be empty) is kept for later lesson writing. */
+  discardDraft(key: string, reason: string) { this.run("update drafts set status='不采用', note=? where tenant_id=? and key=?", reason || null, this.tenant, key); }
+  restoreDraft(key: string) { this.run("update drafts set status='待审核', note=null where tenant_id=? and key=? and status='不采用'", this.tenant, key); }
   deleteDraft(key: string) { this.run('delete from drafts where tenant_id=? and key=?', this.tenant, key); }
 }

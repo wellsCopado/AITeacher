@@ -27,6 +27,20 @@ const app = document.getElementById('app')!;
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 const newId = () => (crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`).replace(/[^A-Za-z0-9-]/g, '');
 let token = kv.get('adw.token');
+const localToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date());
+
+/** Where a child left a lesson today (pause → 退出, or the app was closed): the next start offers to go on from there. */
+interface Resume { session: string; step: number; left: number | null; on: string }
+const resumes = (child: string): Record<string, Resume> => {
+  const all = JSON.parse(kv.get(`adw.resume.${child}`) || '{}') as Record<string, Resume>;
+  for (const k of Object.keys(all)) if (all[k].on !== localToday()) delete all[k]; // a new day starts the lesson over
+  return all;
+};
+const setResume = (child: string, key: string, r: Resume | null) => {
+  const all = resumes(child);
+  if (r) all[key] = r; else delete all[key];
+  kv.set(`adw.resume.${child}`, JSON.stringify(all));
+};
 
 async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const r = await fetch(path, { ...init, headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}), ...init.headers } });
@@ -148,12 +162,12 @@ async function todayScreen(child: Child) {
   } catch (e) {
     // Offline: show what was allowed earlier today, as decided by the server's date.
     const cached = JSON.parse(kv.get(`adw.today.${child.id}`) || 'null') as { today: string; lessons: TodayLesson[] } | null;
-    const localToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date());
-    lessons = cached && cached.today === localToday ? cached.lessons : [];
+    lessons = cached && cached.today === localToday() ? cached.lessons : [];
     if (!lessons.length) { list.innerHTML = `<p>${esc((e as Error).message)}</p>`; return; }
   }
   if (!lessons.length) { list.innerHTML = `<p class="lead">今天没有安排课。</p><p class="muted">想学的话请家长在家长端排课或临时授权。</p>`; return; }
-  list.innerHTML = lessons.map(l => `<button class="lesson" data-key="${esc(l.key)}"><b>${esc(l.title)}</b><span>${esc(l.concept)} · ${esc(l.reason)}${l.finished ? ' · 今天做过了' : ''}</span></button>`).join('');
+  const left = resumes(child.id);
+  list.innerHTML = lessons.map(l => `<button class="lesson" data-key="${esc(l.key)}"><b>${esc(l.title)}</b><span>${esc(l.concept)} · ${esc(l.reason)}${left[l.key]?.step ? ` · 上到第 ${left[l.key].step + 1} 步，可以接着上` : l.finished ? ' · 今天做过了' : ''}</span></button>`).join('');
   list.querySelectorAll<HTMLButtonElement>('.lesson').forEach(b => b.onclick = () => lessonScreen(child, b.dataset.key!));
 }
 
@@ -173,15 +187,25 @@ async function lessonScreen(child: Child, key: string) {
     try { media = await api<OrganismMedia[]>('/v1/media'); kv.set('adw.media', JSON.stringify(media)); }
     catch { media = JSON.parse(kv.get('adw.media') ?? '[]'); }
   }
-  const session = newId();
+  // going on from where the child left today keeps the same learning record
+  const before = resumes(child.id)[key];
+  let session = before?.session ?? newId();
   app.innerHTML = '<div id="player"></div><p id="sync" class="muted small center"></p>';
   const el = document.getElementById('player')!;
   const onEvent = (ev: Event) => {
-    queue.push({ session, child: child.id, lesson: key }, { ...(ev as CustomEvent).detail, id: newId() });
+    const e = (ev as CustomEvent).detail as { at: string; type: string; n?: number; left?: number; resumed_at?: string };
+    // 从头开始 is a new learning record
+    if (e.type === 'start' && !e.resumed_at && before) session = newId();
+    queue.push({ session, child: child.id, lesson: key }, { ...e, id: newId() });
     flush();
+    if (e.type === 'step' && p) { const at = p.progress(); if (at.step < 4) setResume(child.id, key, { session, step: at.step, left: null, on: localToday() }); }
+    if (e.type === 'lesson_exit') setResume(child.id, key, { session, step: e.n ?? 0, left: e.left ?? null, on: localToday() });
+    if (e.type === 'lesson_end') setResume(child.id, key, null);
   };
   el.addEventListener('adw:event', onEvent);
-  const p = play(el, sp, { childName: child.name, kid: true, media, audio, onExit: () => { el.removeEventListener('adw:event', onEvent); p.dispose(); todayScreen(child); } });
+  let p: ReturnType<typeof play> | null = null;
+  p = play(el, sp, { childName: child.name, kid: true, media, audio, startAt: before ? { step: before.step, left: before.left } : undefined,
+    onExit: () => { el.removeEventListener('adw:event', onEvent); p!.dispose(); todayScreen(child); } });
   (window as unknown as { __player: unknown }).__player = p;
 }
 

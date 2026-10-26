@@ -58,7 +58,7 @@ try {
   await pad.screenshot({ path: join(shots, 'pad-pair.png') });
   await parent.click('[data-t="设备与数据"]');
   await parent.waitForSelector('.tablet .qr svg');
-  check((await parent.textContent('.tablet'))?.includes(':8787/app/') ?? false, '「设备与数据」有平板 App 的下载二维码和地址');
+  check((await parent.textContent('.tablet'))?.includes(`:${new URL(base).port}/app/`) ?? false, '「设备与数据」有平板 App 的下载二维码和地址');
   await parent.fill('#pair [name=code]', code); await parent.fill('#pair [name=label]', '哥哥的 iPad');
   await parent.click('#pair button');
   await pad.waitForSelector('.kidbtn', { timeout: 10000 });
@@ -247,6 +247,29 @@ try {
   const sessions = await (await fetch(`${base}/v1/sessions`, { headers: { authorization: `Bearer ${tok}` } })).json();
   const local = await pad.evaluate(() => (window as any).__player.events.length);
   check(sessions.length === 1 && sessions[0].events === local, `服务器收到全部 ${local} 条事件，没有重复`);
+
+  // Pause in the middle of a lesson, go on, then leave; the same day it goes on from that step.
+  await pad.click('#exit');
+  await pad.waitForSelector('.lesson');
+  await pad.click('.lesson'); await pad.waitForSelector('#start'); await pad.click('#start');
+  await pad.waitForSelector('#next:not([disabled])', { timeout: 30000 }); await pad.click('#next');
+  await pad.waitForSelector('#stage canvas', { timeout: 30000 });
+  await pad.click('#pause');
+  const t1 = await pad.textContent('#left'); await pad.waitForTimeout(2500); const t2 = await pad.textContent('#left');
+  check(t1 === t2 && await pad.locator('.pausecard').isVisible(), `点「暂停」：盖上暂停卡，时间停在 ${t1}`);
+  await pad.screenshot({ path: join(shots, 'pad-pause.png') });
+  await pad.click('#unpause');
+  await pad.waitForFunction(t => document.getElementById('left')?.textContent !== t, t1, { timeout: 5000 });
+  ok('点「继续上课」，时间接着走');
+  await pad.click('#pause'); await pad.click('#leave');
+  await pad.waitForSelector('.lesson');
+  check((await pad.textContent('.lesson'))?.includes('上到第 2 步，可以接着上'), '点「退出，下次接着上」回到今天的课，写着上到第 2 步');
+  await pad.click('.lesson'); await pad.waitForSelector('#cont');
+  check((await pad.textContent('#body'))?.includes('上次上到第 2 步「互动演示」'), '再点开：问接着上还是从头开始');
+  await pad.click('#cont'); await pad.waitForSelector('#stage canvas', { timeout: 30000 });
+  check((await pad.textContent('#gstep'))?.includes('第 2 步'), '点「接着上」直接回到第 2 步，不用从头听说明');
+  const again = await (await fetch(`${base}/v1/sessions`, { headers: { authorization: `Bearer ${tok}` } })).json();
+  check(again.length === 2, '接着上还算同一次学习记录（今天一共 2 次）');
   check(errors.length === 0, errors.length ? '页面错误：' + errors.join(' | ') : '两个页面都没有报错');
 } finally {
   await browser.close();

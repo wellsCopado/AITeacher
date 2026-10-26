@@ -94,6 +94,17 @@ export function wishBook(d: { store: Store; root: string; iso: () => string }) {
     return used;
   }
 
+  /** The parent didn't take the lesson written for these wishes: they go back in the queue, in their old place. */
+  function unfollow(key: string, title: string): PrepRow[] {
+    const back = store.preps().filter(p => p.status === '已安排' && p.lesson_ref === key);
+    for (const p of back) {
+      store.updatePrep(p.id, { status: '准备中', lesson_ref: null }, iso());
+      store.wishAgain(p.interest_id);
+      store.logPrep(p.id, `你没采用「${title}」，这个心愿回到排队里，下一节课还按它准备`, iso());
+    }
+    return back;
+  }
+
   /** Wishes written down before prep lists existed get one, so they keep their place in the queue. */
   function migrate() {
     store.tx(() => {
@@ -105,6 +116,6 @@ export function wishBook(d: { store: Store; root: string; iso: () => string }) {
     });
   }
 
-  return { record, setTopic, skip, queue, head, interestsFor, follow, migrate, label: (child: string) => profiles()[child]?.name ?? child };
+  return { record, setTopic, skip, queue, head, interestsFor, follow, unfollow, migrate, label: (child: string) => profiles()[child]?.name ?? child };
 }
 export type WishBook = ReturnType<typeof wishBook>;
