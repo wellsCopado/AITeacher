@@ -66,7 +66,8 @@ export function infoPlist(sourceHash) {
 /** What the server needs from the environment: the PIN, and a PATH that finds git, codex and say. */
 export function agentEnv(env, saved = {}) {
   const out = { ...saved };
-  for (const [k, v] of Object.entries(env)) if (/^ADW_|^PORT$|^HOST$/.test(k) && v) out[k] = v;
+  // not HOST: shells set it to the machine's name, and the server would then listen only there
+  for (const [k, v] of Object.entries(env)) if (/^ADW_|^PORT$/.test(k) && v) out[k] = v;
   out.PATH = env.PATH ?? saved.PATH ?? '/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin';
   out.HOME = env.HOME ?? saved.HOME;
   out.LANG = 'zh_CN.UTF-8';
@@ -142,22 +143,50 @@ async function hello(p, tries) {
   return false;
 }
 
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+/** Processes listening on the port, with their command lines. */
+function listeners(p) {
+  return quiet('lsof', ['-nP', `-iTCP:${p}`, '-sTCP:LISTEN', '-t']).stdout.split('\n').filter(Boolean)
+    .map(pid => ({ pid: Number(pid), cmd: quiet('ps', ['-o', 'command=', '-p', pid]).stdout.trim() }));
+}
+
+/** A server still running from Terminal (any version) holds the port; stop it so the background one can start. */
+async function freePort(p) {
+  for (const l of listeners(p)) {
+    if (!/apps\/server\/src\/main\.ts/.test(l.cmd)) throw new Error(`端口 ${p} 被别的程序占用（进程 ${l.pid}：${l.cmd.slice(0, 120)}）。请先关掉它再运行一次。`);
+    say(`· 停掉终端里还开着的旧服务器（进程 ${l.pid}）…`);
+    try { process.kill(l.pid, 'SIGTERM'); } catch { /* already gone */ }
+  }
+  for (let i = 0; i < 20 && listeners(p).length; i++) await sleep(500);
+  for (const l of listeners(p)) try { process.kill(l.pid, 'SIGKILL'); } catch { /* already gone */ }
+}
+
+/** What went wrong when the background server didn't answer: launchd's view and the end of its log. */
+function diagnose(logFile) {
+  const state = quiet('launchctl', ['print', `gui/${uid()}/${LABEL}`]);
+  const lines = state.status === 0 ? state.stdout.split('\n').filter(l => /^\s*(state|last exit code|runs|program) =/.test(l)).map(l => l.trim()) : [`launchd 里没有这个服务：${(state.stderr || state.stdout).trim()}`];
+  let tail = '';
+  try { tail = readFileSync(logFile, 'utf8').split('\n').slice(-25).join('\n'); } catch { tail = '（还没有日志）'; }
+  return `${lines.join('\n')}\n—— 日志最后几行 ——\n${tail}`;
+}
+
 /** (Re)writes the launchd agent and starts it. */
 async function startAgent(env) {
-  const p = paths();
+  const p = paths(), log = join(p.logs, 'server.log');
   mkdirSync(p.logs, { recursive: true });
   mkdirSync(dirname(p.agent), { recursive: true });
   quiet('launchctl', ['bootout', `gui/${uid()}/${LABEL}`]);
-  await new Promise(r => setTimeout(r, 2000)); // let the old one exit
-  if (await hello(port(env), 1)) {
-    say('！终端里还开着旧的服务器：请到那个终端窗口按 Control+C 停掉它，后台服务器会在 10 秒内接上。');
-  }
+  await sleep(1000); // let the old one exit
+  await freePort(port(env));
   writeFileSync(p.agent, agentPlist({ root, node: process.execPath, env, logs: p.logs }));
   chmodSync(p.agent, 0o600); // holds the parent PIN
-  const r = quiet('launchctl', ['bootstrap', `gui/${uid()}`, p.agent]);
-  if (r.status !== 0) quiet('launchctl', ['kickstart', '-k', `gui/${uid()}/${LABEL}`]);
+  let r = quiet('launchctl', ['bootstrap', `gui/${uid()}`, p.agent]);
+  if (r.status !== 0) { await sleep(2000); r = quiet('launchctl', ['bootstrap', `gui/${uid()}`, p.agent]); }
+  if (r.status !== 0) say(`！launchctl bootstrap：${(r.stderr || r.stdout).trim()}`);
+  quiet('launchctl', ['kickstart', `gui/${uid()}/${LABEL}`]);
   say('· 等服务器启动…');
-  if (!(await hello(port(env), 90))) throw new Error(`服务器 90 秒内没有启动。日志在 ${join(p.logs, 'server.log')}`);
+  if (!(await hello(port(env), 90))) throw new Error(`服务器 90 秒内没有启动。把下面这些截图发给 Claude：\n${diagnose(log)}`);
   say(`✓ 服务器在后台运行（开机登录后自动启动）`);
 }
 
