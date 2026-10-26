@@ -57,6 +57,8 @@ try {
   const code = (await pad.textContent('#code'))!.replace(/\s/g, '');
   await pad.screenshot({ path: join(shots, 'pad-pair.png') });
   await parent.click('[data-t="设备与数据"]');
+  await parent.waitForSelector('.tablet .qr svg');
+  check((await parent.textContent('.tablet'))?.includes(':8787/app/') ?? false, '「设备与数据」有平板 App 的下载二维码和地址');
   await parent.fill('#pair [name=code]', code); await parent.fill('#pair [name=label]', '哥哥的 iPad');
   await parent.click('#pair button');
   await pad.waitForSelector('.kidbtn', { timeout: 10000 });

@@ -12,6 +12,9 @@ const audio: FetchAudio = async (text, lang) => {
   return r.arrayBuffer();
 };
 import { Queue, type Store as KV } from './queue.js';
+import { installSpeech, native } from './native.js';
+
+installSpeech();
 
 interface Child { id: string; name: string; grade: number }
 interface TodayLesson { key: string; title: string; concept: string; reason: string; expires_on: string | null; finished: boolean }
@@ -51,12 +54,12 @@ function shell(inner: string) {
 
 // Full screen for learning: Safari's address bar and tabs go away. iPad only allows it from a tap, so every
 // button tap asks again while the page isn't full screen (a child who swipes out is back in on the next tap).
-// From the home-screen icon the app already has the whole screen.
+// From the home-screen icon, or in the Android tablet app, the page already has the whole screen.
 type FsDoc = Document & { webkitFullscreenElement?: Element | null; webkitExitFullscreen?: () => void };
 type FsEl = HTMLElement & { webkitRequestFullscreen?: () => void };
 const isFull = () => !!(document.fullscreenElement ?? (document as FsDoc).webkitFullscreenElement);
 // display-mode is also "fullscreen" while the browser page itself is full screen, so that doesn't count as the app
-const standalone = () => !!(navigator as Navigator & { standalone?: boolean }).standalone || matchMedia('(display-mode: standalone)').matches || (!isFull() && matchMedia('(display-mode: fullscreen)').matches);
+const standalone = () => !!native || !!(navigator as Navigator & { standalone?: boolean }).standalone || matchMedia('(display-mode: standalone)').matches || (!isFull() && matchMedia('(display-mode: fullscreen)').matches);
 const canFull = () => !standalone() && !!(document.documentElement.requestFullscreen || (document.documentElement as FsEl).webkitRequestFullscreen);
 function enterFull() {
   if (isFull() || !canFull()) return;
@@ -79,8 +82,9 @@ for (const ev of ['fullscreenchange', 'webkitfullscreenchange']) document.addEve
 document.body.appendChild(fsBtn); fsSync();
 
 async function pairScreen() {
-  shell(`<h1>连接家里的服务器</h1><p>请家长打开家长端的“设备”页，输入下面的配对码。</p><p class="code" id="code">…</p><p class="muted" id="msg"></p>`);
+  shell(`<h1>连接家里的服务器</h1><p>请家长打开家长端的“设备与数据”页，输入下面的配对码。</p><p class="code" id="code">…</p><p class="muted" id="msg"></p>${native ? '<p><button class="btn" id="other">换一台 Mac</button></p>' : ''}`);
   const msg = document.getElementById('msg')!;
+  if (native) document.getElementById('other')!.onclick = () => native!.changeServer();
   try {
     const { code } = await api<{ code: string }>('/v1/pair/start', { method: 'POST', body: '{}' });
     document.getElementById('code')!.textContent = code.replace(/(\d{3})(\d{3})/, '$1 $2');
@@ -110,7 +114,7 @@ async function soundTest() {
   const t0 = performance.now();
   await testVoice.speak('你好，声音正常。', 'zh');
   await testVoice.speak('Hello, I can hear you.', 'en');
-  out.textContent = `用的是${testVoice.source === 'server' ? '服务器 Mac 的语音' : testVoice.source === 'device' ? 'iPad 自带语音' : '（没有可用的语音）'} · 服务器语音${info?.available ? '可用' : '不可用'} · ${standalone() ? '桌面 App 模式' : isFull() ? '浏览器全屏' : '浏览器模式'} · 用时 ${((performance.now() - t0) / 1000).toFixed(1)} 秒 · 版本 ${__BUILD__}。听不到的话：按音量加键，关掉静音。`;
+  out.textContent = `用的是${testVoice.source === 'server' ? '服务器 Mac 的语音' : testVoice.source === 'device' ? '平板自带语音' : '（没有可用的语音）'} · 服务器语音${info?.available ? '可用' : '不可用'} · ${native ? `平板 App ${native.version()}` : standalone() ? '桌面 App 模式' : isFull() ? '浏览器全屏' : '浏览器模式'} · 用时 ${((performance.now() - t0) / 1000).toFixed(1)} 秒 · 版本 ${__BUILD__}。听不到的话：按音量加键，关掉静音。`;
 }
 
 async function chooseChild() {

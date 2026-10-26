@@ -13,6 +13,7 @@ import { HttpError, TZ, addDays, fail, isDate, isKey, sha, shanghaiDate } from '
 import { homeworkRoutes, reteachHistory } from './homework.js';
 import { mediaRoutes } from './media.js';
 import { studioRoutes } from './studio.js';
+import { appRoutes } from './apps.js';
 import { wishBook } from './wishes.js';
 import type { CodexOpts } from '../../../packages/studio/src/codex.js';
 import { macSay, SYSTEM_VOICE, type Lang, type Synth } from './tts.js';
@@ -445,6 +446,7 @@ export async function buildApp(o: AppOptions) {
     return reply.header('cache-control', 'private, max-age=2592000').type('audio/wav').send(buf);
   });
 
+  appRoutes(app, { root: o.root, parent });
   const media = mediaRoutes(app, { store, root: o.root, mediaDir: join(dirname(o.dbPath), 'media'), iso, parent, anyone });
   prepare = studioRoutes(app, { store, root: o.root, tenant, iso, parent, agentOrParent, issue, vet, media, wishes, fetchImpl: o.fetchImpl, codex: o.codex }).prepare;
 

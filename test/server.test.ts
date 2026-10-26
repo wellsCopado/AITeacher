@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildApp, shanghaiDate } from '../apps/server/src/app.js';
@@ -142,6 +142,21 @@ describe('family server', () => {
     expect(await todayKeys('meimei')).toEqual([]);
     await req('PUT', '/v1/schedule/auto', t, { on: true });
     expect(await todayKeys('meimei')).toEqual(['L-ARR@1.0']);
+  });
+
+  it('lets the tablet app find this server and download itself, and shows the parent the address', async () => {
+    expect((await req('GET', '/v1/hello')).body).toMatchObject({ app: 'ai-discovery-world' }); // no sign-in: asked before pairing
+    expect((await req('GET', '/v1/server-info')).status).toBe(401);
+    const info = (await req('GET', '/v1/server-info', await login())).body;
+    expect(info.addresses).toEqual(expect.any(Array));
+    const shipped = existsSync(join(root, 'apps', 'android', 'release', 'ai-discovery-world-pad.apk'));
+    expect(!!info.apk).toBe(shipped);
+    const page = await app.inject({ method: 'GET', url: '/app/' });
+    expect(page.body).toContain(shipped ? '下载安装包（安卓平板）' : '还没有放到这台 Mac 上');
+    expect(page.body).toContain('iPad 装不了安卓安装包');
+    const apk = await app.inject({ method: 'GET', url: '/app/ai-discovery-world-pad.apk' });
+    expect(apk.statusCode).toBe(shipped ? 200 : 404);
+    if (shipped) expect(apk.headers['content-type']).toBe('application/vnd.android.package-archive');
   });
 
   it('puts a newer version of a lesson in the old one\'s place, and never schedules a lesson already learned', async () => {

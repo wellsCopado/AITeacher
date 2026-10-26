@@ -676,7 +676,7 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
   $('#guide').hidden = true;
   $('#body').innerHTML = `<div class="startcard"><p class="lead">${esc(sp.title)}</p><p class="muted">一共 ${STEPS.length} 步，每一步都有时间。把声音打开，准备好了就点下面。</p>
     <button class="btn primary big" id="start">🔊 开始上课</button>
-    <p class="muted small">点了没有声音：按 iPad 侧面的音量加键，再看控制中心里的静音铃铛是不是开着。</p></div>`;
+    <p class="muted small">点了没有声音：按平板侧面的音量加键，再看是不是开了静音。</p></div>`;
   $('#start').onclick = () => { voice.unlock(); log('start'); go(0); };
   return { events, get scene() { return scene; }, dispose: () => { scene?.dispose(); pic?.dispose(); host?.dispose(); clock?.stop(); subClock?.stop(); voice.stop(); } };
 }

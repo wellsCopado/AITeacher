@@ -4,6 +4,7 @@ import { summarize, type Ev } from './summary.js';
 import { dataSection, homeworkView, masteryView, type Ctx } from './homework.js';
 import { downscale } from './image.js';
 import { agentsCard, canDraw, drawRow, follow, makeRow, modelsCard, wireDraw, wireMake, wireStudio, writerCard } from './studio.js';
+import qrcode from 'qrcode-generator';
 
 interface Child { id: string; name: string; grade: number }
 interface Lesson { key: string; for_child: string; title: string; content_hash: string; published_at: string }
@@ -330,9 +331,9 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
   async 设备与数据() {
     const list = await api<{ label: string; created_at: string }[]>('/v1/devices');
     const tts = await api<{ available: boolean; current: Record<'zh' | 'en', string> | null; options: VoiceOption[] }>('/v1/tts/voices').catch(() => null);
-    const [models, agents] = await Promise.all([modelsCard(ctx()), agentsCard(ctx())]);
-    view().innerHTML = `${voiceCard(tts)}<div class="card"><h3>添加孩子的 Pad</h3><p class="muted">在 Pad 上打开 /pad/，屏幕会显示 6 位配对码。</p>
-      <form id="pair" class="row"><input name="code" inputmode="numeric" placeholder="配对码" maxlength="7" required><input name="label" placeholder="设备名，例如：哥哥的 iPad" maxlength="40"><button class="btn primary">批准</button></form></div>
+    const [models, agents, server] = await Promise.all([modelsCard(ctx()), agentsCard(ctx()), api<ServerInfo>('/v1/server-info').catch(() => null)]);
+    view().innerHTML = `${tabletCard(server)}<div class="card"><h3>添加孩子的平板</h3><p class="muted">平板 App 第一次打开时（iPad 是在 Safari 里打开 /pad/ 时），屏幕会显示 6 位配对码。</p>
+      <form id="pair" class="row"><input name="code" inputmode="numeric" placeholder="配对码" maxlength="7" required><input name="label" placeholder="设备名，例如：哥哥的平板" maxlength="40"><button class="btn primary">批准</button></form></div>${voiceCard(tts)}
       <div class="card"><h3>已配对的设备</h3><ul>${list.map(d => `<li>${esc(d.label)} · ${esc(d.created_at.slice(0, 10))} <button class="btn revoke" data-l="${esc(d.label)}">移除</button></li>`).join('') || '<li class="muted">没有</li>'}</ul></div>
       ${models}${agents}
       ${dataSection(ctx())}`;
@@ -349,6 +350,20 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
     }));
   },
 };
+
+// ---- 平板 App: a QR code the tablet scans to download the Android app from this Mac ----
+interface ServerInfo { name: string; addresses: string[]; port: number; apk: { size: number; version: string | null; built: string | null } | null }
+function tabletCard(info: ServerInfo | null) {
+  if (!info) return '';
+  const host = info.addresses[0] ?? location.hostname, url = `http://${host}:${info.port}/app/`;
+  const qr = qrcode(0, 'M');
+  qr.addData(url); qr.make();
+  return `<div class="card tablet"><h3>孩子的平板 App</h3><div class="row top">
+    <div class="qr" title="${esc(url)}">${qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true })}</div>
+    <div class="grow"><p>用平板的相机或浏览器扫这个码，下载安装「AI探索世界」（安卓）。装好后打开，它会自己在家里的 Wi-Fi 里找到这台 Mac；屏幕上出现配对码时，在下面输入并批准。</p>
+    <p class="small">扫不了码就在平板浏览器里输入 <b>${esc(url)}</b>${info.addresses.length > 1 ? `（这台 Mac 的其他地址：${info.addresses.slice(1).map(esc).join('、')}）` : ''}</p>
+    <p class="small muted">${info.apk ? `安装包版本 ${esc(info.apk.version ?? '')}。` : '安装包还没放到这台 Mac 上：点菜单「AI 探索世界 → 检查更新」后再扫。'}iPad 装不了安卓安装包，iPad 用 Safari 打开 http://${esc(host)}:${info.port}/pad/ 再“添加到主屏幕”。</p></div></div></div>`;
+}
 
 // ---- 朗读声音: which Mac voice reads the lessons; hear one before choosing it ----
 interface VoiceOption { name: string; locale: string; lang: 'zh' | 'en'; quality: 'premium' | 'enhanced' | 'standard' | 'system' }
