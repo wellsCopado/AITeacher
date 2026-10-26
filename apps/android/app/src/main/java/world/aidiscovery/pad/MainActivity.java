@@ -259,7 +259,9 @@ public class MainActivity extends Activity {
             }
 
             @Override public void done(List<Finder.Server> all) {
-                Log.i(TAG, "scan done: " + all.size() + " found");
+                StringBuilder found = new StringBuilder();
+                for (Finder.Server s : all) found.append(' ').append(s.name).append('@').append(s.url);
+                Log.i(TAG, "scan done: " + all.size() + " found" + found);
                 ui.post(() -> {
                     if (setup.getVisibility() != View.VISIBLE) return;
                     if (all.size() == 1) open(all.get(0));

@@ -11,6 +11,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -113,18 +114,23 @@ final class Finder {
         final int gen = generation.incrementAndGet();
         final ExecutorService p = Executors.newFixedThreadPool(48);
         pool = p;
-        final List<Server> all = Collections.synchronizedList(new ArrayList<>());
+        final List<Server> all = new ArrayList<>();
+        final Set<String> names = new HashSet<>();
         for (final String base : candidates(last)) {
             p.execute(() -> {
                 if (generation.get() != gen) return;
                 Server s = probe(base, 500, 1500);
-                if (s != null && generation.get() == gen) { all.add(s); l.found(s); }
+                if (s == null || generation.get() != gen) return;
+                // a Mac on both Wi-Fi and cable answers on two addresses: keep the first one that answered
+                synchronized (all) { if (!names.add(s.name)) return; all.add(s); }
+                l.found(s);
             });
         }
         p.shutdown(); // runs what was queued, takes nothing new
         new Thread(() -> {
             try { p.awaitTermination(30, TimeUnit.SECONDS); } catch (InterruptedException ignored) { }
-            if (generation.get() == gen) l.done(new ArrayList<>(all));
+            if (generation.get() != gen) return;
+            synchronized (all) { l.done(new ArrayList<>(all)); }
         }).start();
     }
 
