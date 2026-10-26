@@ -17,6 +17,7 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.json.JSONObject;
 
@@ -39,6 +40,8 @@ final class Finder {
     }
 
     private ExecutorService pool;
+    /** Bumped by every scan and stop, so answers from an older scan are dropped. */
+    private final AtomicInteger generation = new AtomicInteger();
 
     /** "192.168.31.218", "192.168.31.218:8787" or "http://…" → "http://192.168.31.218:8787". */
     static String normalize(String typed) {
@@ -107,23 +110,26 @@ final class Finder {
     /** Scans in the background; the listener is called from worker threads. */
     synchronized void scan(String last, Listener l) {
         stop();
+        final int gen = generation.incrementAndGet();
         final ExecutorService p = Executors.newFixedThreadPool(48);
         pool = p;
         final List<Server> all = Collections.synchronizedList(new ArrayList<>());
         for (final String base : candidates(last)) {
             p.execute(() -> {
+                if (generation.get() != gen) return;
                 Server s = probe(base, 500, 1500);
-                if (s != null && !p.isShutdown()) { all.add(s); l.found(s); }
+                if (s != null && generation.get() == gen) { all.add(s); l.found(s); }
             });
         }
-        p.shutdown();
+        p.shutdown(); // runs what was queued, takes nothing new
         new Thread(() -> {
             try { p.awaitTermination(30, TimeUnit.SECONDS); } catch (InterruptedException ignored) { }
-            if (pool == p) l.done(new ArrayList<>(all));
+            if (generation.get() == gen) l.done(new ArrayList<>(all));
         }).start();
     }
 
     synchronized void stop() {
+        generation.incrementAndGet();
         if (pool != null) pool.shutdownNow();
         pool = null;
     }

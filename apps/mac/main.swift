@@ -289,7 +289,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
             w.evaluateJavaScript("(document.querySelector('#pin') ? 'login form; ' : '') + document.body.innerText.replace(/\\s+/g, ' ').slice(0, 120)") { r, err in
                 let text = (r as? String) ?? ""
-                self.finishSelftest(text.contains("login form") && text.contains("家长端"), text + (err.map { " error: \($0.localizedDescription)" } ?? ""))
+                let ok = text.contains("login form") && text.contains("家长端")
+                let args = CommandLine.arguments
+                guard let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count else {
+                    self.finishSelftest(ok, text + (err.map { " error: \($0.localizedDescription)" } ?? ""))
+                    return
+                }
+                w.takeSnapshot(with: nil) { image, _ in
+                    if let tiff = image?.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+                        try? png.write(to: URL(fileURLWithPath: args[i + 1]))
+                    }
+                    self.finishSelftest(ok, text)
+                }
             }
         }
     }

@@ -188,6 +188,7 @@ public class MainActivity extends Activity {
         col.setPadding(pad, dp(48), pad, pad);
 
         TextView title = text("AI 探索世界", 30, Color.WHITE);
+        title.setGravity(Gravity.CENTER);
         col.addView(title);
         status = text("", 18, Color.rgb(200, 215, 220));
         status.setGravity(Gravity.CENTER);
@@ -195,6 +196,7 @@ public class MainActivity extends Activity {
         col.addView(status, new LinearLayout.LayoutParams(dp(640), ViewGroup.LayoutParams.WRAP_CONTENT));
         foundList = new LinearLayout(this);
         foundList.setOrientation(LinearLayout.VERTICAL);
+        foundList.setGravity(Gravity.CENTER_HORIZONTAL);
         col.addView(foundList);
 
         TextView hint = text("也可以输入家里 Mac 的地址（Mac 上「AI 探索世界」→ 设备与数据 里能看到）", 15, Color.rgb(150, 170, 175));
@@ -202,7 +204,7 @@ public class MainActivity extends Activity {
         hint.setPadding(0, dp(28), 0, dp(8));
         col.addView(hint, new LinearLayout.LayoutParams(dp(640), ViewGroup.LayoutParams.WRAP_CONTENT));
         LinearLayout row = new LinearLayout(this);
-        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setGravity(Gravity.CENTER);
         address = new EditText(this);
         address.setHint("例如 192.168.31.218");
         address.setTextColor(Color.WHITE);
@@ -257,6 +259,7 @@ public class MainActivity extends Activity {
             }
 
             @Override public void done(List<Finder.Server> all) {
+                Log.i(TAG, "scan done: " + all.size() + " found");
                 ui.post(() -> {
                     if (setup.getVisibility() != View.VISIBLE) return;
                     if (all.size() == 1) open(all.get(0));

@@ -89,11 +89,7 @@ jobs:
         run: |
           ADW_PIN=1234 ADW_DB="$RUNNER_TEMP/adw.sqlite" nohup node node_modules/tsx/dist/cli.mjs apps/server/src/main.ts > "$RUNNER_TEMP/server.log" 2>&1 &
           for i in $(seq 60); do curl -sf http://127.0.0.1:8787/v1/hello && break; sleep 1; done
-          "$RUNNER_TEMP/mac/AI 探索世界.app/Contents/MacOS/AIDiscoveryWorld" --selftest --port 8787 &
-          app=$!
-          sleep 7
-          screencapture -x "$RUNNER_TEMP/mac-app.png" || true
-          wait $app
+          "$RUNNER_TEMP/mac/AI 探索世界.app/Contents/MacOS/AIDiscoveryWorld" --selftest --port 8787 --snapshot "$RUNNER_TEMP/mac-app.png"
       - name: Collect
         if: always()
         run: |
