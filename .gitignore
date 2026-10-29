@@ -8,3 +8,4 @@ data/
 content/homework/
 content/reteach.json
 build/
+__pycache__/

@@ -48,7 +48,7 @@
 
 1. **构建好再打包。** 包里要有 `web/dist/index.html`；只有引用 `/src/…` 的源码页面，App 会拒收。
 2. **相对路径。** App 把课放在 `/explore/<课号>/` 下。Vite 在 `vite.config.mjs` 写 `base: './'`；代码里载入文件写 `./models/x.glb`、`./audio/intro.m4a`，不写 `/models/…`。用了绝对路径 App 会尽量转接，但会在家长的卡片上提示。
-3. **不连外网。** 运行时只用包里的文件；平板只连家里的 Mac。
+3. **不连外网。** 运行时只用包里的文件；平板只连家里的 Mac。给大人核对的来源链接可以留，但放在说明抽屉或文档里：孩子点到外链，App 会跳到平板浏览器。
 4. **大小。** 网页部分最好在 150 MB 以内（平板第一次打开要下载）；超过 800 MB 拒收。
 5. **接 App 的进度接口**：把 [`assets/web/adw-host.mjs`](../assets/web/adw-host.mjs) 复制进源码，原样使用：
 
@@ -75,6 +75,14 @@ onHost((m) => { if (m.type === 'pause') { stopVoice(); world.setPaused(true); } 
 
 ## 交给家长
 
+- 先构建（`cd web && pnpm build`），再打包，然后预检：
+
+```sh
+zip -qr -X 台北101_四年级探索课_20261029.zip 台北101_四年级探索课 -x "*/node_modules/*" "*.DS_Store"
+python3 scripts/check_package.py 台北101_四年级探索课_20261029.zip
+```
+
+  `check_package.py` 用和 App 导入时同一套规则查：`exploration.json` 字段、有没有构建好的网页、绝对路径、运行时外网文件、进度接口、大小、密钥文件。`errors` 不为空先改；`warnings` 写进 `验收结果.md`。它不运行网页，过了也要在App里预览。
 - 默认：打好 .zip 交给家长，家长在 Mac 的「AI 探索世界 → 课程库 → 探索课」选文件导入。
 - 能连家里的服务器时（`ADW_SERVER`、家长在「设备与数据 → AI 助手接入」给的 `ADW_TOKEN`），可以直接交：
 

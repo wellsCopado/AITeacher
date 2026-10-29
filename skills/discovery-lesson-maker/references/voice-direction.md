@@ -27,4 +27,6 @@
 
 ## 当前App的实际边界
 
-已读参考分支的 `apps/server/src/tts.ts` 是Mac `say` 生成WAV，`packages/player/src/voice.ts` 优先请求服务器音频，失败回退设备语音。这是合成语音，代码中的声线排名不是已试听的质量证明。当前LessonSpec没有通用预录旁白片段字段；要使用预制自然音频需要确认宿主已有可用入口，否则在接入差距中提出，不擅自加字段或修改App。
+**探索课包（本Skill的默认交付）**：旁白音频随包放在网页里（如 `web/public/audio/`，代码用 `./audio/…` 相对路径载入），App 原样托管，不另配音。macOS `say` 或其他合成声音都标 `synthetic`；只在家里自用时可以先用，要给别人用或商用前，换成条款允许随课分发的声音或有授权的真人录音，并在 `licenses/` 写明。在家里的平板上实际听一遍，不只在电脑上听。
+
+**LessonSpec 参数课**：App 的 `apps/server/src/tts.ts` 用 Mac `say` 生成 WAV，`packages/player/src/voice.ts` 优先请求服务器音频，失败回退设备语音。这是合成语音，代码中的声线排名不是已试听的质量证明。LessonSpec没有通用预录旁白片段字段；要使用预制自然音频需要确认宿主已有可用入口，否则在接入差距中提出，不擅自加字段或修改App。

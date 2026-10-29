@@ -38,7 +38,7 @@
 
 ## 旧格式与能力边界
 
-补充 `challenge-types.md` 是宿主App的接口线索，提到的V09/V20/V21、`dls context`、`content/components.json` 和 PerimeterArea/ArrayMultiplier 并未随当前Skill提供。旧ZIP则使用 `kind: build / answer`。二者不能直接混用。本Skill不规定新的App课程Schema，`production-template.json`仅是制作记录。
+`challenge-types.md`、V09/V20/V21、`dls context`、`content/components.json` 和 PerimeterArea/ArrayMultiplier 属于 AI 探索世界 App 的另一种课（LessonSpec 参数课），在它的仓库 `skills/discovery-learning-studio/` 和 `content/` 里；单独拿到本Skill时没有这些文件。本Skill做的整节网页课交**探索课包**，不写 LessonSpec，也不受这些题型规则约束，判题由页面自己读场景状态，再用 `adw-host.mjs` 报给App（见 [App 参考](app-reference.md)）。旧ZIP的 `kind: build / answer` 与二者都不能直接混用。本Skill不规定新的App课程Schema，`production-template.json`仅是制作记录。
 
 接入时读取App实际样例与Schema，确定选择题答案结构、操作题控制、配图参数、同类题和帮助记录的正确字段。逐题验证能力、参数范围/单位、多解规则和初始状态。不能通过在内容里写一个 `task.type` 就新增组件，也不要把未知字段静默忽略后报告迁移成功。
 

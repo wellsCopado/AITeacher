@@ -2,7 +2,7 @@
 name: discovery-lesson-maker
 description: 用户给一个命题，自动研究、收集组装素材、制作可操作的写实三维和动画，并从儿童兴趣切入设计融合语文、英文、数学、科学与自信情绪支持的探索课。包含自然语音与现有App接入；用于制课或改进粗糙课程，非静态图册或固定话术模板。
 metadata:
-  version: '2.5.0-rc.2'
+  version: '2.5.0-rc.3'
 ---
 
 # 写实三维探索课制作
@@ -60,6 +60,7 @@ metadata:
 - `scripts/check_challenges.py <课程JSON> --capabilities <能力JSON> [--audit <判题审计JSON>]`：检查补充材料的 `task / answers` 风格内容；宿主原生校验仍是最终兼容依据。
 - `examples/`：题目/能力和跨主题评估案例，只作明确标注的结构与决策回归。没有制作这些主题的三维课程，不得宣称示例已成课。
 - `assets/web/adw-host.mjs`：AI 探索世界 App 的进度接口（adw-explore/1）。课要放进这个App时复制进源码原样使用：页面载入、任务进度、暂停都告诉App，每个孩子一份本机记录。用法和课程包格式见 [AI 探索世界 App 参考](references/app-reference.md)。
+- `scripts/check_package.py <课程包目录或.zip>`：交给 AI 探索世界 App 之前的预检，规则和App导入时相同（结构、`exploration.json`、构建、相对路径、外网依赖、进度接口、大小、密钥文件）。只做静态检查，不运行网页；过了仍要在App里预览。
 - `assets/web/physical-viewer.mjs`：可选的渐进光照观察适配器，已在台北101独立Web中运行；交互/动作保留快速预览，报告真实渲染状态与回退原因。仅在几何、材质与参考已核对、目标设备支持时选用。依赖、调用和限制见[网页物理光照](references/web-lighting.md)，不强制所有主题使用光追。
 - [实际试课、退回与回修](references/field-trials.md) 记录主角替换失败、人形重做及高楼验证的实际原因和修复；不是任何主题的质量保证。
 - `scripts/render_asset_diagnostics.py`：通过Blender输出同机位材质/素模视图和指定部件近景，用来发现玩具比例、连接缺口和表面掩饰。它不会给写实打分，也不能代替最终Web。用法见[真实对象重建](references/real-object-reconstruction.md#可运行的制作辅助工具)。
@@ -70,6 +71,6 @@ metadata:
 
 ## 交付与完成声明
 
-制课时交付宿主兼容内容、可编辑的场景/动作源码、模型/贴图、本轮要求的媒体文件、来源许可、简短教学设计和实际验收记录；需要时打ZIP。没有App访问权限就标记接入待验证，不能声称已能在App上课。课程包不含账户、密钥、缓存或依赖目录。
+制课时交付宿主兼容内容、可编辑的场景/动作源码、模型/贴图、本轮要求的媒体文件、来源许可、简短教学设计和实际验收记录；需要时打ZIP。没有App访问权限就标记接入待验证，不能声称已能在App上课。课程包不含账户、密钥、缓存或依赖目录；交给 AI 探索世界 App 的包先跑 `scripts/check_package.py`，没有 errors 再交。
 
 先说用户现在能打开什么、做什么，再说已验证范围和缺口。用户审美评价与学习效果尚未检验时保持待评价；可以据实说“技术流程通过”，不能替用户说“已认可”“达到照片级”或“孩子已经掌握”。
