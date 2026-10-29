@@ -8,7 +8,7 @@ const SCHEMA = `
 create table if not exists children (id text primary key, tenant_id text not null, name text not null, grade integer not null);
 create table if not exists lessons (
   lesson_id text not null, version text not null, tenant_id text not null, for_child text not null, title text not null,
-  content_hash text not null, published_at text not null, spec text not null, primary key (lesson_id, version));
+  content_hash text not null, published_at text not null, spec text not null, kind text not null default 'spec', primary key (lesson_id, version));
 create table if not exists schedule (tenant_id text not null, date text not null, child text not null, lesson_key text not null,
   primary key (tenant_id, date, child, lesson_key));
 create table if not exists schedule_days (tenant_id text not null, date text not null, child text not null, mode text not null,
@@ -39,6 +39,8 @@ create table if not exists media (id text primary key, tenant_id text not null, 
   file text not null, key text not null, credit text not null, license text not null, source_url text, caption text, length_cm real,
   added_by text not null, created_at text not null, confirmed integer not null default 1, refs text);
 create table if not exists settings (tenant_id text not null, k text not null, v text not null, primary key (tenant_id, k));
+create table if not exists explore_drafts (key text not null, tenant_id text not null, for_child text not null, title text not null, meta text not null,
+  status text not null, note text, imported_by text not null, imported_at text not null, primary key (tenant_id, key));
 create table if not exists preps (id text primary key, tenant_id text not null, child text not null, interest_id text not null, said text,
   topic text not null, status text not null, wished_on text not null, lesson_from text, lesson_ref text, subject text, log text not null default '[]',
   created_at text not null, updated_at text not null);
@@ -69,6 +71,9 @@ export interface PrepRow {
   log: { at: string; msg: string }[]; created_at: string; updated_at: string;
 }
 export interface EventIn { id: string; at: string; type: string; [k: string]: unknown }
+/** What the schedule, the Pad and the records need to know about any lesson, whichever kind it is. */
+export interface Entry { key: string; kind: 'spec' | 'explore'; for_child: string; title: string; concept: string }
+export type ExploreStatus = '待审核' | '已退回' | '不采用';
 
 export class Store {
   readonly db: DatabaseSync;
@@ -82,6 +87,8 @@ export class Store {
     // pictures an AI assistant sends wait for the parent's confirmation; earlier ones were all added by the parent
     if (!cols.includes('confirmed')) this.db.exec('alter table media add column confirmed integer not null default 1');
     if (!cols.includes('refs')) this.db.exec('alter table media add column refs text');
+    // 探索课 (whole web lessons imported as packages) share the lessons table with LessonSpec lessons
+    if (!this.all<{ name: string }>('pragma table_info(lessons)').some(c => c.name === 'kind')) this.db.exec("alter table lessons add column kind text not null default 'spec'");
   }
   private all<T>(sql: string, ...p: (string | number | null)[]): T[] { return this.db.prepare(sql).all(...p) as T[]; }
   private get<T>(sql: string, ...p: (string | number | null)[]): T | undefined { return this.db.prepare(sql).get(...p) as T | undefined; }
@@ -103,15 +110,33 @@ export class Store {
     this.run('insert into lessons (lesson_id, version, tenant_id, for_child, title, content_hash, published_at, spec) values (?,?,?,?,?,?,?,?)',
       sp.lesson_id, sp.version, this.tenant, sp.for_child, sp.title, sp.content_hash!, sp.published_at!, JSON.stringify(sp));
   }
+  /** A LessonSpec lesson (an 探索课 is not one: see exploration()). */
   lesson(key: string): LessonSpec | undefined {
     const [id, ver] = key.split('@');
-    const r = this.get<{ spec: string }>('select spec from lessons where tenant_id=? and lesson_id=? and version=?', this.tenant, id, ver ?? '');
+    const r = this.get<{ spec: string }>("select spec from lessons where tenant_id=? and lesson_id=? and version=? and kind='spec'", this.tenant, id, ver ?? '');
     return r ? JSON.parse(r.spec) : undefined;
   }
   lessons() {
-    return this.all<{ lesson_id: string; version: string; for_child: string; title: string; content_hash: string; published_at: string }>(
-      'select lesson_id, version, for_child, title, content_hash, published_at from lessons where tenant_id=? order by published_at desc', this.tenant)
+    return this.all<{ lesson_id: string; version: string; for_child: string; title: string; content_hash: string; published_at: string; kind: 'spec' | 'explore' }>(
+      'select lesson_id, version, for_child, title, content_hash, published_at, kind from lessons where tenant_id=? order by published_at desc', this.tenant)
       .map(r => ({ key: `${r.lesson_id}@${r.version}`, ...r }));
+  }
+  addExploration<T extends { lesson_id: string; version: string; for_child: string; title: string; sha256: string; published_at: string }>(x: T) {
+    this.run("insert into lessons (lesson_id, version, tenant_id, for_child, title, content_hash, published_at, spec, kind) values (?,?,?,?,?,?,?,?,'explore')",
+      x.lesson_id, x.version, this.tenant, x.for_child, x.title, x.sha256, x.published_at, JSON.stringify(x));
+  }
+  exploration<T>(key: string): T | undefined {
+    const [id, ver] = key.split('@');
+    const r = this.get<{ spec: string }>("select spec from lessons where tenant_id=? and lesson_id=? and version=? and kind='explore'", this.tenant, id, ver ?? '');
+    return r ? JSON.parse(r.spec) : undefined;
+  }
+  /** Any published lesson, LessonSpec or 探索课. */
+  entry(key: string): Entry | undefined {
+    const [id, ver] = key.split('@');
+    const r = this.get<{ spec: string; kind: 'spec' | 'explore'; for_child: string; title: string }>('select spec, kind, for_child, title from lessons where tenant_id=? and lesson_id=? and version=?', this.tenant, id, ver ?? '');
+    if (!r) return undefined;
+    const sp = JSON.parse(r.spec) as { primary_concept?: { name: string }; concept?: string };
+    return { key, kind: r.kind, for_child: r.for_child, title: r.title, concept: (r.kind === 'spec' ? sp.primary_concept?.name : sp.concept) ?? '' };
   }
 
   // schedule and grants (FR55, BL13). A day is 'manual' once the parent set it (even to nothing), 'auto' when the
@@ -374,4 +399,20 @@ export class Store {
   discardDraft(key: string, reason: string) { this.run("update drafts set status='不采用', note=? where tenant_id=? and key=?", reason || null, this.tenant, key); }
   restoreDraft(key: string) { this.run("update drafts set status='待审核', note=null where tenant_id=? and key=? and status='不采用'", this.tenant, key); }
   deleteDraft(key: string) { this.run('delete from drafts where tenant_id=? and key=?', this.tenant, key); }
+
+  // 探索课 packages the parent imported, waiting for review
+  upsertExploreDraft<T extends { lesson_id: string; version: string; for_child: string; title: string }>(x: T, by: string, now: string) {
+    const key = `${x.lesson_id}@${x.version}`;
+    this.run(`insert into explore_drafts (key, tenant_id, for_child, title, meta, status, note, imported_by, imported_at) values (?,?,?,?,?,'待审核',null,?,?)
+      on conflict(tenant_id, key) do update set for_child=excluded.for_child, title=excluded.title, meta=excluded.meta, status='待审核', note=null, imported_by=excluded.imported_by, imported_at=excluded.imported_at`,
+      key, this.tenant, x.for_child, x.title, JSON.stringify(x), by, now);
+    return key;
+  }
+  exploreDrafts<T>() {
+    return this.all<{ key: string; status: ExploreStatus; note: string | null; imported_by: string; imported_at: string; meta: string }>(
+      'select key, status, note, imported_by, imported_at, meta from explore_drafts where tenant_id=? order by imported_at', this.tenant)
+      .map(({ meta, ...r }) => ({ ...r, meta: JSON.parse(meta) as T }));
+  }
+  setExploreStatus(key: string, status: ExploreStatus, note: string | null) { this.run('update explore_drafts set status=?, note=? where tenant_id=? and key=?', status, note, this.tenant, key); }
+  deleteExploreDraft(key: string) { this.run('delete from explore_drafts where tenant_id=? and key=?', this.tenant, key); }
 }

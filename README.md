@@ -24,6 +24,8 @@
 | Pad 轻 App（选孩子、今天的课、断网补传） | `apps/pad` |
 | 家长端（排课、临时授权、学习记录、兴趣与心愿、设备） | `apps/parent` |
 | 部署说明 | `docs/deploy.md`、`Dockerfile` |
+| Skill：discovery-lesson-maker（整节写实三维探索课，网页课程包） | `skills/discovery-lesson-maker`（接 App 见 `references/app-reference.md`） |
+| 探索课：导入课程包、家长预览审核、平板全屏上课、进度和心愿记录 | `apps/server/src/explore.ts`、家长端「课程库 → 探索课」、`apps/pad/src/main.ts` |
 | Skill：homework-analysis（作业识别、判断、重教需求） | `skills/homework-analysis`（`.claude/skills` 已链接） |
 | 判断校验 J01–J09、重教换机制 V15 | `packages/validator/src/judgment.ts`、`rules.ts` |
 | 作业、判断、掌握状态、重教需求、反馈分源、数据导出与删除 | `apps/server/src/homework.ts`、家长端“作业”“掌握与重教”页 |

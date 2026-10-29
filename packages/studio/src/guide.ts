@@ -20,15 +20,15 @@ export type GuideTopic = keyof typeof GUIDE_TOPICS | 'all' | 'author';
 
 const SKILL_DIR = ['skills', 'discovery-learning-studio'];
 
-/** Every Skill in skills/: plain Markdown any model or agent can read (SKILL.md first, then reference/). */
+/** Every Skill in skills/: plain Markdown any model or agent can read (SKILL.md first, then reference/ or references/, then examples/). */
 export interface SkillInfo { name: string; description: string; files: string[] }
 export function skillList(root: string): SkillInfo[] {
   const dir = join(root, 'skills');
   if (!existsSync(dir)) return [];
   return readdirSync(dir, { withFileTypes: true }).filter(d => d.isDirectory() && existsSync(join(dir, d.name, 'SKILL.md'))).map(d => {
     const head = readFileSync(join(dir, d.name, 'SKILL.md'), 'utf8').match(/^---[\s\S]*?\ndescription:\s*(.+)\n[\s\S]*?---/);
-    const ref = join(dir, d.name, 'reference');
-    const files = ['SKILL.md', ...(existsSync(ref) ? readdirSync(ref).filter(f => f.endsWith('.md')).sort().map(f => `reference/${f}`) : [])];
+    const sub = (name: string) => { const p = join(dir, d.name, name); return existsSync(p) ? readdirSync(p).filter(f => f.endsWith('.md')).sort().map(f => `${name}/${f}`) : []; };
+    const files = ['SKILL.md', ...sub('reference'), ...sub('references'), ...sub('examples')];
     return { name: d.name, description: head?.[1].trim() ?? '', files };
   });
 }
@@ -46,7 +46,7 @@ export function readSkill(root: string, name: string, file?: string): string {
 
 /** The list of Skills as text: what each is for and which files it has. */
 export function skillIndex(root: string): string {
-  return ['项目里的 Skill（都是普通的 Markdown，任何模型都能读：先读 SKILL.md，再按它的指引读 reference/）：',
+  return ['项目里的 Skill（都是普通的 Markdown，任何模型都能读：先读 SKILL.md，再按它的指引读 reference/ 或 references/）：',
     ...skillList(root).map(s => `\n## ${s.name}\n${s.description}\n文件：${s.files.join('、')}`)].join('\n');
 }
 

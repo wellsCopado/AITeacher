@@ -1,9 +1,10 @@
 # Skill 目录
 
-这里的每个子目录是一份 Skill：普通的 Markdown，不依赖任何一家的模型或工具。先读 `SKILL.md`，再按它的指引读 `reference/` 里的文件。
+这里的每个子目录是一份 Skill：普通的 Markdown，不依赖任何一家的模型或工具。先读 `SKILL.md`，再按它的指引读 `reference/`（或 `references/`）里的文件。
 
 | Skill | 做什么 |
 | --- | --- |
+| `discovery-lesson-maker` | 从一个主题做出整节写实三维探索课（网页课程包，台北101、上海中心那种），家长在「课程库 → 探索课」导入；接 App 先读 `references/app-reference.md` |
 | `discovery-learning-studio` | 写一节课（LessonSpec）、校验、交给家长审核；挑战题题型、上课流程、孩子心愿 |
 | `photoreal-3d-production` | 找、做、接入、验收写实 3D 素材、场景、动手操作题和课末主持人；先读 `reference/gaps.md` |
 | `homework-analysis` | 看作业照片、写判断、触发重教 |

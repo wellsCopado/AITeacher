@@ -7,7 +7,12 @@ import { agentsCard, canDraw, drawRow, follow, makeRow, modelsCard, wireDraw, wi
 import qrcode from 'qrcode-generator';
 
 interface Child { id: string; name: string; grade: number }
-interface Lesson { key: string; for_child: string; title: string; content_hash: string; published_at: string }
+interface Lesson { key: string; kind?: 'spec' | 'explore'; for_child: string; title: string; content_hash: string; published_at: string }
+/** An imported 探索课 package waiting for review (or sent back, or declined). */
+interface Explore {
+  key: string; title: string; for_child: string; status: '待审核' | '已退回' | '不采用'; note: string | null; concept: string; summary: string;
+  bytes: number; files: number; docs: string[]; warnings: string[]; replaces: string | null; source_name: string; imported_by: string; bridge: boolean;
+}
 interface Session { key: string; child: string; lesson_key: string; started_on: string; updated_at: string; finished: number; events: number }
 interface Draft {
   key: string; title: string; child: string; status: string; note: string | null; concept: string; theme: { name: string; why: string };
@@ -59,6 +64,17 @@ const name = (id: string) => kids.find(k => k.id === id)?.name ?? id;
 const title = (key: string) => lessons.find(l => l.key === key)?.title ?? key;
 const toast = (m: string, bad = false) => { const t = document.getElementById('toast'); if (t) { t.textContent = m; t.className = bad ? 'toast bad' : 'toast'; } };
 const guard = (fn: () => Promise<unknown>) => () => { fn().catch(e => toast((e as Error).message, true)); };
+/** The few bits of Markdown a package's notes use (headings, lists, bold), as safe HTML. */
+const md = (text: string) => text.split(/\n{2,}/).map(block => {
+  const inline = (t: string) => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  const h = /^(#{1,4})\s+(.*)$/.exec(block.trim());
+  if (h && !block.trim().includes('\n')) return `<h${h[1].length + 2}>${inline(h[2])}</h${h[1].length + 2}>`;
+  const lines = block.split('\n');
+  if (lines.every(l => /^\s*([-*]|\d+\.)\s+/.test(l) || /^\s{2,}\S/.test(l))) return `<ul>${lines.filter(l => /^\s*([-*]|\d+\.)\s+/.test(l)).map(l => `<li>${inline(l.replace(/^\s*([-*]|\d+\.)\s+/, ''))}</li>`).join('')}</ul>`;
+  if (/^```/.test(block.trim())) return `<pre>${esc(block.replace(/^```\w*\n?|```$/gm, ''))}</pre>`;
+  return `<p>${lines.map(inline).join('<br>')}</p>`;
+}).join('');
+const mb = (n: number) => `${(n / 1048576).toFixed(n < 10 * 1048576 ? 1 : 0)} MB`;
 async function blob(path: string): Promise<Blob> {
   const r = await fetch(path, { headers: token ? { authorization: `Bearer ${token}` } : {} });
   if (!r.ok) throw new Error(`下载失败（${r.status}）`);
@@ -162,18 +178,40 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
   },
 
   async 课程库() {
-    const [grants, allDrafts, checklist, organisms, writer] = await Promise.all([
+    const [grants, allDrafts, xall, checklist, organisms, writer] = await Promise.all([
       api<{ child: string; lesson_key: string; expires_on: string; granted_by: string }[]>('/v1/grants'),
       api<Draft[]>('/v1/drafts'),
+      api<Explore[]>('/v1/explore'),
       api<Record<string, string[]>>('/v1/review-checklist'),
       api<Organism[]>('/v1/organisms'),
       writerCard(ctx(), () => VIEWS.课程库()),
     ]);
-    const preview = (key: string) => `/pad/preview.html#key=${encodeURIComponent(key)}&t=${encodeURIComponent(token ?? '')}`;
+    // a 探索课 previews as the page itself, with its own record (learner=preview) so the children's places stay untouched
+    const xpreview = (key: string) => `/explore/${key}/?learner=preview`;
+    const preview = (key: string) => lessons.find(l => l.key === key)?.kind === 'explore' ? xpreview(key) : `/pad/preview.html#key=${encodeURIComponent(key)}&t=${encodeURIComponent(token ?? '')}`;
+    const xopen = xall.filter(x => x.status !== '不采用'), xdeclined = xall.filter(x => x.status === '不采用');
     const jp = justPublished;
     const drafts = allDrafts.filter(d => d.status !== '不采用'), declined = allDrafts.filter(d => d.status === '不采用');
     view().innerHTML = `${jp ? `<div class="card justpub" id="jp"><b>刚发布「${esc(jp.title)}」（${esc(name(jp.for_child))}）。</b>什么时候上？
-        <div class="row"><button class="btn primary when" data-n="0">今天就上</button><button class="btn when" data-n="1">明天上</button><button class="btn when" data-n="-1">按顺序自动排</button></div></div>` : ''}${writer}
+        <div class="row"><button class="btn primary when" data-n="0">今天就上</button><button class="btn when" data-n="1">明天上</button><button class="btn when" data-n="-1">按顺序自动排</button></div></div>` : ''}
+      <div class="card" id="xbox"><h3>探索课</h3><p class="muted">整节的三维网页课：用 Codex、ChatGPT 等照「探索课制作」Skill 做好的课程包（.zip）。导入后先预览走一遍，再决定通过、退回修改或不要；通过后和别的课一样排课，孩子在平板上全屏上。</p>
+        <form id="ximport" class="row"><input type="file" name="file" accept=".zip,application/zip" required>
+          <label>给谁 <select name="child"><option value="">按课程包里写的年级</option>${kids.map(k => `<option value="${esc(k.id)}">${esc(k.name)}（${k.grade} 年级）</option>`).join('')}</select></label>
+          <button class="btn primary">导入课程包</button></form></div>
+      ${xopen.map(x => `<div class="card xdraft" data-k="${esc(x.key)}"><h3>${esc(x.title)} <span class="badge">探索课</span> <span class="badge">${esc(x.status)}</span></h3>
+        <p class="muted small">${esc(name(x.for_child))} · ${esc(x.concept || '课程包没写知识点')} · ${esc(x.key)} · ${mb(x.bytes)}，${x.files} 个文件 · 由 ${esc(x.imported_by)} 导入${x.source_name ? `（${esc(x.source_name)}）` : ''}</p>
+        ${x.summary ? `<p>${esc(x.summary)}</p>` : ''}
+        ${x.replaces ? `<p class="small replaces">这是 ${esc(x.replaces)} 的新版本。发布后自动排课只排新版；孩子上过旧版就算上过这节课。</p>` : ''}
+        ${x.note ? `<p class="toast bad">你退回时写的：${esc(x.note)}<br>把这句意见交给做课的 AI，改好后重新导入，新包会替换这一份。</p>` : ''}
+        ${x.warnings.map(w => `<p class="small toast bad">${esc(w)}</p>`).join('')}
+        <p class="row"><a class="btn" href="${xpreview(x.key)}" target="_blank" rel="noopener">预览这节课</a>${x.docs.map(d => `<button class="btn sm doc" data-doc="${esc(d)}">看「${esc(d.replace(/\.md$/, ''))}」</button>`).join('')}</p>
+        <div class="xdoc"></div>
+        ${x.status === '待审核' ? `<p><label><input type="checkbox" class="seen"> 我预览过了，画面和内容可以给孩子上</label></p>` : ''}
+        <div class="row">${x.status === '待审核' ? '<button class="btn primary xapprove">通过并发布</button>' : ''}
+          <input class="note" placeholder="意见：退回要写改哪里；不要可以写原因" maxlength="500">${x.status === '待审核' ? '<button class="btn xreject">退回修改</button>' : ''}<button class="btn danger xdiscard">不要这节课</button></div></div>`).join('')}
+      ${xdeclined.length ? `<details class="declined"><summary>没采用的探索课（${xdeclined.length}）</summary>
+        <ul>${xdeclined.map(x => `<li data-k="${esc(x.key)}">${esc(x.title)} <span class="muted small">${esc(name(x.for_child))} · ${esc(x.key)} · ${x.note ? `原因：${esc(x.note)}` : '没写原因'}</span> <button class="btn sm xrestore">放回审核</button></li>`).join('')}</ul></details>` : ''}
+      ${writer}
       ${drafts.length ? `<h3>等你审核（${drafts.length}）</h3><p class="muted">先点“预览”把课走一遍，再逐项勾选四类审核。全部勾上才能发布；发布后内容冻结，孩子在排课当天才看得到。</p>` : ''}
       ${drafts.map(d => `<div class="card draft" data-k="${esc(d.key)}"><h3>${esc(d.title)} <span class="badge">${esc(d.status)}</span></h3>
         <p class="muted small">${esc(name(d.child))} · ${esc(d.concept)} · ${esc(d.key)} · 主题「${esc(d.theme.name)}」：${esc(d.theme.why)} · 由 ${esc(d.submitted_by)} 交来</p>
@@ -191,7 +229,7 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
       ${declined.length ? `<details class="declined"><summary>没采用的课（${declined.length}）</summary><p class="muted small">不会发布，也不会再拿来改。原因会告诉写课的 AI，以后的新课避开。</p>
         <ul>${declined.map(d => `<li data-k="${esc(d.key)}">${esc(d.title)} <span class="muted small">${esc(name(d.child))} · ${esc(d.key)} · ${d.note ? `原因：${esc(d.note)}` : '没写原因'}</span> <button class="btn sm restore">放回审核</button></li>`).join('')}</ul></details>` : ''}
       <h3>已发布</h3><p class="muted">发布后内容冻结，改动要升版本号重新审核。</p>
-      <table><tr><th>课程</th><th>给谁</th><th>发布时间</th><th>临时授权</th></tr>${lessons.map(l => `<tr><td>${esc(l.title)}<div class="muted small">${esc(l.key)} · <a href="${preview(l.key)}" target="_blank" rel="noopener">预览</a></div></td><td>${esc(name(l.for_child))}</td><td>${esc(l.published_at.slice(0, 16).replace('T', ' '))}</td>
+      <table><tr><th>课程</th><th>给谁</th><th>发布时间</th><th>临时授权</th></tr>${lessons.map(l => `<tr><td>${esc(l.title)}${l.kind === 'explore' ? ' <span class="badge">探索课</span>' : ''}<div class="muted small">${esc(l.key)} · <a href="${preview(l.key)}" target="_blank" rel="noopener">预览</a></div></td><td>${esc(name(l.for_child))}</td><td>${esc(l.published_at.slice(0, 16).replace('T', ' '))}</td>
         <td><select data-k="${esc(l.key)}"><option value="1">今天</option><option value="3">3 天</option><option value="7">7 天</option></select> <button class="btn grant" data-k="${esc(l.key)}" data-c="${esc(l.for_child)}">授权</button></td></tr>`).join('') || '<tr><td colspan="4" class="muted">还没有发布的课</td></tr>'}</table>
       <h3>授权记录</h3><ul>${grants.map(g => `<li>${esc(name(g.child))} · ${esc(title(g.lesson_key))} · 到 ${esc(g.expires_on)}${g.expires_on < today ? '（已过期）' : ''}</li>`).join('') || '<li class="muted">没有</li>'}</ul>
       <h3>生物素材</h3><p class="muted">写实模型还没到位的动物，课里会打开“实拍观察窗”，放这里加的照片或视频。只能用实拍、标本扫描，或依据实拍照片做的写实模型，不用卡通和绘画。每条都写上作者和授权。${canDraw() ? '有 3 张实拍照片后，可以让 ChatGPT 依据它们画写实图，画好等你核对确认。' : ''}</p>
@@ -253,6 +291,48 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
       document.getElementById('jp')?.remove();
       toast(n < 0 ? '好的，按顺序自动排。可以在「排课」里看和改。' : `已排到${n ? '明天' : '今天'}，${name(p.for_child)}${n ? '明天' : '现在'}就能在 Pad 上看到。`);
     }));
+    const xform = document.getElementById('ximport') as HTMLFormElement;
+    xform.onsubmit = e => {
+      e.preventDefault();
+      guard(async () => {
+        const file = (xform.elements.namedItem('file') as HTMLInputElement).files?.[0];
+        if (!file) throw new Error('先选课程包 .zip');
+        const child = (xform.elements.namedItem('child') as HTMLSelectElement).value;
+        toast(`正在导入「${file.name}」（${mb(file.size)}，大的要等一会儿）…`);
+        const r = await fetch(`/v1/explore/import?name=${encodeURIComponent(file.name)}${child ? `&child=${encodeURIComponent(child)}` : ''}`, { method: 'POST', headers: { 'content-type': 'application/zip', authorization: `Bearer ${token}` }, body: file });
+        const body = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(body.error ?? `导入失败（${r.status}）`);
+        await VIEWS.课程库();
+        toast(`已导入「${body.title}」（给${name(body.for_child)}）。先点“预览这节课”走一遍，再决定。${body.warnings?.length ? '课程包有提示，看一下卡片上的红字。' : ''}`);
+      })();
+    };
+    view().querySelectorAll<HTMLElement>('.xdraft').forEach(card => {
+      const key = card.dataset.k!, note = () => card.querySelector<HTMLInputElement>('.note')!.value;
+      card.querySelectorAll<HTMLButtonElement>('.doc').forEach(b => b.onclick = guard(async () => {
+        const box = card.querySelector<HTMLElement>('.xdoc')!;
+        if (box.dataset.doc === b.dataset.doc) { box.innerHTML = ''; box.dataset.doc = ''; return; }
+        box.innerHTML = md(await (await blob(`/v1/explore/${key}/docs/${encodeURIComponent(b.dataset.doc!)}`)).text()); box.dataset.doc = b.dataset.doc!;
+      }));
+      card.querySelector<HTMLButtonElement>('.xapprove')?.addEventListener('click', guard(async () => {
+        await api(`/v1/explore/${key}/approve`, { method: 'POST', body: JSON.stringify({ previewed: card.querySelector<HTMLInputElement>('.seen')!.checked }) });
+        lessons = await api<Lesson[]>('/v1/lessons');
+        justPublished = lessons.find(l => l.key === key) ?? null;
+        await VIEWS.课程库(); toast('已发布。');
+      }));
+      card.querySelector<HTMLButtonElement>('.xreject')?.addEventListener('click', guard(async () => {
+        await api(`/v1/explore/${key}/reject`, { method: 'POST', body: JSON.stringify({ note: note() }) });
+        await VIEWS.课程库(); toast('已退回。把意见交给做课的 AI，改好后重新导入。');
+      }));
+      card.querySelector<HTMLButtonElement>('.xdiscard')!.onclick = guard(async () => {
+        if (!confirm(`不要「${card.querySelector('h3')!.firstChild!.textContent!.trim()}」？\n它不会发布，会放到下面“没采用的探索课”里，想要时可以放回。`)) return;
+        await api(`/v1/explore/${key}/discard`, { method: 'POST', body: JSON.stringify({ reason: note() }) });
+        await VIEWS.课程库(); toast('已不采用。');
+      });
+    });
+    view().querySelectorAll<HTMLButtonElement>('.xrestore').forEach(b => b.onclick = guard(async () => {
+      await api(`/v1/explore/${b.closest<HTMLElement>('li')!.dataset.k!}/restore`, { method: 'POST' });
+      await VIEWS.课程库(); toast('已放回审核。');
+    }));
     view().querySelectorAll<HTMLButtonElement>('.declined .restore').forEach(b => b.onclick = guard(async () => {
       await api(`/v1/drafts/${encodeURIComponent(b.closest<HTMLElement>('li')!.dataset.k!)}/restore`, { method: 'POST' });
       await VIEWS.课程库(); toast('已放回“等你审核”。');
@@ -300,7 +380,7 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
       <table><tr><th>日期</th><th>孩子</th><th>课程</th><th>状态</th><th></th></tr>${list.map(s => `<tr><td>${esc(s.started_on)}</td><td>${esc(name(s.child))}</td><td>${esc(title(s.lesson_key))}</td><td>${s.finished ? '学完了' : '没学完'} · ${s.events} 条</td><td><button class="btn open" data-k="${esc(s.key)}">看看</button></td></tr>`).join('') || '<tr><td colspan="5" class="muted">还没有学习记录</td></tr>'}</table><div id="detail"></div>`;
     view().querySelectorAll<HTMLButtonElement>('.open').forEach(b => b.onclick = guard(async () => {
       const s = list.find(x => x.key === b.dataset.k)!;
-      const [evs, sp] = await Promise.all([api<Ev[]>(`/v1/sessions/${s.key}/events`), api<{ challenges: { id: string; prompt: string }[] }>(`/v1/lessons/${encodeURIComponent(s.lesson_key)}`)]);
+      const [evs, sp] = await Promise.all([api<Ev[]>(`/v1/sessions/${s.key}/events`), api<{ kind?: string; challenges?: { id: string; prompt: string }[] }>(`/v1/lessons/${encodeURIComponent(s.lesson_key)}`)]);
       document.getElementById('detail')!.innerHTML = `<div class="card"><h3>${esc(name(s.child))} · ${esc(title(s.lesson_key))} · ${esc(s.started_on)}</h3>${summarize(evs, sp)}</div>`;
     }));
   },

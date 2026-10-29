@@ -1,0 +1,174 @@
+{
+  "challenges": [
+    {
+      "id": "boundary",
+      "with_theme": true,
+      "prompt": "调查区长6米、宽4米，沿边围一圈要多少米卷尺？",
+      "options": [
+        "20米",
+        "24米",
+        "10米"
+      ],
+      "answers": [
+        {
+          "field": "result",
+          "value": "20米"
+        }
+      ],
+      "picture": {
+        "params": {
+          "a": 6,
+          "b": 4
+        },
+        "view": "overview"
+      },
+      "worked_example": {
+        "steps": [
+          "一圈有两条长和两条宽。",
+          "6加4再乘2，等于20米。"
+        ]
+      },
+      "twin": {
+        "prompt": "长5米、宽3米的调查区，沿边围一圈要多少米卷尺？",
+        "options": [
+          "16米",
+          "15米"
+        ],
+        "answers": [
+          {
+            "field": "result",
+            "value": "16米"
+          }
+        ],
+        "picture": {
+          "params": {
+            "a": 5,
+            "b": 3
+          },
+          "view": "overview"
+        }
+      },
+      "hints": [
+        "先看围了一圈会经过几条边。"
+      ]
+    },
+    {
+      "id": "build",
+      "with_theme": true,
+      "prompt": "围出周长16米、面积15平方米的调查区，长比宽长。",
+      "task": {
+        "type": "build",
+        "start": {
+          "a": 2,
+          "b": 2
+        },
+        "controls": [
+          "a",
+          "b"
+        ]
+      },
+      "answers": [
+        {
+          "field": "a",
+          "label": "长",
+          "value": 5,
+          "unit": "米"
+        },
+        {
+          "field": "b",
+          "label": "宽",
+          "value": 3,
+          "unit": "米"
+        }
+      ],
+      "worked_example": {
+        "steps": [
+          "长加宽是16的一半，等于8米。",
+          "5乘3等于15，长5米、宽3米。"
+        ]
+      },
+      "twin": {
+        "prompt": "周长14米、面积12平方米，长比宽长，再围出这个调查区。",
+        "task": {
+          "type": "build",
+          "start": {
+            "a": 1,
+            "b": 1
+          },
+          "controls": [
+            "a",
+            "b"
+          ]
+        },
+        "answers": [
+          {
+            "field": "a",
+            "label": "长",
+            "value": 4,
+            "unit": "米"
+          },
+          {
+            "field": "b",
+            "label": "宽",
+            "value": 3,
+            "unit": "米"
+          }
+        ]
+      },
+      "hints": [
+        "先找长加宽应是多少，再比较面积。"
+      ]
+    },
+    {
+      "id": "transfer",
+      "with_theme": false,
+      "prompt": "一个长4米、宽3米的阳台，铺满地砖的面积是多少？",
+      "options": [
+        "12平方米",
+        "14米"
+      ],
+      "answers": [
+        {
+          "field": "result",
+          "value": "12平方米"
+        }
+      ],
+      "picture": {
+        "params": {
+          "a": 4,
+          "b": 3
+        },
+        "view": "top"
+      },
+      "worked_example": {
+        "steps": [
+          "一行4块，一共3行。",
+          "4乘3是12，面积12平方米。"
+        ]
+      },
+      "twin": {
+        "prompt": "长2米、宽1米的桌面，面积是多少？",
+        "options": [
+          "2平方米",
+          "6米"
+        ],
+        "answers": [
+          {
+            "field": "result",
+            "value": "2平方米"
+          }
+        ],
+        "picture": {
+          "params": {
+            "a": 2,
+            "b": 1
+          },
+          "view": "top"
+        }
+      },
+      "hints": [
+        "看看题目问的是铺满，还是围一圈。"
+      ]
+    }
+  ]
+}

@@ -2,11 +2,12 @@
 // the child plays it (with a Wi-Fi drop in the middle), the parent reads the record and the child's wish.
 // Usage: pnpm e2e:apps [outDir]
 import { createRequire } from 'node:module';
-import { mkdirSync, mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { strToU8, zipSync } from 'fflate';
 import { buildApp } from '../apps/server/src/app.js';
 
 const { chromium } = createRequire(import.meta.url)('playwright');
@@ -270,6 +271,87 @@ try {
   check((await pad.textContent('#gstep'))?.includes('第 2 步'), '点「接着上」直接回到第 2 步，不用从头听说明');
   const again = await (await fetch(`${base}/v1/sessions`, { headers: { authorization: `Bearer ${tok}` } })).json();
   check(again.length === 2, '接着上还算同一次学习记录（今天一共 2 次）');
+
+  // 探索课: a whole web lesson package made with the discovery-lesson-maker Skill, using its real App bridge.
+  const host = readFileSync(join(root, 'skills', 'discovery-lesson-maker', 'assets', 'web', 'adw-host.mjs'), 'utf8');
+  const lessonJs = `import { storageKey, report, ready, onHost } from './adw-host.mjs';
+const key = storageKey('e2e-explore-1.0');
+const p = JSON.parse(localStorage.getItem(key) || '{"tasks":{"a":{"passed":false},"b":{"passed":false}}}');
+const tell = () => report({ section: 0, sections: 1, tasks: p.tasks, labels: { a: '找到装置', b: '求平均数' } });
+const save = () => { localStorage.setItem(key, JSON.stringify(p)); tell(); };
+document.getElementById('t1').onclick = () => { p.tasks.a = { passed: true, result: 'independent' }; save(); };
+document.getElementById('t2').onclick = () => { p.tasks.b = { passed: true, result: 'assisted', helped: true, wrong: 1 }; save(); };
+onHost((m) => { document.getElementById('heard').textContent = m.type; });
+ready(); tell();`;
+  const pkgDir = 'E2E高楼_四年级探索课';
+  const zipPath = join(mkdtempSync(join(tmpdir(), 'adw-x-')), 'E2E高楼_四年级探索课.zip');
+  writeFileSync(zipPath, zipSync({
+    [`${pkgDir}/exploration.json`]: strToU8(JSON.stringify({ format: 'adw-explore/1', id: 'X-E2E-TOWER', version: '1.0', title: '高楼里的稳定秘密', grade: 4, concept: '平均数', minutes: 20, summary: '找到阻尼装置，用记录求平均数。' })),
+    [`${pkgDir}/web/dist/index.html`]: strToU8('<!doctype html><meta charset="utf-8"><title>高楼里的稳定秘密</title><h1>高楼里的稳定秘密</h1><button id="t1">核对第一项</button><button id="t2">核对第二项</button><p id="heard">-</p><script type="module" src="./main.js"></script>'),
+    [`${pkgDir}/web/dist/main.js`]: strToU8(lessonJs),
+    [`${pkgDir}/web/dist/adw-host.mjs`]: strToU8(host),
+    [`${pkgDir}/README.md`]: strToU8('# 高楼里的稳定秘密\n\n- 找到装置\n- 求平均数'),
+    [`${pkgDir}/课程设计.md`]: strToU8('# 课程设计\n\n**主线**：平均数。'),
+  }));
+  await parent.click('[data-t="课程库"]');
+  await parent.waitForSelector('#ximport');
+  // handed over as bytes: headless Chromium here dropped the file when given a path with Chinese characters
+  await parent.setInputFiles('#ximport input[type=file]', { name: 'E2E高楼_四年级探索课.zip', mimeType: 'application/zip', buffer: readFileSync(zipPath) });
+  await parent.click('#ximport button');
+  await parent.waitForSelector('.xdraft[data-k="X-E2E-TOWER@1.0"]');
+  const xcard = parent.locator('.xdraft[data-k="X-E2E-TOWER@1.0"]');
+  check((await xcard.textContent())?.includes('哥哥') && (await xcard.textContent())!.includes('平均数'), '家长在「课程库 → 探索课」导入课程包：按“四年级”自动给哥哥，等审核');
+  await xcard.locator('.doc').first().click();
+  await parent.waitForSelector('.xdraft .xdoc li');
+  check((await xcard.locator('.xdoc').textContent())?.includes('找到装置'), '课程包自带的说明能在卡片上点开看');
+  const [xpv] = await Promise.all([parent.waitForEvent('popup'), xcard.locator('a.btn').click()]);
+  await xpv.waitForLoadState();
+  check((await xpv.textContent('h1')) === '高楼里的稳定秘密', '「预览这节课」打开课程网页本身');
+  await xpv.close();
+  await xcard.locator('.xapprove').click();
+  await parent.waitForSelector('.toast.bad');
+  check((await parent.textContent('.toast'))?.includes('先预览'), '没勾“我预览过了”不能发布');
+  await xcard.locator('.seen').check(); await xcard.locator('.xapprove').click();
+  await parent.waitForSelector('#jp');
+  await parent.click('#jp .when[data-n="0"]');
+  await parent.waitForFunction(() => /已排到今天/.test(document.getElementById('toast')?.textContent ?? ''));
+  check((await parent.textContent('#view'))?.includes('探索课') && await parent.locator('.xdraft').count() === 0, '通过后进“已发布”，标着探索课，排到今天');
+
+  // the child plays it full screen; leaving keeps the place, finishing asks for the next wish
+  await pad.click('#pause'); await pad.click('#leave');
+  await pad.waitForSelector('.lesson[data-key="X-E2E-TOWER@1.0"]');
+  check((await pad.textContent('.lesson[data-key="X-E2E-TOWER@1.0"]'))?.includes('探索课'), '孩子的今天的课里有这节探索课');
+  await pad.click('.lesson[data-key="X-E2E-TOWER@1.0"]');
+  await pad.waitForFunction(() => document.getElementById('xprog')?.textContent === '已核对 0/2 项', null, { timeout: 15000 });
+  const lessonFrame = pad.frameLocator('#xframe');
+  await lessonFrame.locator('#t1').click();
+  await pad.waitForFunction(() => document.getElementById('xprog')?.textContent === '已核对 1/2 项');
+  ok('探索课全屏打开，页面把“已核对 1/2 项”告诉平板');
+  await pad.screenshot({ path: join(shots, 'pad-explore.png') });
+  await pad.click('#xrest');
+  await pad.waitForSelector('#xcard:not([hidden])');
+  check((await lessonFrame.locator('#heard').textContent()) === 'pause', '点「休息 / 退出」：课程页面收到暂停');
+  await pad.click('#xleave');
+  await pad.waitForSelector('.lesson[data-key="X-E2E-TOWER@1.0"]');
+  check((await pad.textContent('.lesson[data-key="X-E2E-TOWER@1.0"]'))?.includes('已核对 1 项，可以接着探索'), '退出后课程列表写着已核对 1 项，可以接着探索');
+  await pad.click('.lesson[data-key="X-E2E-TOWER@1.0"]');
+  await pad.waitForFunction(() => document.getElementById('xprog')?.textContent === '已核对 1/2 项', null, { timeout: 15000 });
+  ok('再打开，页面从哥哥自己的记录接着来');
+  await lessonFrame.locator('#t2').click();
+  await pad.waitForSelector('#xwish');
+  check((await pad.textContent('#xcard'))?.includes('2 项都核对完了'), '全部核对完：平板说学完了，问下一次想探索什么');
+  await pad.fill('#xwish', '大桥'); await pad.click('#xbye');
+  await pad.waitForSelector('.lesson[data-key="X-E2E-TOWER@1.0"]');
+  check((await pad.textContent('.lesson[data-key="X-E2E-TOWER@1.0"]'))?.includes('今天做过了'), '回到列表：这节探索课今天做过了');
+  await pad.evaluate(() => (window as any).__pad.flush());
+  const xs = (await (await fetch(`${base}/v1/sessions`, { headers: { authorization: `Bearer ${tok}` } })).json()).filter((s: { lesson_key: string }) => s.lesson_key === 'X-E2E-TOWER@1.0');
+  check(xs.length === 1 && xs[0].finished === 1, '退出又接着上还是同一次学习记录，学完了');
+  await parent.click('[data-t="学习记录"]');
+  await parent.waitForSelector('.open');
+  await parent.locator('tr', { hasText: '高楼里的稳定秘密' }).locator('.open').click();
+  await parent.waitForSelector('#detail .card');
+  const xdetail = (await parent.textContent('#detail')) ?? '';
+  check(xdetail.includes('核对了 2/2 项') && xdetail.includes('求平均数（借助帮助完成）') && xdetail.includes('下一课想学：“大桥”'), '家长在学习记录里看到核对了哪几项、哪项借助了帮助、下一课心愿');
   check(errors.length === 0, errors.length ? '页面错误：' + errors.join(' | ') : '两个页面都没有报错');
 } finally {
   await browser.close();

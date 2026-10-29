@@ -54,3 +54,9 @@ table{width:100%;border-collapse:collapse;background:var(--surface);border-radiu
 .row.top{align-items:flex-start}.grow{flex:1;min-width:240px}
 .tablet .qr{width:168px;flex:none;background:#fff;padding:6px;border-radius:8px;line-height:0}.tablet .qr svg{width:100%;height:auto}
 .declined{margin:10px 0;border:1px solid var(--line);border-radius:10px;padding:8px 12px;background:var(--bg)}.declined summary{cursor:pointer;font-weight:600}.declined li{margin:6px 0}
+
+/* 探索课: the package's own notes, opened under its card */
+.xdoc{max-height:440px;overflow:auto;border:1px solid var(--line,#ccd);border-radius:10px;padding:4px 16px;margin:8px 0;line-height:1.6}
+.xdoc:empty{display:none}
+.xdoc pre{white-space:pre-wrap}
+#ximport{flex-wrap:wrap;gap:10px;align-items:center}

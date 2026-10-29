@@ -15,6 +15,7 @@ import { mediaRoutes } from './media.js';
 import { studioRoutes } from './studio.js';
 import { appRoutes } from './apps.js';
 import { wishBook } from './wishes.js';
+import { exploreRoutes } from './explore.js';
 import type { CodexOpts } from '../../../packages/studio/src/codex.js';
 import { macSay, SYSTEM_VOICE, type Lang, type Synth } from './tts.js';
 
@@ -62,6 +63,7 @@ export async function buildApp(o: AppOptions) {
   let prepare = (_id: string) => {};
 
   const app = Fastify({ logger: o.logger ?? false, bodyLimit: 8 * 1024 * 1024 });
+  let explore!: Awaited<ReturnType<typeof exploreRoutes>>;
   app.decorate('store', store);
   app.addHook('onClose', async () => store.db.close());
   app.setErrorHandler((e: Error & { statusCode?: number }, _req, reply) => {
@@ -148,11 +150,11 @@ export async function buildApp(o: AppOptions) {
   const todayFor = (child: string) => {
     const d = today();
     ensureAuto(d, child);
-    const out = new Map<string, { key: string; title: string; concept: string; reason: '今天的课' | '临时授权'; expires_on: string | null }>();
+    const out = new Map<string, { key: string; kind: 'spec' | 'explore'; title: string; concept: string; reason: '今天的课' | '临时授权'; expires_on: string | null }>();
     const add = (key: string, reason: '今天的课' | '临时授权', expires_on: string | null) => {
-      const sp = store.lesson(key);
-      if (!sp || sp.for_child !== child || out.has(key)) return;
-      out.set(key, { key, title: sp.title, concept: sp.primary_concept.name, reason, expires_on });
+      const e = store.entry(key);
+      if (!e || e.for_child !== child || out.has(key)) return;
+      out.set(key, { key, kind: e.kind, title: e.title, concept: e.concept, reason, expires_on });
     };
     for (const k of store.scheduled(d, child)) add(k, '今天的课', d);
     for (const g of store.activeGrants(child, d)) add(g.lesson_key, '临时授权', g.expires_on);
@@ -164,12 +166,12 @@ export async function buildApp(o: AppOptions) {
   });
   app.get('/v1/lessons/:key', anyone, async (req) => {
     const key = (req.params as { key: string }).key;
-    const sp = store.lesson(key) ?? fail(404, '没有这节课');
+    const e = store.entry(key) ?? fail(404, '没有这节课');
     if (req.role === 'device') {
       const child = childParam((req.query as { child?: string }).child);
       if (!todayFor(child).some(l => l.key === key)) fail(403, '这节课今天没有安排，请家长排课或临时授权');
     }
-    return sp;
+    return e.kind === 'explore' ? explore.forPad(key) : store.lesson(key);
   });
 
   /** Events arrive in batches from the Pad's offline queue; ids make resending safe. */
@@ -180,7 +182,7 @@ export async function buildApp(o: AppOptions) {
     const child = childParam(body.child);
     if (!isKey(body.lesson)) fail(400, '缺少课程编号');
     const lessonKey = body.lesson as string;
-    const sp = store.lesson(lessonKey) ?? fail(404, '没有这节课');
+    const sp = store.entry(lessonKey) ?? fail(404, '没有这节课');
     if (sp.for_child !== child) fail(400, '这节课不是给这个孩子的');
     const existing = store.session(key);
     if (existing && (existing.child !== child || existing.lesson_key !== lessonKey)) fail(409, '这个学习记录编号已经属于别的课');
@@ -334,7 +336,7 @@ export async function buildApp(o: AppOptions) {
   app.get('/v1/schedule/plan', parent, async (req) => {
     const n = Math.min(14, Math.max(1, Number((req.query as { days?: string }).days ?? 7) || 7));
     const dates = [...Array(n)].map((_, i) => addDays(today(), i));
-    const lessonOf = (key: string, child: string) => ({ key, title: store.lesson(key)?.title ?? key, finished: store.sessions(child).some(s => s.lesson_key === key && s.finished) });
+    const lessonOf = (key: string, child: string) => ({ key, title: store.entry(key)?.title ?? key, finished: store.sessions(child).some(s => s.lesson_key === key && s.finished) });
     const rows = store.children().map(c => {
       const queue = unfinished(c.id);
       return dates.map(date => {
@@ -367,7 +369,7 @@ export async function buildApp(o: AppOptions) {
     if (!isDate(b.date)) fail(400, '日期格式是 YYYY-MM-DD');
     const child = childParam(b.child);
     const keys = Array.isArray(b.lessons) ? b.lessons : fail(400, '缺少课程列表');
-    for (const k of keys) { const sp = isKey(k) ? store.lesson(k) : undefined; if (!sp) fail(400, `没有课程 ${k}`); if (sp!.for_child !== child) fail(400, `${k} 不是给这个孩子的`); }
+    for (const k of keys) { const sp = isKey(k) ? store.entry(k) : undefined; if (!sp) fail(400, `没有课程 ${k}`); if (sp!.for_child !== child) fail(400, `${k} 不是给这个孩子的`); }
     store.setSchedule(b.date as string, child, [...new Set(keys as string[])]);
     return { ok: true };
   });
@@ -376,7 +378,7 @@ export async function buildApp(o: AppOptions) {
   app.post('/v1/grants', parent, async (req) => {
     const b = (req.body ?? {}) as { child?: unknown; lesson?: unknown; days?: unknown };
     const child = childParam(b.child);
-    const sp = isKey(b.lesson) ? store.lesson(b.lesson as string) : undefined;
+    const sp = isKey(b.lesson) ? store.entry(b.lesson as string) : undefined;
     if (!sp) fail(404, '没有这节课');
     if (sp!.for_child !== child) fail(400, '这节课不是给这个孩子的');
     const days = Number(b.days ?? 1);
@@ -465,6 +467,8 @@ export async function buildApp(o: AppOptions) {
   });
 
   appRoutes(app, { root: o.root, parent });
+  explore = await exploreRoutes(app, { store, dir: join(dirname(o.dbPath), 'explore'), iso, parent, agentOrParent, childParam });
+  explore.tidy();
   const media = mediaRoutes(app, { store, root: o.root, mediaDir: join(dirname(o.dbPath), 'media'), iso, parent, anyone });
   prepare = studioRoutes(app, { store, root: o.root, tenant, iso, parent, agentOrParent, issue, vet, media, wishes, fetchImpl: o.fetchImpl, codex: o.codex }).prepare;
 

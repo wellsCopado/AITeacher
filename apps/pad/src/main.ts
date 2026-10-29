@@ -17,7 +17,10 @@ import { installSpeech, native } from './native.js';
 installSpeech();
 
 interface Child { id: string; name: string; grade: number }
-interface TodayLesson { key: string; title: string; concept: string; reason: string; expires_on: string | null; finished: boolean }
+interface TodayLesson { key: string; kind?: 'spec' | 'explore'; title: string; concept: string; reason: string; expires_on: string | null; finished: boolean }
+/** 探索课: a whole web lesson (made with the discovery-lesson-maker Skill) that the server hosts. */
+interface ExploreInfo { kind: 'explore'; key: string; title: string; concept: string; url: string; bridge: boolean }
+interface ExploreProgress { done: number; total: number; section?: number; tasks: { id: string; label: string; passed: boolean; result: string; helped: boolean; wrong: number }[] }
 
 const kv: KV = {
   get: k => { try { return localStorage.getItem(k); } catch { return null; } },
@@ -167,7 +170,12 @@ async function todayScreen(child: Child) {
   }
   if (!lessons.length) { list.innerHTML = `<p class="lead">今天没有安排课。</p><p class="muted">想学的话请家长在家长端排课或临时授权。</p>`; return; }
   const left = resumes(child.id);
-  list.innerHTML = lessons.map(l => `<button class="lesson" data-key="${esc(l.key)}"><b>${esc(l.title)}</b><span>${esc(l.concept)} · ${esc(l.reason)}${left[l.key]?.step ? ` · 上到第 ${left[l.key].step + 1} 步，可以接着上` : l.finished ? ' · 今天做过了' : ''}</span></button>`).join('');
+  const note = (l: TodayLesson) => {
+    const r = left[l.key];
+    if (r && l.kind === 'explore') return ` · 已核对 ${r.step} 项，可以接着探索`;
+    return r?.step ? ` · 上到第 ${r.step + 1} 步，可以接着上` : l.finished ? ' · 今天做过了' : '';
+  };
+  list.innerHTML = lessons.map(l => `<button class="lesson" data-key="${esc(l.key)}"><b>${esc(l.title)}</b><span>${l.concept ? `${esc(l.concept)} · ` : ''}${l.kind === 'explore' ? '探索课 · ' : ''}${esc(l.reason)}${note(l)}</span></button>`).join('');
   list.querySelectorAll<HTMLButtonElement>('.lesson').forEach(b => b.onclick = () => lessonScreen(child, b.dataset.key!));
 }
 
@@ -181,6 +189,7 @@ async function lessonScreen(child: Child, key: string) {
     if (!cached || navigator.onLine) { alert((e as Error).message); return; }
     sp = JSON.parse(cached);
   }
+  if ((sp as unknown as ExploreInfo).kind === 'explore') return exploreScreen(child, sp as unknown as ExploreInfo);
   // Real photos and videos of animals the parent added (shown until a photoreal model exists).
   let media: OrganismMedia[] = [];
   if (sp.pending_assets?.length) {
@@ -207,6 +216,72 @@ async function lessonScreen(child: Child, key: string) {
   p = play(el, sp, { childName: child.name, kid: true, media, audio, startAt: before ? { step: before.step, left: before.left } : undefined,
     onExit: () => { el.removeEventListener('adw:event', onEvent); p!.dispose(); todayScreen(child); } });
   (window as unknown as { __player: unknown }).__player = p;
+}
+
+/**
+ * A 探索课 fills the screen in a frame. The page reports what the child has checked (adw-explore/1); all of it
+ * checked counts as finished. The bar above lets the child rest, go on, or leave and come back later today
+ * (the page keeps its own place, per child). A page without the progress messages lets the child say they're done.
+ */
+function exploreScreen(child: Child, x: ExploreInfo) {
+  const before = resumes(child.id)[x.key];
+  const session = before?.session ?? newId();
+  let last: ExploreProgress | null = null, ended = false;
+  const log = (type: string, data: Record<string, unknown> = {}) => { queue.push({ session, child: child.id, lesson: x.key }, { id: newId(), at: new Date().toISOString(), type, ...data }); flush(); };
+  app.innerHTML = `<div class="explore"><div class="xbar"><button class="btn" id="xrest">⏸ 休息 / 退出</button><b>${esc(x.title)}</b><span id="xprog" class="muted small"></span><span id="sync" class="muted small"></span></div>
+    <iframe id="xframe" title="${esc(x.title)}" allow="autoplay; fullscreen" src="${esc(x.url)}?adw=1&learner=${encodeURIComponent(child.id)}"></iframe><div id="xcard" class="xcard" hidden></div></div>`;
+  const frame = document.getElementById('xframe') as HTMLIFrameElement, card = document.getElementById('xcard')!;
+  const tell = (type: 'pause' | 'resume') => frame.contentWindow?.postMessage({ adw: 'explore/1', type }, location.origin);
+  const keep = () => setResume(child.id, x.key, ended ? null : { session, step: last?.done ?? 0, left: null, on: localToday() });
+  log('start', { kind: 'explore', ...(before ? { resumed: true } : {}) });
+  keep();
+  const finish = () => {
+    ended = true;
+    log('lesson_end', { solved: last?.tasks.filter(t => t.passed).map(t => t.id) ?? [] });
+    keep();
+  };
+  const onMsg = (e: MessageEvent) => {
+    if (e.source !== frame.contentWindow || e.data?.adw !== 'explore/1') return;
+    const m = e.data as { type: string; message?: string } & Partial<ExploreProgress>;
+    if (m.type === 'progress' && typeof m.done === 'number' && typeof m.total === 'number') {
+      const p: ExploreProgress = { done: m.done, total: m.total, section: m.section, tasks: Array.isArray(m.tasks) ? m.tasks.slice(0, 40) : [] };
+      if (JSON.stringify(p) === JSON.stringify(last)) return;
+      const opening = !last;
+      last = p;
+      document.getElementById('xprog')!.textContent = `已核对 ${p.done}/${p.total} 项`;
+      if (!opening || p.done) log('explore_progress', { ...p }); // the page's first report on opening is only news if it carries earlier work
+      keep();
+      if (p.total && p.done >= p.total && !ended) { finish(); ask(true); }
+    }
+    if (m.type === 'error') show(`<p class="lead">这节课没打开</p><p>${esc(m.message ?? '')}</p><p class="muted small">请告诉爸爸妈妈。</p><div class="row"><button class="btn primary" id="xleave">回到今天的课</button></div>`);
+  };
+  addEventListener('message', onMsg);
+  const show = (html: string) => {
+    card.innerHTML = `<div class="card">${html}</div>`; card.hidden = false;
+    card.querySelector('#xgo')?.addEventListener('click', () => { card.hidden = true; tell('resume'); log('resume'); });
+    card.querySelector('#xleave')?.addEventListener('click', () => { log('lesson_exit', { step: last ? `已核对 ${last.done}/${last.total} 项` : '探索中', n: last?.done ?? 0 }); keep(); leave(); });
+    card.querySelector('#xdone')?.addEventListener('click', () => { finish(); ask(false); });
+    card.querySelector('#xbye')?.addEventListener('click', () => {
+      const wish = (card.querySelector('#xwish') as HTMLInputElement).value.trim();
+      log(wish ? 'next_lesson_wish' : 'chat_skipped', wish ? { question: 'next', answer: wish, source: '孩子自述' } : {});
+      leave();
+    });
+  };
+  // the end: what was done, and what to explore next time (it goes on the parent's prep list)
+  const ask = (all: boolean) => {
+    tell('pause');
+    show(`<p class="lead">${all && last ? `${last.total} 项都核对完了！` : '这节探索课学完了！'}</p><p>下一次想探索什么？说不说都可以。</p>
+      <input id="xwish" maxlength="20" placeholder="比如：大桥、螳螂虾" aria-label="下一次想探索什么">
+      <div class="row"><button class="btn primary" id="xbye">说完了，回到今天的课</button><button class="btn" id="xgo">再看一会儿</button></div>`);
+  };
+  document.getElementById('xrest')!.onclick = () => {
+    tell('pause'); log('pause');
+    if (ended) return ask(true);
+    show(`<p class="lead">休息一下</p><p>${last ? `已核对 ${last.done}/${last.total} 项。` : ''}今天还能接着探索，做到哪里都留着。</p>
+      <div class="row"><button class="btn primary" id="xgo">继续探索</button><button class="btn" id="xleave">退出，下次接着上</button>${x.bridge ? '' : '<button class="btn" id="xdone">我学完了</button>'}</div>`);
+  };
+  const leave = () => { removeEventListener('message', onMsg); todayScreen(child); };
+  (window as unknown as { __explore: unknown }).__explore = { progress: () => last, ended: () => ended };
 }
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('./sw.js').catch(() => undefined);
