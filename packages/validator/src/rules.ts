@@ -1,6 +1,6 @@
 import Ajv2020 from 'ajv/dist/2020.js';
 import type {
-  AssetEntry, ChildProfile, ComponentDef, InterestObservation, LessonSpec,
+  AssetEntry, Challenge, ChallengePicture, ChildProfile, ComponentDef, HandsOnTask, InterestObservation, LessonSpec, ReteachHistory,
 } from '../../schema/src/index.js';
 import { lessonSpecSchema } from '../../schema/src/index.js';
 import { evalExpr, exprVars, ExprError } from './expr.js';
@@ -14,7 +14,12 @@ export interface Ctx {
   children: Record<string, ChildProfile>;
   /** The version this one replaces; needed for V10 on a reteach. */
   previous?: LessonSpec | null;
+  /** Earlier reteach attempts and whether they helped; needed for V15. */
+  reteach?: ReteachHistory[];
 }
+
+/** The teaching mechanism of a lesson: which reviewed components carry the representation. */
+export const mechanism = (sp: Pick<LessonSpec, 'scene_component_ids'>) => [...new Set(sp.scene_component_ids.map(c => c.split('@')[0]))].sort().join('+');
 export interface Issue { path: string; msg: string; fix?: string }
 export interface Rule {
   id: string; name: string; basis: string; level: 'error' | 'warn';
@@ -115,11 +120,14 @@ export const RULES: Rule[] = [
     check: sp => sp.hotspots.flatMap((h, i) => h.language_pack.zh.trim() ? [] : [{ path: `$.hotspots[${i}].language_pack.zh`, msg: '中文讲解为空' }]),
   },
   {
-    id: 'V05', name: '英文 3 条齐全（缺失时回落中文）', basis: 'FR13 / BL06', level: 'warn',
-    check: sp => sp.hotspots.flatMap((h, i) => {
-      const n = h.language_pack.en.filter(s => s && s.trim()).length;
-      return n === 3 ? [] : [{ path: `$.hotspots[${i}].language_pack.en`, msg: `英文只有 ${n} 条，缺的会回落中文` }];
-    }),
+    id: 'V05', name: '讲解固定 1 中 3 英：每个热点英文 3 条齐全，不提供纯中文模式', basis: 'FR13 / BL06', level: 'error',
+    check: sp => [
+      ...(sp.learner_profile.language.cycle_enabled ? [] : [{ path: '$.learner_profile.language.cycle_enabled', msg: '讲解必须是 1 中 3 英循环', fix: 'cycle_enabled: true' }]),
+      ...sp.hotspots.flatMap((h, i) => {
+        const n = h.language_pack.en.filter(s => s && s.trim()).length;
+        return n === 3 ? [] : [{ path: `$.hotspots[${i}].language_pack.en`, msg: `英文只有 ${n} 条，要写满 3 条` }];
+      }),
+    ],
   },
   {
     id: 'V06', name: '只引用已审组件及其版本；Spec 中没有脚本、HTML 或代码', basis: 'FR44', level: 'error',
@@ -253,6 +261,151 @@ export const RULES: Rule[] = [
       }
       for (const [path, s] of strings(sp)) if (/养殖|饲养|喂食|经营/.test(s)) issues.push({ path, msg: '出现养殖或经营内容（BL12 不做）' });
       return issues;
+    },
+  },
+  {
+    id: 'V19', name: '主题讲的东西要看得到：有主角时，主角的写实画面或 3D 已在素材里或列为待制作', basis: 'BL02 / BL14', level: 'error',
+    check(sp) {
+      const t = sp.theme, issues: Issue[] = [];
+      if (t.id.startsWith('topic-') && !t.subject) issues.push({ path: '$.theme', msg: '这个主题还没有专门场景，要写 theme.subject（主角）', fix: '原样用上下文 suggested_theme 里的 subject' });
+      if (!t.subject) return issues;
+      const listed = (sp.pending_assets ?? []).some(p => p.asset_id === t.subject!.asset_id) || (sp.object_asset_versions ?? []).some(a => a.asset_id === t.subject!.asset_id);
+      if (!listed) issues.push({ path: '$.pending_assets', msg: `主角「${t.subject.name}」（${t.subject.asset_id}）不在素材里`, fix: `在 03-assets 的 pending 里加 ${t.subject.asset_id}，until_ready 写“不展示……”` });
+      if (!sp.title.includes(t.subject.name) && !sp.intro?.headline?.includes(t.subject.name)) issues.push({ path: '$.title', msg: `标题或说明页标题里要出现主角「${t.subject.name}」` });
+      return issues;
+    },
+  },
+  {
+    id: 'V20', name: '挑战题以选择题、应用题和动手题为主，没有选项的填空题最多 1 道，能动手的组件至少 1 道动手题', basis: '家长要求：少出填空，多出选择、应用和动手题', level: 'warn',
+    check(sp, ctx) {
+      const out: Issue[] = [];
+      const fills = sp.challenges.map((c, i) => ({ c, i })).filter(x => !x.c.options && !x.c.task);
+      const comp = ctx.components[splitId(sp.scene_component_ids[0] ?? '').name];
+      if (comp?.handsOn?.build && !sp.challenges.some(c => c.task)) out.push({ path: '$.challenges', msg: '这节课还没有动手题', fix: `加一道 task: { type: "build", start, controls } 的动手题（可以把一道填空题改成动手题），让孩子把场景摆成答案要求的样子；能改的参数：${comp.handsOn.build.join('、')}` });
+      fills.slice(1).forEach(({ i }) => out.push({ path: `$.challenges[${i}]`, msg: `第 ${i + 1} 题是填空题，这节课已经有 1 道填空题了`, fix: '改成选择题：写 3–4 个 options，每个错误选项对应一个常见误区；同类题也写 options' }));
+      sp.challenges.forEach((c, i) => {
+        if (c.options && c.options.length > 4) out.push({ path: `$.challenges[${i}].options`, msg: `第 ${i + 1} 题有 ${c.options.length} 个选项，太多了`, fix: '留 2–4 个，错误选项各对应一个误区' });
+      });
+      return out;
+    },
+  },
+  {
+    id: 'V21', name: '动手题能做：参数是组件允许孩子改的、开始和答案都在范围内、开始时还没做对、同类题也是动手题', basis: '家长要求：动手操作题', level: 'error',
+    check(sp, ctx) {
+      const out: Issue[] = [];
+      const name = splitId(sp.scene_component_ids[0] ?? '').name, comp = ctx.components[name];
+      const props = ((comp?.paramsSchema ?? {}) as { properties?: Record<string, { minimum?: number; maximum?: number }> }).properties ?? {};
+      const inRange = (k: string, v: number) => Number.isInteger(v) && v >= (props[k]?.minimum ?? -Infinity) && v <= (props[k]?.maximum ?? Infinity);
+      const one = (at: string, q: { answers: Challenge['answers']; options?: string[]; task?: HandsOnTask }, label: string) => {
+        const t = q.task!, can = comp?.handsOn?.[t.type];
+        if (!can) { out.push({ path: `${at}.task`, msg: `${label}：组件 ${name} 不支持 ${t.type} 动手题`, fix: '去掉 task，改成选择题' }); return; }
+        const bad = t.controls.filter(k => !can.includes(k));
+        if (bad.length) out.push({ path: `${at}.task.controls`, msg: `${label}：${bad.join('、')} 不能让孩子改`, fix: `controls 只能从 ${can.join('、')} 里选` });
+        for (const k of can) {
+          const v = t.start[k];
+          if (v === undefined) out.push({ path: `${at}.task.start`, msg: `${label}：start 缺少 ${k}`, fix: `start 写全 ${can.join('、')}` });
+          else if (!inRange(k, v)) out.push({ path: `${at}.task.start.${k}`, msg: `${label}：start 的 ${k} = ${v} 超出组件范围` });
+        }
+        const fields = q.answers.map(a => a.field).sort().join(','), ctl = [...t.controls].sort().join(',');
+        if (fields !== ctl) out.push({ path: `${at}.answers`, msg: `${label}：答案要正好是孩子能改的 ${t.controls.join('、')}`, fix: '每个 control 一条答案，field 就是参数名' });
+        for (const a of q.answers) if (typeof a.value !== 'number' || !inRange(a.field, a.value)) out.push({ path: `${at}.answers`, msg: `${label}：答案 ${a.field} = ${a.value} 不是范围内的整数` });
+        if (q.answers.every(a => t.start[a.field] === a.value)) out.push({ path: `${at}.task.start`, msg: `${label}：一开始就已经是答案了，孩子不用动手`, fix: '让 start 和答案不一样' });
+        if (q.options) out.push({ path: `${at}.options`, msg: `${label}：动手题不要选项` });
+      };
+      sp.challenges.forEach((c, i) => {
+        const at = `$.challenges[${i}]`;
+        if (c.task) one(at, c, `第 ${i + 1} 题`);
+        if (c.twin && !!c.task !== !!c.twin.task) out.push({ path: `${at}.twin.task`, msg: `第 ${i + 1} 题${c.task ? '是动手题，同类题也要是' : '不是动手题，同类题也不要 task'}` });
+        else if (c.twin?.task) one(`${at}.twin`, c.twin, `第 ${i + 1} 题的同类题`);
+      });
+      return out;
+    },
+  },
+  {
+    id: 'V22', name: '题目配图的参数是这个组件的、在范围内；动手题不写配图', basis: '流程 P6：配图写明数，不从题目文字里猜', level: 'error',
+    check(sp, ctx) {
+      const out: Issue[] = [];
+      const name = splitId(sp.scene_component_ids[0] ?? '').name;
+      const props = ((ctx.components[name]?.paramsSchema ?? {}) as { properties?: Record<string, { type?: string; minimum?: number; maximum?: number }> }).properties ?? {};
+      const nums = Object.keys(props).filter(k => props[k].type === 'integer');
+      const one = (at: string, q: { picture?: ChallengePicture; task?: HandsOnTask }, label: string) => {
+        if (!q.picture) return;
+        if (q.task) { out.push({ path: `${at}.picture`, msg: `${label}是动手题，不要 picture`, fix: '动手题的场景从 task.start 开始，去掉 picture' }); return; }
+        for (const [k, v] of Object.entries(q.picture.params)) {
+          if (!nums.includes(k)) out.push({ path: `${at}.picture.params.${k}`, msg: `${label}：配图参数 ${k} 不是 ${name} 的数`, fix: `只能用 ${nums.join('、')}` });
+          else if (!Number.isInteger(v) || v < (props[k].minimum ?? -Infinity) || v > (props[k].maximum ?? Infinity)) out.push({ path: `${at}.picture.params.${k}`, msg: `${label}：配图 ${k} = ${v} 超出组件范围 ${props[k].minimum}–${props[k].maximum}` });
+        }
+      };
+      sp.challenges.forEach((c, i) => { one(`$.challenges[${i}]`, c, `第 ${i + 1} 题`); if (c.twin) one(`$.challenges[${i}].twin`, c.twin, `第 ${i + 1} 题的同类题`); });
+      return out;
+    },
+  },
+  {
+    id: 'V23', name: '每道题和同类题都写明配图的数，配图的数在题目里', basis: '流程 P6：配图写明数，不从题目文字里猜', level: 'warn',
+    check(sp) {
+      const out: Issue[] = [];
+      const one = (at: string, q: { prompt: string; picture?: ChallengePicture; task?: HandsOnTask }, label: string) => {
+        if (q.task) return;
+        if (!q.picture) { out.push({ path: `${at}.picture`, msg: `${label}没有写配图的数，播放器只能从题目文字里猜`, fix: 'picture: { params: { 组件参数: 题目里的数 } }，只摆题目给出的数，不摆答案' }); return; }
+        const said = new Set((q.prompt.match(/\d+/g) ?? []).map(Number));
+        for (const [k, v] of Object.entries(q.picture.params)) if (!said.has(v)) out.push({ path: `${at}.picture.params.${k}`, msg: `${label}：配图里 ${k} = ${v}，题目里没有这个数`, fix: '配图只摆题目给出的数；是答案就别摆出来' });
+      };
+      sp.challenges.forEach((c, i) => { one(`$.challenges[${i}]`, c, `第 ${i + 1} 题`); if (c.twin) one(`$.challenges[${i}].twin`, c.twin, `第 ${i + 1} 题的同类题`); });
+      return out;
+    },
+  },
+  {
+    id: 'V15', name: '同一机制连续 3 次重教未见效时必须换机制', basis: 'FR24', level: 'error',
+    check(sp, ctx) {
+      if (!sp.trigger_judgment_ref) return [];
+      const hist = (ctx.reteach ?? []).filter(h => h.child === sp.for_child && h.concept_id === sp.primary_concept.id && h.outcome !== '待验证');
+      let streak = 0;
+      const mine = mechanism(sp);
+      for (let k = hist.length - 1; k >= 0 && hist[k].outcome === '未见效' && hist[k].mechanism === mine; k--) streak++;
+      return streak >= 3 ? [{ path: '$.scene_component_ids', msg: `${mine} 已经连续 ${streak} 次重教未见效`, fix: '换一个组件或表征；没有合适组件时请家长开组件工单' }] : [];
+    },
+  },
+  {
+    id: 'V16', name: '每一步都有时间上限，加起来不超过本课预计时长', basis: 'FR10', level: 'error',
+    check(sp) {
+      const steps = sp.timing?.steps ?? {};
+      const max = (sp.learner_profile.est_minutes?.[1] ?? 12) * 60;
+      const total = Object.values(steps).reduce((a, b) => a + (b ?? 0), 0);
+      return total > max ? [{ path: '$.timing.steps', msg: `各步时间加起来 ${total} 秒，超过预计的 ${max} 秒`, fix: '缩短某一步，或调大 est_minutes' }] : [];
+    },
+  },
+  {
+    id: 'V17', name: '每道题都有“错三次就演示一遍，再做一道同类题”', basis: '家长要求：不能卡在一道题上', level: 'error',
+    check(sp) {
+      const out: Issue[] = [];
+      sp.challenges.forEach((c, i) => {
+        const at = `$.challenges[${i}]`;
+        const steps = c.worked_example?.steps ?? [];
+        if (steps.length < 2) out.push({ path: `${at}.worked_example`, msg: `第 ${i + 1} 题没有分步演示`, fix: '写 2–5 步，每步一句孩子听得懂的话，最后一步说出答案' });
+        else {
+          const last = steps[steps.length - 1];
+          const missing = c.answers.filter(a => !last.includes(String(a.value)));
+          if (missing.length) out.push({ path: `${at}.worked_example.steps`, msg: `第 ${i + 1} 题演示的最后一步没说出答案 ${missing.map(a => a.value).join('、')}`, fix: '最后一步写“所以……是 X”' });
+        }
+        if (!c.twin) out.push({ path: `${at}.twin`, msg: `第 ${i + 1} 题没有演示后让孩子自己做的同类题`, fix: '同一个方法，换数字或换情境出一道' });
+        else {
+          if (c.twin.prompt.trim() === c.prompt.trim()) out.push({ path: `${at}.twin.prompt`, msg: `第 ${i + 1} 题的同类题和原题一样`, fix: '换数字或换情境，孩子要自己用一遍方法，不是照抄答案' });
+          const fields = (xs: { field: string }[]) => xs.map(a => a.field).sort().join(',');
+          if (fields(c.twin.answers) !== fields(c.answers)) out.push({ path: `${at}.twin.answers`, msg: `第 ${i + 1} 题的同类题要填的空和原题不一样`, fix: '同类题用和原题相同的 field，Pad 才能用同样的输入框' });
+          if (!!c.options !== !!c.twin.options) out.push({ path: `${at}.twin.options`, msg: `第 ${i + 1} 题是${c.options ? '选择题' : '填空题'}，同类题也要是`, fix: c.options ? '给同类题写 options' : '去掉同类题的 options' });
+          else if (c.twin.options) for (const a of c.twin.answers) if (!c.twin.options.includes(String(a.value))) out.push({ path: `${at}.twin.answers`, msg: `第 ${i + 1} 题同类题的答案“${a.value}”不在选项里`, fix: '把答案写进 options' });
+        }
+      });
+      return out;
+    },
+  },
+  {
+    id: 'V18', name: '答错时有给孩子坚持下去的理由', basis: 'BL10 · 家长要求：多给孩子信心', level: 'error',
+    check(sp) {
+      const p = sp.encouragement?.persist ?? [];
+      if (p.length < 2) return [{ path: '$.encouragement.persist', msg: '没写答错时鼓励孩子坚持的话（至少 2 句）', fix: '结合这节课的主题写，例如“螳螂虾的洞也是一点点挖出来的，我们再试一次”' }];
+      const empty = p.filter(x => /^(真棒|很棒|你真棒|加油|好)[！!。]?$/.test(x.trim()));
+      return empty.length ? [{ path: '$.encouragement.persist', msg: `“${empty[0]}”太空了，孩子听不出为什么要坚持`, fix: '说出一个具体的理由，最好和主题相连' }] : [];
     },
   },
 ];

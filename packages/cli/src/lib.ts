@@ -40,7 +40,42 @@ export function contentHash(sp: LessonSpec): string {
   return 'sha256:' + createHash('sha256').update(canonical(rest)).digest('hex');
 }
 
-const STATE_RANK: Record<InterestObservation['state'], number> = { 下一课心愿: 0, 近期最喜欢: 1, 喜欢: 2, 曾经喜欢: 3, 只用于安全工程题材: 9 };
+export const STATE_RANK: Record<InterestObservation['state'], number> = { 家长指定: -1, 下一课心愿: 0, 近期最喜欢: 1, 喜欢: 2, 曾经喜欢: 3, 只用于安全工程题材: 9 };
+
+/** The asset id of a theme's subject (博比特虫, 机器人…): the same topic always gets the same id. */
+export const subjectId = (topic: string) => 'S-' + createHash('sha1').update(topic.trim()).digest('hex').slice(0, 8);
+/** Machines and buildings are objects; everything else a child names is taken to be an animal or plant. */
+const subjectKind = (topic: string): 'organism' | 'object' => /机器|车|楼|桥|隧道|船|飞机|火箭|塔|房|工厂|电|器/.test(topic) ? 'object' : 'organism';
+/** A theme whose own scene isn't built yet: the model picks the closest ready scene, the subject is made as an asset. */
+export const isCustomTheme = (t: { id: string }) => t.id.startsWith('topic-');
+
+/** The scenes made for a topic: "机器人工厂" or "工厂里的机器人" finds the 机器人 scenes too. */
+export function skinsOf(themes: ThemeTable, topic: string): string[] {
+  const keys = Object.keys(themes.topics).sort((a, b) => b.length - a.length);
+  return themes.topics[topic] ?? themes.topics[keys.find(k => topic.includes(k)) ?? keys.find(k => k.includes(topic)) ?? ''] ?? [];
+}
+
+/**
+ * What a child's own words for the next lesson are about: the longest topic we already know (an interest, an
+ * answer option, a theme, an animal) that the words name. Null when they name none: then the parent says what the
+ * topic is, and until then the words never leave the house.
+ */
+export function wishTopic(said: string, known: string[]): string | null {
+  const s = said.trim().replace(/^还是/, '').replace(/[。！？!?.，,、\s]+$/u, '');
+  if (!s) return null;
+  const ks = [...new Set(known.map(k => k.trim().replace(/^还是/, '')).filter(Boolean))].sort((a, b) => b.length - a.length);
+  return ks.find(k => k === s) ?? ks.find(k => s.includes(k)) ?? null;
+}
+
+/** What a topic needs before its lesson: a ready 3D scene, or the subject itself made as an asset. */
+export function topicPlan(topic: string, themes: ThemeTable) {
+  const skins = skinsOf(themes, topic).map(id => ({ id, ...themes.skins[id] })).filter(s => s.name);
+  const ready = skins.filter(s => s.status === '已有');
+  return {
+    skins: skins.map(s => ({ id: s.id, name: s.name, component: s.component, status: s.status, ...(s.realism ? { realism: s.realism } : {}) })),
+    subject: ready.length ? null : { name: topic, asset_id: subjectId(topic), kind: subjectKind(topic) },
+  };
+}
 
 export interface ThemeSuggestion {
   theme: LessonSpec['theme'];
@@ -49,9 +84,11 @@ export interface ThemeSuggestion {
 }
 
 /**
- * Pick the theme for a child's next lesson: their own next-lesson wish first, then their current
- * favourite, then other interests. Skins that don't exist yet become notes (asset tickets), and the
- * lesson falls back to the next usable interest or a neutral skin. Never uses a sibling's interests.
+ * Pick the theme for a child's next lesson: what the parent named first, then the child's own next-lesson wish,
+ * then their current favourite, then other interests. Those two first ones are always honoured: when their scene
+ * isn't built yet, the lesson uses the closest ready scene and the subject itself (the animal, the robot) becomes
+ * an asset to make. Other interests without a scene become notes and the next usable one is tried, then a
+ * neutral skin. Never uses a sibling's interests.
  */
 export function suggestTheme(opts: {
   child: string; tenant: string; component: string; interests: InterestObservation[];
@@ -64,13 +101,20 @@ export function suggestTheme(opts: {
   const notes: string[] = [];
   let theme: LessonSpec['theme'] | null = null;
   for (const rec of mine) {
-    const skins = themes.topics[rec.topic] ?? [];
-    if (!skins.length) { notes.push(`「${rec.topic}」还没有对应主题，需要开素材工单`); continue; }
+    const skins = skinsOf(themes, rec.topic);
     const fit = skins.map(s => ({ id: s, ...themes.skins[s] })).filter(s => s.component === component);
     const ready = fit.find(s => s.status === '已有');
-    if (!ready) { for (const s of fit) notes.push(`「${rec.topic}」对应的主题「${s.name}」待开发，需要开素材工单`); continue; }
-    theme = { id: ready.id, name: ready.name, skin: ready.id, interest_refs: [rec.id], why: `${rec.source}：${rec.topic}（${rec.state}）`, no_husbandry: true };
-    break;
+    const why = `${rec.source}：${rec.topic}（${rec.state}）`;
+    if (ready) { theme = { id: ready.id, name: ready.name, skin: ready.id, interest_refs: [rec.id], why, no_husbandry: true }; break; }
+    if (rec.state === '家长指定' || rec.state === '下一课心愿') {
+      theme = { id: `topic-${subjectId(rec.topic).slice(2)}`, name: rec.topic, skin: themes.neutral[component], interest_refs: [rec.id], why, no_husbandry: true,
+        subject: { name: rec.topic, asset_id: subjectId(rec.topic), kind: subjectKind(rec.topic) } };
+      notes.push(`「${rec.topic}」还没有专门的 3D 场景：skin 从 themes_ready 里选最接近它真实环境的一个；「${rec.topic}」本身是这节课的主角（theme.subject），要做成写实画面或 3D，做好并经家长确认前这节课不能发布`);
+      for (const s of fit) notes.push(`专门场景「${s.name}」待开发`);
+      break;
+    }
+    for (const s of fit) notes.push(`「${rec.topic}」对应的主题「${s.name}」待开发，需要开素材工单`);
+    if (!skins.length) notes.push(`「${rec.topic}」还没有对应主题，需要开素材工单`);
   }
   if (!theme) {
     const skin = themes.neutral[component];

@@ -1,0 +1,159 @@
+// Lesson studio as an MCP server, so any agent (Codex, Claude Code, Qoder, Cursor, a GPT with MCP…) can write
+// lessons with the same Skill, context and validator. Agents can only hand lessons in for the parent's review:
+// there is no tool to approve or publish (that stays a button in the parent app).
+// Transport-free: handle() takes one JSON-RPC message and returns the reply; stdio and HTTP wrap it.
+import type { Stages } from './lesson.js';
+import { GUIDE_TOPICS } from './guide.js';
+
+export interface CheckOutcome { key: string; ok: boolean; errors: number; warnings: number; issues: { rule: string; level: string; path: string; msg: string; fix: string | null }[]; title?: string; saved_to?: string; status?: string }
+export interface StudioBackend {
+  /** 'local' works on a repo checkout (files under content/lessons); 'server' on the family server's database. */
+  where: 'local' | 'server';
+  children(): { id: string; label: string; grade: number }[];
+  context(child: string): unknown;
+  guide(topic: string): string;
+  example(): Stages;
+  check(stages: Stages): Promise<CheckOutcome> | CheckOutcome;
+  /** Put a passing lesson in the parent's review queue (课程库 → 等你审核). */
+  submit(stages: Stages): Promise<CheckOutcome & { status?: string }>;
+  lessons(child?: string): unknown;
+  /** One lesson as stage files (to revise a lesson the parent sent back), with its status and the parent's note. */
+  lesson(key: string): unknown;
+  /** Family server only: the model the parent set up writes a lesson from an agreed plan (a job). */
+  models?(): string[];
+  writeWithModel?(a: { child: string; brief: string; model?: string }): unknown;
+  jobStatus?(id: string): unknown;
+  /** Family server only: a one-time address to send one picture to (it waits for the parent's confirmation). */
+  organisms?(): string[];
+  prepareImageUpload?(a: Record<string, unknown>): unknown;
+  /** The children's next-lesson wishes as prep lists, oldest first: the topic, and how far its scene and subject are. */
+  nextLessons?(): unknown;
+}
+
+const PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
+const stagesSchema = {
+  type: 'object', required: ['target', 'director', 'assets'],
+  properties: {
+    target: { type: 'object', description: '01-target.json 的内容' },
+    director: { type: 'object', description: '02-director.json 的内容' },
+    assets: { type: 'object', description: '03-assets.json 的内容' },
+  },
+};
+
+export const INSTRUCTIONS = `AI Discovery World 做课工具。给哥哥（四年级）或妹妹（二年级）写以数学为主、包在孩子自己兴趣里的写实 3D 互动课。
+顺序：1) adw_read_guide 读 Skill（topic=all；做 3D 素材、主持人或看作业用 adw_read_skill 读对应的 Skill），2) adw_get_context 拿这个孩子的兴趣、下一课心愿（next_lesson_wish，这节课按它准备）、可用组件、建议主题、新课 id，3) adw_get_example 看一节完整的示例课，
+4) 写 target / director / assets 三部分，用 adw_check_lesson 校验，按每条问题的 fix 改到全部通过，5) adw_submit_for_review 交给家长审核。
+只想谈方案、不自己写课时：和家长谈好方案后，用 adw_write_with_model 交给家长配置的大模型（例如 DeepSeek）按 Skill 写成完整的课，用 adw_job_status 看进度。
+生成了写实的生物图片时：用 adw_prepare_image_upload 拿一次性上传地址，按返回的 curl 命令上传，家长确认后孩子才看得到。
+家长退回的课：adw_list_lessons 里状态是“已退回”，note 是家长的意见；用 adw_get_lesson 取回三部分，按意见改，校验通过后再交（id 和版本不变）。
+家长不要的课：状态是“不采用”，note 是原因（可能空着）。不要再改它、不要用它的课号重交；写新课时看 adw_get_context 的 parent_declined，别重犯同样的问题。
+发布只能由家长在家长端点按钮完成，这里没有发布工具。不要编造事实，不确定写“待科学审核”。`;
+
+type Tool = { name: string; description: string; inputSchema: object; run(args: any): Promise<unknown> | unknown };
+
+export function createMcp(b: StudioBackend, info = { name: 'adw-lesson-studio', version: '1.0.0' }) {
+  const tools: Tool[] = [
+    { name: 'adw_read_guide', description: `读做课 Skill（规则、固定上课流程、字段说明、组件、主题、校验规则）。topic：${Object.keys(GUIDE_TOPICS).join(' / ')} / all。第一次用先读 all。`,
+      inputSchema: { type: 'object', properties: { topic: { type: 'string', enum: [...Object.keys(GUIDE_TOPICS), 'all'], default: 'all' } } },
+      run: a => b.guide(a?.topic ?? 'all') },
+    { name: 'adw_read_skill', description: `读项目里的任意一份 Skill（普通 Markdown）：${b.guide('skills').split('\n').filter(l => l.startsWith('## ')).map(l => l.slice(3)).join('、')}。不写 skill 时返回目录（每份做什么、有哪些文件）；写 skill 不写 file 时返回整份；file 例如 reference/research.md。`,
+      inputSchema: { type: 'object', properties: { skill: { type: 'string' }, file: { type: 'string' } } },
+      run: a => a?.skill ? b.guide(`skill:${a.skill}${a.file ? `/${a.file}` : ''}`) : b.guide('skills') },
+    { name: 'adw_get_context', description: '一个孩子做课需要的全部信息：年级、自己的兴趣和下一课心愿、可用 3D 组件（参数范围、热点锚点、动作）、建议主题和课末心愿题、能用的素材、新课 id、必须原样使用的固定字段。',
+      inputSchema: { type: 'object', required: ['child'], properties: { child: { type: 'string', description: `孩子 id：${b.children().map(c => `${c.id}（${c.label}，${c.grade} 年级）`).join('、')}` } } },
+      run: a => b.context(String(a?.child ?? '')) },
+    ...(b.nextLessons ? [{ name: 'adw_next_lessons', description: '孩子在课末说的“下一次课想学什么”整理成的下一课准备单，每个孩子按先后排队：主题、哪天说的、用哪个现成 3D 场景、主角素材做到哪一步。下一节课按排第一的准备（adw_get_context 的 next_lesson_wish 就是它）；做素材的 AI 助手按这里提前准备主角的写实素材（读 adw_read_skill photoreal-3d-production）。只有主题，没有孩子的原话。',
+      inputSchema: { type: 'object', properties: {} }, run: () => b.nextLessons!() } as Tool] : []),
+    { name: 'adw_get_example', description: '一节完整、校验通过的示例课（target / director / assets），照它的结构写，内容要新写。', inputSchema: { type: 'object', properties: {} },
+      run: () => b.example() },
+    { name: 'adw_check_lesson', description: `组装并校验一节课（V01–V23）。返回每个问题的位置、原因和怎么改。${b.where === 'local' ? '同时把三份阶段文件写到 content/lessons/<id>/<版本>/。' : ''}`,
+      inputSchema: stagesSchema, run: a => b.check(a as Stages) },
+    { name: 'adw_submit_for_review', description: '校验通过的课交给家长审核（家长端「课程库 → 等你审核」）。家长看过、勾完四类审核才会发布。', inputSchema: stagesSchema,
+      run: a => b.submit(a as Stages) },
+    { name: 'adw_list_lessons', description: '已发布、等待审核和被家长退回的课（避免重复；退回的课带家长意见 note）。', inputSchema: { type: 'object', properties: { child: { type: 'string' } } },
+      run: a => b.lessons(a?.child) },
+    { name: 'adw_get_lesson', description: '取回一节课的 target / director / assets 三部分（修改家长退回的课时用），附状态和家长意见。',
+      inputSchema: { type: 'object', required: ['key'], properties: { key: { type: 'string', description: '课的 id@版本，例如 L-PA-2@1.0' } } },
+      run: a => b.lesson(String(a?.key ?? '')) },
+  ];
+  if (b.writeWithModel && b.jobStatus) tools.push(
+    { name: 'adw_write_with_model', description: `把和家长谈好的课程方案交给家长在家长端配置的大模型，按 Skill 写成完整的课、自动校验和修改，通过后进家长端“等你审核”。返回任务 id，用 adw_job_status 查进度（一般 1–5 分钟）。可用模型：${b.models?.().join('、') || '家长还没有配置'}（不填用当前选中的）。`,
+      inputSchema: { type: 'object', required: ['child', 'brief'], properties: {
+        child: { type: 'string', description: '孩子 id' },
+        brief: { type: 'string', description: '谈好的课程方案全文（知识点、主题、参数、孩子要做的事、挑战题和答案、鼓励的话、需要的图片）' },
+        model: { type: 'string', description: '模型名字（可选）' },
+      } }, run: a => b.writeWithModel!({ child: String(a?.child ?? ''), brief: String(a?.brief ?? ''), model: a?.model ? String(a.model) : undefined }) },
+    { name: 'adw_job_status', description: '查 adw_write_with_model 的进度和结果。', inputSchema: { type: 'object', required: ['job'], properties: { job: { type: 'string' } } },
+      run: a => b.jobStatus!(String(a?.job ?? '')) },
+  );
+  if (b.prepareImageUpload) tools.push(
+    { name: 'adw_prepare_image_upload', description: `给一张写实的生物图片（照片或依据实拍照片生成的 AI 写实图）拿一次性上传地址，30 分钟内有效。返回 curl 命令，把本机的图片文件（jpg / png / webp）传上去。上传后在家长端“生物素材”里等家长确认，确认前孩子看不到。只能传写实图，不能传卡通或绘画。可用的生物：${b.organisms?.().join('、') || '无'}。`,
+      inputSchema: { type: 'object', required: ['asset_id', 'origin', 'caption', 'credit', 'license'], properties: {
+        asset_id: { type: 'string', description: '生物的资产 id' },
+        origin: { type: 'string', enum: ['实拍', '标本扫描', 'AI 写实图'] },
+        caption: { type: 'string', description: '一句说明，例如 洞口探出头的孔雀螳螂虾' },
+        credit: { type: 'string', description: '作者或来源，例如 Codex 生成（GPT 图像）' },
+        license: { type: 'string', description: '授权，例如 家用' },
+        references: { type: 'array', items: { type: 'string' }, description: 'AI 写实图必填：至少 3 张参考的实拍照片（链接或出处）' },
+        length_cm: { type: 'number', description: '图中生物的真实身长（厘米，可选）' },
+      } }, run: a => b.prepareImageUpload!(a ?? {}) },
+  );
+
+  const ok = (id: unknown, result: unknown) => ({ jsonrpc: '2.0', id, result });
+  const err = (id: unknown, code: number, message: string) => ({ jsonrpc: '2.0', id, error: { code, message } });
+
+  async function handleOne(m: any): Promise<object | null> {
+    if (!m || m.jsonrpc !== '2.0' || typeof m.method !== 'string') return err(m?.id ?? null, -32600, 'Invalid Request');
+    const isNote = m.id === undefined || m.id === null;
+    switch (m.method) {
+      case 'initialize': {
+        const want = m.params?.protocolVersion;
+        return ok(m.id, { protocolVersion: PROTOCOLS.includes(want) ? want : PROTOCOLS[0], capabilities: { tools: { listChanged: false } }, serverInfo: info, instructions: INSTRUCTIONS });
+      }
+      case 'ping': return ok(m.id, {});
+      case 'tools/list': return ok(m.id, { tools: tools.map(({ run: _r, ...t }) => t) });
+      case 'tools/call': {
+        const t = tools.find(x => x.name === m.params?.name);
+        if (!t) return err(m.id, -32602, `没有这个工具：${m.params?.name}`);
+        try {
+          const out = await t.run(m.params?.arguments ?? {});
+          return ok(m.id, { content: [{ type: 'text', text: typeof out === 'string' ? out : JSON.stringify(out, null, 1) }] });
+        } catch (e) {
+          return ok(m.id, { isError: true, content: [{ type: 'text', text: (e as Error).message }] });
+        }
+      }
+      case 'resources/list': return ok(m.id, { resources: [] });
+      case 'prompts/list': return ok(m.id, { prompts: [] });
+      default:
+        if (isNote || m.method.startsWith('notifications/')) return null;
+        return err(m.id, -32601, `Method not found: ${m.method}`);
+    }
+  }
+
+  return {
+    tools,
+    /** One message or a batch; null when nothing needs to be sent back (notifications). */
+    async handle(msg: unknown): Promise<object | object[] | null> {
+      if (Array.isArray(msg)) { const out = (await Promise.all(msg.map(handleOne))).filter(Boolean) as object[]; return out.length ? out : null; }
+      return handleOne(msg);
+    },
+  };
+}
+
+/** MCP over stdin/stdout (newline-delimited JSON-RPC), for agents that start `dls mcp` themselves. */
+export function serveStdio(mcp: ReturnType<typeof createMcp>, input: NodeJS.ReadableStream = process.stdin, output: NodeJS.WritableStream = process.stdout) {
+  let buf = '';
+  input.setEncoding?.('utf8');
+  input.on('data', async (chunk: string) => {
+    buf += chunk;
+    let i;
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+      if (!line) continue;
+      let msg: unknown;
+      try { msg = JSON.parse(line); } catch { output.write(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }) + '\n'); continue; }
+      const reply = await mcp.handle(msg);
+      if (reply) output.write(JSON.stringify(reply) + '\n');
+    }
+  });
+}

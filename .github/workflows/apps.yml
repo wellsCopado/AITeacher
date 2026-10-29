@@ -1,0 +1,123 @@
+# Builds and tests the installed apps: the Android tablet app (in an emulator, against a real family server) and
+# the Mac parent app (compiled, then opened against a running server). The unsigned tablet APK, the screenshots
+# and a zipped Mac app go to the "pad-app-build" pre-release; the APK is signed outside CI and committed to
+# apps/android/release (see apps/android/README.md).
+name: Native apps
+
+on:
+  push:
+    paths:
+      - 'apps/**'
+      - 'packages/player/**'
+      - 'scripts/mac-app.mjs'
+      - '.github/workflows/apps.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apps-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build the tablet app
+        run: gradle -p apps/android --no-daemon assembleDebug assembleRelease -PversionCode=$((100 + ${{ github.run_number }})) -PversionName=1.0.${{ github.run_number }}
+      - name: Start the family server
+        run: |
+          npx -y pnpm@10.28.0 install --frozen-lockfile
+          node scripts/build-apps.mjs
+          ADW_PIN=1234 ADW_DB="$RUNNER_TEMP/adw.sqlite" nohup node node_modules/tsx/dist/cli.mjs apps/server/src/main.ts > "$RUNNER_TEMP/server.log" 2>&1 &
+          for i in $(seq 60); do curl -sf http://127.0.0.1:8787/v1/hello && break; sleep 1; done
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Open the app in an Android tablet emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_c
+          disable-animations: true
+          script: bash apps/android/ci-smoke.sh
+      - name: Collect
+        if: always()
+        run: |
+          mkdir -p out
+          cp apps/android/app/build/outputs/apk/release/app-release-unsigned.apk out/ai-discovery-world-pad-unsigned.apk || true
+          cp "$RUNNER_TEMP"/*.png out/ 2>/dev/null || true
+          cp "$RUNNER_TEMP/server.log" out/android-server.log || true
+          echo "1.0.${{ github.run_number }} $((100 + ${{ github.run_number }})) ${{ github.sha }}" > out/android-version.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android
+          path: out
+
+  mac:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build the web apps and the Mac app
+        run: |
+          npx -y pnpm@10.28.0 install --frozen-lockfile
+          node scripts/build-apps.mjs
+          node scripts/mac-app.mjs build "$RUNNER_TEMP/mac"
+      - name: Open the Mac app against a running server
+        run: |
+          ADW_PIN=1234 ADW_DB="$RUNNER_TEMP/adw.sqlite" nohup node node_modules/tsx/dist/cli.mjs apps/server/src/main.ts > "$RUNNER_TEMP/server.log" 2>&1 &
+          for i in $(seq 60); do curl -sf http://127.0.0.1:8787/v1/hello && break; sleep 1; done
+          "$RUNNER_TEMP/mac/AI 探索世界.app/Contents/MacOS/AIDiscoveryWorld" --selftest --port 8787 --snapshot "$RUNNER_TEMP/mac-app.png"
+      - name: Collect
+        if: always()
+        run: |
+          mkdir -p out
+          ditto -c -k --keepParent "$RUNNER_TEMP/mac/AI 探索世界.app" out/ai-discovery-world-mac.zip || true
+          cp "$RUNNER_TEMP"/*.png out/ 2>/dev/null || true
+          cp "$RUNNER_TEMP/server.log" out/mac-server.log || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mac
+          path: out
+
+  publish:
+    needs: [android, mac]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Replace the pad-app-build pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la out
+          gh release delete pad-app-build --cleanup-tag -y -R "$GITHUB_REPOSITORY" || true
+          gh release create pad-app-build out/* -R "$GITHUB_REPOSITORY" --prerelease --target "$GITHUB_SHA" \
+            --title "平板 App 和 Mac App 的自动构建" \
+            --notes "CI build of ${GITHUB_SHA}. Android: ${{ needs.android.result }}, Mac: ${{ needs.mac.result }}. The tablet APK here is unsigned; install the signed one from the family Mac (http://<Mac>:8787/app/)."

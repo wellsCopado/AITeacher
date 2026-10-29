@@ -1,0 +1,54 @@
+{
+  "realObject": "CubeMars AK80-9 V3.0 外观参考重建样件",
+  "units": "mm",
+  "sourceUrl": "https://www.cubemars.com/product/ak80-9-v3-0-robotic-actuator.html",
+  "drawingUrl": "https://www.cubemars.com/images/20250407/1744015272105618.png",
+  "confirmedAnchors": [
+    "整体外径98毫米、轴向总长38.5毫米",
+    "外圈安装位置8-M3、分布圆直径85毫米",
+    "输出端6-M4、分布圆直径28毫米"
+  ],
+  "limitations": [
+    "是独立执行器制作样件，不是宇树G1内部零件，不可装上后宣称复原G1",
+    "中间孔、后罩轮廓、分段长度与倒角部分按图比例近似；孔为无螺纹视觉孔，不提供加工尺寸",
+    "未重建减速器、绕组或驱动板内部，不凭空造内部；未模拟电机性能或力值",
+    "此例验证剖面/孔/分件制作工具，不是完整机器人课或通用写实预制模型"
+  ],
+  "materials": {
+    "anodized-housing": {"color": [0.026, 0.031, 0.038], "metalness": 0.75, "roughness": 0.29},
+    "machined-output": {"color": [0.42, 0.46, 0.48], "metalness": 0.92, "roughness": 0.25},
+    "joint-seal": {"color": [0.008, 0.010, 0.012], "metalness": 0.0, "roughness": 0.65}
+  },
+  "components": [
+    {
+      "id": "main-housing",
+      "material": "anodized-housing",
+      "basis": "98毫米外径和85毫米孔分布圆有图据；肩台/空心内壁与倒角为外观近似",
+      "profile": [[0, 24.2], [0, 48.6], [0.4, 49], [24.3, 49], [24.5, 48.8], [24.5, 35.2], [23.8, 35.2], [23.8, 24.2]],
+      "holePatterns": [{"count": 8, "pitchDiameter": 85, "visualDiameter": 3, "z0": -1, "z1": 25.5, "angle": 22.5}],
+      "bevel": 0.14
+    },
+    {
+      "id": "output-flange",
+      "material": "machined-output",
+      "basis": "参考48/37毫米轴向凸台与28毫米6-M4位置；中间孔按图比例估计",
+      "profile": [[-3, 7], [-3, 18.5], [-1.3, 18.5], [-1.3, 24], [0.3, 24], [0.3, 7]],
+      "holePatterns": [{"count": 6, "pitchDiameter": 28, "visualDiameter": 4, "z0": -4, "z1": 1, "angle": 0}],
+      "bevel": 0.09
+    },
+    {
+      "id": "front-seal",
+      "material": "joint-seal",
+      "basis": "装配边界表达，位置和厚度为外观近似，不作为密封设计",
+      "profile": [[0.1, 24], [0.1, 24.4], [0.5, 24.4], [0.5, 24]],
+      "bevel": 0.04
+    },
+    {
+      "id": "rear-cover",
+      "material": "anodized-housing",
+      "basis": "后罩外观近似，保持轴向总长38.5毫米；不声称真实驱动板布局",
+      "profile": [[24.5, 7], [24.5, 35.3], [34.8, 35.3], [35.5, 34.6], [35.5, 7]],
+      "bevel": 0.17
+    }
+  ]
+}

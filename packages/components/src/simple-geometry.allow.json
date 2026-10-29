@@ -1,0 +1,34 @@
+{
+  "_说明": "A5 代码几何白名单（skills/photoreal-3d-production/reference/acceptance.md）。packages/components/src 里每个文件用到的每种几何体都要在这里写明画的是什么、属于哪一类。class：简单几何件 / 数学标注 / 隐形碰撞面 / 环境（不显示）/ 待替换。待替换的写 gap（gaps.md 的编号），替换后从这里删掉。改这个文件要在交付说明里写原因。",
+  "engine.js": [
+    { "geometry": "PlaneGeometry", "what": "海底沙地、花园草地的地面平面；水下焦散光斑和光柱的贴片；卷尺带；洞口贴花", "class": "简单几何件" },
+    { "geometry": "PlaneGeometry", "what": "样方格的点选面（不显示）", "class": "隐形碰撞面" },
+    { "geometry": "CircleGeometry", "what": "洞口的点选面（不显示）", "class": "隐形碰撞面" },
+    { "geometry": "CircleGeometry", "what": "测量轮每走 1 米留下的粉笔点", "class": "数学标注" },
+    { "geometry": "BufferGeometry", "what": "水中悬浮颗粒（点）、沙子扬起的粉尘（点）", "class": "简单几何件" },
+    { "geometry": "SphereGeometry", "what": "做水下环境光用的渐变球（只用来生成环境贴图，不显示）", "class": "环境（不显示）" },
+    { "geometry": "SphereGeometry", "what": "PVC 样方框的弯头", "class": "简单几何件" },
+    { "geometry": "CylinderGeometry", "what": "PVC 样方框的管子、调查标桩和桩帽", "class": "简单几何件" },
+    { "geometry": "BoxGeometry", "what": "花园的土床、栅栏立柱和横杆", "class": "简单几何件" },
+    { "geometry": "ConeGeometry", "what": "栅栏立柱的四棱锥帽", "class": "简单几何件" },
+    { "geometry": "RoundedBoxGeometry", "what": "花园铺砖、积木方块、积木托盘、木桌面", "class": "简单几何件" },
+    { "geometry": "IcosahedronGeometry", "what": "海底的礁石和碎石（程序变形的二十面体）", "class": "待替换", "gap": "G19" },
+    { "geometry": "TorusGeometry", "what": "测量轮的轮胎", "class": "待替换", "gap": "G4" },
+    { "geometry": "CylinderGeometry", "what": "测量轮的轮毂、把杆、握把；卷尺盘的盘体和摇把", "class": "待替换", "gap": "G4" },
+    { "geometry": "BoxGeometry", "what": "测量轮的辐条和前叉", "class": "待替换", "gap": "G4" },
+    { "geometry": "RoundedBoxGeometry", "what": "测量轮的计数器", "class": "待替换", "gap": "G4" },
+    { "geometry": "PlaneGeometry", "what": "测量轮计数器的液晶屏", "class": "待替换", "gap": "G4" }
+  ],
+  "organism.js": [
+    { "geometry": "BufferGeometry", "what": "把螳螂虾的写实俯视图切成关节片（几何只是贴图的载体）", "class": "待替换", "gap": "G3" }
+  ],
+  "organism-chain.js": [
+    { "geometry": "BufferGeometry", "what": "把新动物的写实俯视图自动切成节（几何只是贴图的载体）", "class": "待替换", "gap": "G3" }
+  ],
+  "robot-cell.js": [
+    { "geometry": "*", "what": "整个机械臂工作站：六轴机械臂、夹具、传送带、转台、齿轮都是代码拼的", "class": "待替换", "gap": "G1" }
+  ],
+  "host.js": [
+    { "geometry": "*", "what": "课末聊聊的接待机器人，代码拼的", "class": "待替换", "gap": "G2" }
+  ]
+}

@@ -1,0 +1,34 @@
+// The children's tablet app: a full-screen shell around the Pad pages served by the family Mac.
+// Built by .github/workflows/apps.yml; versionCode comes from the CI run so every build installs over the last.
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'world.aidiscovery.pad'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'world.aidiscovery.pad'
+        minSdk 24
+        targetSdk 35
+        versionCode((project.findProperty('versionCode') ?: '1') as int)
+        versionName((project.findProperty('versionName') ?: '1.0') as String)
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+    buildFeatures {
+        buildConfig true
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    lint {
+        checkReleaseBuilds false
+    }
+}

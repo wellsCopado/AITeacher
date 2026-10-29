@@ -1,11 +1,26 @@
 // Pad light app: pair once, pick a child, play today's lessons. Events go to a local queue first and are
 // sent whenever the server is reachable, so a lesson works through a Wi-Fi drop.
 import type { LessonSpec } from '../../../packages/schema/src/index.js';
-import { play } from '../../../packages/player/src/main.js';
+import { play, type OrganismMedia } from '../../../packages/player/src/main.js';
+import { createVoice, type FetchAudio } from '../../../packages/player/src/voice.js';
+
+declare const __BUILD__: string;
+/** Narration made by the server Mac's voice, played as ordinary audio on the Pad. */
+const audio: FetchAudio = async (text, lang) => {
+  const r = await fetch(`/v1/tts?lang=${lang}&text=${encodeURIComponent(text)}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+  if (!r.ok) throw new Error(`tts ${r.status}`);
+  return r.arrayBuffer();
+};
 import { Queue, type Store as KV } from './queue.js';
+import { installSpeech, native } from './native.js';
+
+installSpeech();
 
 interface Child { id: string; name: string; grade: number }
-interface TodayLesson { key: string; title: string; concept: string; reason: string; expires_on: string | null; finished: boolean }
+interface TodayLesson { key: string; kind?: 'spec' | 'explore'; title: string; concept: string; reason: string; expires_on: string | null; finished: boolean }
+/** 探索课: a whole web lesson (made with the discovery-lesson-maker Skill) that the server hosts. */
+interface ExploreInfo { kind: 'explore'; key: string; title: string; concept: string; url: string; bridge: boolean }
+interface ExploreProgress { done: number; total: number; section?: number; tasks: { id: string; label: string; passed: boolean; result: string; helped: boolean; wrong: number }[] }
 
 const kv: KV = {
   get: k => { try { return localStorage.getItem(k); } catch { return null; } },
@@ -15,6 +30,20 @@ const app = document.getElementById('app')!;
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 const newId = () => (crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`).replace(/[^A-Za-z0-9-]/g, '');
 let token = kv.get('adw.token');
+const localToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date());
+
+/** Where a child left a lesson today (pause → 退出, or the app was closed): the next start offers to go on from there. */
+interface Resume { session: string; step: number; left: number | null; on: string }
+const resumes = (child: string): Record<string, Resume> => {
+  const all = JSON.parse(kv.get(`adw.resume.${child}`) || '{}') as Record<string, Resume>;
+  for (const k of Object.keys(all)) if (all[k].on !== localToday()) delete all[k]; // a new day starts the lesson over
+  return all;
+};
+const setResume = (child: string, key: string, r: Resume | null) => {
+  const all = resumes(child);
+  if (r) all[key] = r; else delete all[key];
+  kv.set(`adw.resume.${child}`, JSON.stringify(all));
+};
 
 async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const r = await fetch(path, { ...init, headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}), ...init.headers } });
@@ -40,9 +69,39 @@ function shell(inner: string) {
   syncBadge();
 }
 
+// Full screen for learning: Safari's address bar and tabs go away. iPad only allows it from a tap, so every
+// button tap asks again while the page isn't full screen (a child who swipes out is back in on the next tap).
+// From the home-screen icon, or in the Android tablet app, the page already has the whole screen.
+type FsDoc = Document & { webkitFullscreenElement?: Element | null; webkitExitFullscreen?: () => void };
+type FsEl = HTMLElement & { webkitRequestFullscreen?: () => void };
+const isFull = () => !!(document.fullscreenElement ?? (document as FsDoc).webkitFullscreenElement);
+// display-mode is also "fullscreen" while the browser page itself is full screen, so that doesn't count as the app
+const standalone = () => !!native || !!(navigator as Navigator & { standalone?: boolean }).standalone || matchMedia('(display-mode: standalone)').matches || (!isFull() && matchMedia('(display-mode: fullscreen)').matches);
+const canFull = () => !standalone() && !!(document.documentElement.requestFullscreen || (document.documentElement as FsEl).webkitRequestFullscreen);
+function enterFull() {
+  if (isFull() || !canFull()) return;
+  const el = document.documentElement as FsEl;
+  try { const r = el.requestFullscreen ? el.requestFullscreen({ navigationUI: 'hide' }) : el.webkitRequestFullscreen?.(); (r as Promise<void> | undefined)?.catch?.(() => undefined); } catch { /* not allowed here */ }
+}
+function toggleFull() {
+  if (!isFull()) return enterFull();
+  const d = document as FsDoc;
+  void (d.exitFullscreen ? d.exitFullscreen().catch(() => undefined) : d.webkitExitFullscreen?.());
+}
+let fullWanted = kv.get('adw.full') !== 'off';
+addEventListener('click', e => { if (fullWanted && (e.target as HTMLElement).closest('button')) enterFull(); }, true);
+// A small corner button to leave or re-enter full screen (a parent may want the browser back).
+const fsBtn = document.createElement('button');
+fsBtn.className = 'fsbtn'; fsBtn.setAttribute('aria-label', '全屏');
+const fsSync = () => { fsBtn.hidden = !canFull(); fsBtn.textContent = isFull() ? '⤡' : '⛶'; document.body.classList.toggle('full', isFull() || standalone()); };
+fsBtn.onclick = e => { e.stopPropagation(); fullWanted = !isFull(); kv.set('adw.full', fullWanted ? 'on' : 'off'); toggleFull(); };
+for (const ev of ['fullscreenchange', 'webkitfullscreenchange']) document.addEventListener(ev, fsSync);
+document.body.appendChild(fsBtn); fsSync();
+
 async function pairScreen() {
-  shell(`<h1>连接家里的服务器</h1><p>请家长打开家长端的“设备”页，输入下面的配对码。</p><p class="code" id="code">…</p><p class="muted" id="msg"></p>`);
+  shell(`<h1>连接家里的服务器</h1><p>请家长打开家长端的“设备与数据”页，输入下面的配对码。</p><p class="code" id="code">…</p><p class="muted" id="msg"></p>${native ? '<p><button class="btn" id="other">换一台 Mac</button></p>' : ''}`);
   const msg = document.getElementById('msg')!;
+  if (native) document.getElementById('other')!.onclick = () => native!.changeServer();
   try {
     const { code } = await api<{ code: string }>('/v1/pair/start', { method: 'POST', body: '{}' });
     document.getElementById('code')!.textContent = code.replace(/(\d{3})(\d{3})/, '$1 $2');
@@ -55,8 +114,30 @@ async function pairScreen() {
   } catch (e) { msg.textContent = `连不上服务器：${(e as Error).message}`; }
 }
 
+// Opened in Safari rather than from the home-screen icon: show once how to get the full-screen app.
+function installHint() {
+  if (standalone()) return '';
+  return `<div class="hint"><b>全屏学习：</b>点任何按钮都会自动进入全屏${canFull() ? '（右上角 ⛶ 也可以切换）' : ''}。<b>装成桌面 App 更好：</b>在 Safari 里点顶部的分享按钮 <span class="ico">⬆︎</span>，选“添加到主屏幕”，以后从桌面的“探索世界”图标打开，就像 App 一样，没有地址栏。</div>`;
+}
+
+// One tap: a beep, then a Chinese and an English line. Shows which voice is used, so a parent can tell what's wrong.
+let testVoice: ReturnType<typeof createVoice> | null = null;
+async function soundTest() {
+  const out = document.getElementById('sres')!;
+  testVoice ??= createVoice(1, audio);
+  testVoice.unlock(); testVoice.chime();
+  out.textContent = '正在播放…';
+  const info = await fetch('/v1/tts/info', { headers: { authorization: `Bearer ${token}` } }).then(r => r.json()).catch(() => null) as { available: boolean } | null;
+  const t0 = performance.now();
+  await testVoice.speak('你好，声音正常。', 'zh');
+  await testVoice.speak('Hello, I can hear you.', 'en');
+  out.textContent = `用的是${testVoice.source === 'server' ? '服务器 Mac 的语音' : testVoice.source === 'device' ? '平板自带语音' : '（没有可用的语音）'} · 服务器语音${info?.available ? '可用' : '不可用'} · ${native ? `平板 App ${native.version()}` : standalone() ? '桌面 App 模式' : isFull() ? '浏览器全屏' : '浏览器模式'} · 用时 ${((performance.now() - t0) / 1000).toFixed(1)} 秒 · 版本 ${__BUILD__}。听不到的话：按音量加键，关掉静音。`;
+}
+
 async function chooseChild() {
-  shell(`<h1>今天谁来学？</h1><div class="kids" id="kids">…</div>`);
+  shell(`<h1>今天谁来学？</h1><div class="kids" id="kids">…</div>${installHint()}
+    <div class="soundtest"><button class="btn" id="stest">🔊 声音测试</button><span id="sres" class="muted small"></span></div>`);
+  document.getElementById('stest')!.onclick = soundTest;
   try {
     const kids = await api<Child[]>('/v1/children');
     kv.set('adw.children', JSON.stringify(kids));
@@ -84,12 +165,17 @@ async function todayScreen(child: Child) {
   } catch (e) {
     // Offline: show what was allowed earlier today, as decided by the server's date.
     const cached = JSON.parse(kv.get(`adw.today.${child.id}`) || 'null') as { today: string; lessons: TodayLesson[] } | null;
-    const localToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date());
-    lessons = cached && cached.today === localToday ? cached.lessons : [];
+    lessons = cached && cached.today === localToday() ? cached.lessons : [];
     if (!lessons.length) { list.innerHTML = `<p>${esc((e as Error).message)}</p>`; return; }
   }
   if (!lessons.length) { list.innerHTML = `<p class="lead">今天没有安排课。</p><p class="muted">想学的话请家长在家长端排课或临时授权。</p>`; return; }
-  list.innerHTML = lessons.map(l => `<button class="lesson" data-key="${esc(l.key)}"><b>${esc(l.title)}</b><span>${esc(l.concept)} · ${esc(l.reason)}${l.finished ? ' · 今天做过了' : ''}</span></button>`).join('');
+  const left = resumes(child.id);
+  const note = (l: TodayLesson) => {
+    const r = left[l.key];
+    if (r && l.kind === 'explore') return ` · 已核对 ${r.step} 项，可以接着探索`;
+    return r?.step ? ` · 上到第 ${r.step + 1} 步，可以接着上` : l.finished ? ' · 今天做过了' : '';
+  };
+  list.innerHTML = lessons.map(l => `<button class="lesson" data-key="${esc(l.key)}"><b>${esc(l.title)}</b><span>${l.concept ? `${esc(l.concept)} · ` : ''}${l.kind === 'explore' ? '探索课 · ' : ''}${esc(l.reason)}${note(l)}</span></button>`).join('');
   list.querySelectorAll<HTMLButtonElement>('.lesson').forEach(b => b.onclick = () => lessonScreen(child, b.dataset.key!));
 }
 
@@ -103,16 +189,99 @@ async function lessonScreen(child: Child, key: string) {
     if (!cached || navigator.onLine) { alert((e as Error).message); return; }
     sp = JSON.parse(cached);
   }
-  const session = newId();
+  if ((sp as unknown as ExploreInfo).kind === 'explore') return exploreScreen(child, sp as unknown as ExploreInfo);
+  // Real photos and videos of animals the parent added (shown until a photoreal model exists).
+  let media: OrganismMedia[] = [];
+  if (sp.pending_assets?.length) {
+    try { media = await api<OrganismMedia[]>('/v1/media'); kv.set('adw.media', JSON.stringify(media)); }
+    catch { media = JSON.parse(kv.get('adw.media') ?? '[]'); }
+  }
+  // going on from where the child left today keeps the same learning record
+  const before = resumes(child.id)[key];
+  let session = before?.session ?? newId();
   app.innerHTML = '<div id="player"></div><p id="sync" class="muted small center"></p>';
   const el = document.getElementById('player')!;
   const onEvent = (ev: Event) => {
-    queue.push({ session, child: child.id, lesson: key }, { id: newId(), ...(ev as CustomEvent).detail });
+    const e = (ev as CustomEvent).detail as { at: string; type: string; n?: number; left?: number; resumed_at?: string };
+    // 从头开始 is a new learning record
+    if (e.type === 'start' && !e.resumed_at && before) session = newId();
+    queue.push({ session, child: child.id, lesson: key }, { ...e, id: newId() });
     flush();
+    if (e.type === 'step' && p) { const at = p.progress(); if (at.step < 4) setResume(child.id, key, { session, step: at.step, left: null, on: localToday() }); }
+    if (e.type === 'lesson_exit') setResume(child.id, key, { session, step: e.n ?? 0, left: e.left ?? null, on: localToday() });
+    if (e.type === 'lesson_end') setResume(child.id, key, null);
   };
   el.addEventListener('adw:event', onEvent);
-  const p = play(el, sp, { childName: child.name, kid: true, onExit: () => { el.removeEventListener('adw:event', onEvent); p.dispose(); todayScreen(child); } });
+  let p: ReturnType<typeof play> | null = null;
+  p = play(el, sp, { childName: child.name, kid: true, media, audio, startAt: before ? { step: before.step, left: before.left } : undefined,
+    onExit: () => { el.removeEventListener('adw:event', onEvent); p!.dispose(); todayScreen(child); } });
   (window as unknown as { __player: unknown }).__player = p;
+}
+
+/**
+ * A 探索课 fills the screen in a frame. The page reports what the child has checked (adw-explore/1); all of it
+ * checked counts as finished. The bar above lets the child rest, go on, or leave and come back later today
+ * (the page keeps its own place, per child). A page without the progress messages lets the child say they're done.
+ */
+function exploreScreen(child: Child, x: ExploreInfo) {
+  const before = resumes(child.id)[x.key];
+  const session = before?.session ?? newId();
+  let last: ExploreProgress | null = null, ended = false;
+  const log = (type: string, data: Record<string, unknown> = {}) => { queue.push({ session, child: child.id, lesson: x.key }, { id: newId(), at: new Date().toISOString(), type, ...data }); flush(); };
+  app.innerHTML = `<div class="explore"><div class="xbar"><button class="btn" id="xrest">⏸ 休息 / 退出</button><b>${esc(x.title)}</b><span id="xprog" class="muted small"></span><span id="sync" class="muted small"></span></div>
+    <iframe id="xframe" title="${esc(x.title)}" allow="autoplay; fullscreen" src="${esc(x.url)}?adw=1&learner=${encodeURIComponent(child.id)}"></iframe><div id="xcard" class="xcard" hidden></div></div>`;
+  const frame = document.getElementById('xframe') as HTMLIFrameElement, card = document.getElementById('xcard')!;
+  const tell = (type: 'pause' | 'resume') => frame.contentWindow?.postMessage({ adw: 'explore/1', type }, location.origin);
+  const keep = () => setResume(child.id, x.key, ended ? null : { session, step: last?.done ?? 0, left: null, on: localToday() });
+  log('start', { kind: 'explore', ...(before ? { resumed: true } : {}) });
+  keep();
+  const finish = () => {
+    ended = true;
+    log('lesson_end', { solved: last?.tasks.filter(t => t.passed).map(t => t.id) ?? [] });
+    keep();
+  };
+  const onMsg = (e: MessageEvent) => {
+    if (e.source !== frame.contentWindow || e.data?.adw !== 'explore/1') return;
+    const m = e.data as { type: string; message?: string } & Partial<ExploreProgress>;
+    if (m.type === 'progress' && typeof m.done === 'number' && typeof m.total === 'number') {
+      const p: ExploreProgress = { done: m.done, total: m.total, section: m.section, tasks: Array.isArray(m.tasks) ? m.tasks.slice(0, 40) : [] };
+      if (JSON.stringify(p) === JSON.stringify(last)) return;
+      const opening = !last;
+      last = p;
+      document.getElementById('xprog')!.textContent = `已核对 ${p.done}/${p.total} 项`;
+      if (!opening || p.done) log('explore_progress', { ...p }); // the page's first report on opening is only news if it carries earlier work
+      keep();
+      if (p.total && p.done >= p.total && !ended) { finish(); ask(true); }
+    }
+    if (m.type === 'error') show(`<p class="lead">这节课没打开</p><p>${esc(m.message ?? '')}</p><p class="muted small">请告诉爸爸妈妈。</p><div class="row"><button class="btn primary" id="xleave">回到今天的课</button></div>`);
+  };
+  addEventListener('message', onMsg);
+  const show = (html: string) => {
+    card.innerHTML = `<div class="card">${html}</div>`; card.hidden = false;
+    card.querySelector('#xgo')?.addEventListener('click', () => { card.hidden = true; tell('resume'); log('resume'); });
+    card.querySelector('#xleave')?.addEventListener('click', () => { log('lesson_exit', { step: last ? `已核对 ${last.done}/${last.total} 项` : '探索中', n: last?.done ?? 0 }); keep(); leave(); });
+    card.querySelector('#xdone')?.addEventListener('click', () => { finish(); ask(false); });
+    card.querySelector('#xbye')?.addEventListener('click', () => {
+      const wish = (card.querySelector('#xwish') as HTMLInputElement).value.trim();
+      log(wish ? 'next_lesson_wish' : 'chat_skipped', wish ? { question: 'next', answer: wish, source: '孩子自述' } : {});
+      leave();
+    });
+  };
+  // the end: what was done, and what to explore next time (it goes on the parent's prep list)
+  const ask = (all: boolean) => {
+    tell('pause');
+    show(`<p class="lead">${all && last ? `${last.total} 项都核对完了！` : '这节探索课学完了！'}</p><p>下一次想探索什么？说不说都可以。</p>
+      <input id="xwish" maxlength="20" placeholder="比如：大桥、螳螂虾" aria-label="下一次想探索什么">
+      <div class="row"><button class="btn primary" id="xbye">说完了，回到今天的课</button><button class="btn" id="xgo">再看一会儿</button></div>`);
+  };
+  document.getElementById('xrest')!.onclick = () => {
+    tell('pause'); log('pause');
+    if (ended) return ask(true);
+    show(`<p class="lead">休息一下</p><p>${last ? `已核对 ${last.done}/${last.total} 项。` : ''}今天还能接着探索，做到哪里都留着。</p>
+      <div class="row"><button class="btn primary" id="xgo">继续探索</button><button class="btn" id="xleave">退出，下次接着上</button>${x.bridge ? '' : '<button class="btn" id="xdone">我学完了</button>'}</div>`);
+  };
+  const leave = () => { removeEventListener('message', onMsg); todayScreen(child); };
+  (window as unknown as { __explore: unknown }).__explore = { progress: () => last, ended: () => ended };
 }
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('./sw.js').catch(() => undefined);

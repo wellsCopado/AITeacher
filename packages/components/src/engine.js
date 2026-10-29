@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import {EXRLoader} from 'three/addons/loaders/EXRLoader.js';
 import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js';
+import {createOrganism} from './organism.js';
+import {createRobotCell} from './robot-cell.js';
 
 /* Photoreal scene engine: PBR materials, real HDRI lighting, soft shadows, ACES tone mapping.
    Lesson state stays in the app; the engine only renders it and reports animation progress. */
@@ -39,11 +41,12 @@ function woodMat(color, rep, rot=0, rough=0.62){
 export function create(stage, kind, params, onPick, hooks){
   const garden = kind==='PerimeterArea';
   const reef = garden && params.theme==='reef';
+  const robots = kind==='ArrayMultiplier' && params.theme==='robot_factory';
   const renderer = new THREE.WebGLRenderer({antialias:true, powerPreference:'high-performance'});
   renderer.setPixelRatio(Math.min(1.75, window.devicePixelRatio||1));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = garden ? 0.85 : 1.05;
-  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; renderer.localClippingEnabled = true;
   stage.prepend(renderer.domElement);
 
   const scene = new THREE.Scene();
@@ -56,12 +59,16 @@ export function create(stage, kind, params, onPick, hooks){
       fragmentShader:'varying vec3 p;void main(){float t=clamp(p.y*.5+.5,0.,1.);vec3 c=mix(vec3(.03,.12,.16),vec3(.55,.85,.95),pow(t,2.2));gl_FragColor=vec4(c*1.6,1.);}'});
     dome.add(new THREE.Mesh(new THREE.SphereGeometry(10,32,16), gm));
     envRT = pm.fromScene(dome, 0.04);
-    scene.environment = envRT.texture; const water=new THREE.Color(0x1b5f73); scene.background = water; scene.fog = new THREE.FogExp2(water, 0.075);
+    const water=new THREE.Color(0x1b5f73); scene.fog = new THREE.FogExp2(water, 0.075);
+    // open water fades from lit blue near the surface to deep blue below
+    { const c=document.createElement('canvas'); c.width=4; c.height=256; const g=c.getContext('2d'); const gr=g.createLinearGradient(0,0,0,256);
+      gr.addColorStop(0,'#5fb3c4'); gr.addColorStop(0.45,'#25748a'); gr.addColorStop(1,'#0c3442'); g.fillStyle=gr; g.fillRect(0,0,4,256);
+      const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; scene.environment = envRT.texture; scene.background = t; }
     renderer.toneMappingExposure = 0.9;
   } else {
-    envRT = pm.fromEquirectangular(hdr(garden?'park':'apartment'));
+    envRT = pm.fromEquirectangular(hdr(garden?'park':robots?'warehouse':'apartment'));
     scene.environment = envRT.texture; scene.background = envRT.texture;
-    scene.backgroundBlurriness = garden ? 0.04 : 0.55; scene.backgroundIntensity = garden ? 0.95 : 0.8;
+    scene.backgroundBlurriness = garden ? 0.04 : robots ? 0.12 : 0.55; scene.backgroundIntensity = garden ? 0.95 : 0.8;
   }
   const cam = new THREE.PerspectiveCamera(38, 1.6, 0.05, 600);
 
@@ -74,6 +81,9 @@ export function create(stage, kind, params, onPick, hooks){
   const world = new THREE.Group(); scene.add(world);
   const orbit = {az:-0.55, el:garden?0.62:0.78, dist:14, min:reef?0.3:garden?4:5, max:garden?40:26, elMin:garden?0.1:0.2, elMax:1.35, target:new THREE.Vector3()};
   let def = null;
+  // Camera moves glide to a goal instead of jumping; a drag or pinch cancels the glide.
+  let goal = null, follow = false;
+  const glide = (g)=>{ goal = {az:g.az??orbit.az, el:g.el??orbit.el, dist:g.dist??orbit.dist, target:(g.target??orbit.target).clone()}; if(reduced()){ Object.assign(orbit,{az:goal.az,el:goal.el,dist:goal.dist}); orbit.target.copy(goal.target); goal=null; } };
   const st = {params:{...params}, pickables:[], anchors:{}, labels:{}, dims:[], hideLabels:false, anim:[], walk:null, fill:null, reveal:null, rotTarget:0, raf:0, dead:false};
 
   /* ---------- shared materials ---------- */
@@ -96,6 +106,28 @@ export function create(stage, kind, params, onPick, hooks){
     const n=900, pos=new Float32Array(n*3); for(let i=0;i<n;i++){pos[i*3]=(Math.random()-.5)*30;pos[i*3+1]=Math.random()*6;pos[i*3+2]=(Math.random()-.5)*30}
     const pg=new THREE.BufferGeometry(); pg.setAttribute('position',new THREE.BufferAttribute(pos,3));
     st.snow=new THREE.Points(pg,new THREE.PointsMaterial({color:0xdff4f2,size:0.025,transparent:true,opacity:0.55,depthWrite:false})); scene.add(st.snow);
+    // sunlight shafts from the surface: soft additive sheets that sway slowly
+    { const c=document.createElement('canvas'); c.width=64; c.height=256; const g=c.getContext('2d'); const gr=g.createLinearGradient(0,0,0,256);
+      gr.addColorStop(0,'rgba(255,255,255,.9)'); gr.addColorStop(0.55,'rgba(255,255,255,.25)'); gr.addColorStop(1,'rgba(255,255,255,0)'); g.fillStyle=gr; g.fillRect(0,0,64,256);
+      const hg=g.getImageData(0,0,64,256); for(let y=0;y<256;y++)for(let x=0;x<64;x++){const k=Math.sin(x/63*Math.PI); hg.data[(y*64+x)*4+3]*=k*k;} g.putImageData(hg,0,0);
+      const t=new THREE.CanvasTexture(c); st.rays=[];
+      for(let k=0;k<9;k++){ const m=new THREE.Mesh(new THREE.PlaneGeometry(0.6+(k%3)*0.35,9), new THREE.MeshBasicMaterial({map:t,transparent:true,opacity:0.05+((k*7)%5)*0.012,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,color:0xd8f6ff,fog:false}));
+        m.position.set(-5+k*1.3+((k*37)%10)/10, 3.2, -3+((k*53)%60)/10); m.rotation.set(0.0, k*0.7, 0.22+((k*13)%7)*0.02); m.userData.ph=k*1.7; scene.add(m); st.rays.push(m); } }
+    // sand kicked up when something lands on the sea floor
+    { const n=360, pos=new Float32Array(n*3).fill(-99); const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(pos,3));
+      st.puff={pts:new THREE.Points(g,new THREE.PointsMaterial({color:0xcfc2a2,size:0.018,transparent:true,opacity:0.8,depthWrite:false})), v:new Float32Array(n*3), life:new Float32Array(n), next:0};
+      scene.add(st.puff.pts); }
+    // gravel and shell grit scattered over the sand, more of it away from the survey area
+    { const g=new THREE.IcosahedronGeometry(1,1), q=g.attributes.position;
+      for(let i=0;i<q.count;i++){const x=q.getX(i),y=q.getY(i),z=q.getZ(i); const f=1+0.22*Math.sin(x*4.1+1.3)*Math.cos(z*3.3)+0.1*Math.sin(y*6); q.setXYZ(i,x*f,y*f*0.55,z*f)}
+      g.computeVertexNormals();
+      const N=2600, mat=new THREE.MeshStandardMaterial({roughness:0.92, map:tex('paverC',{repeat:[0.3,0.3]})});
+      const im=new THREE.InstancedMesh(g,mat,N); const m4=new THREE.Matrix4(), qq=new THREE.Quaternion(), e=new THREE.Euler(), col=new THREE.Color();
+      let seed=7; const rnd=()=>(seed=(seed*16807)%2147483647)/2147483647;
+      for(let i=0;i<N;i++){ const r=Math.pow(rnd(),0.7)*14, a=rnd()*Math.PI*2, sc=0.004+Math.pow(rnd(),3)*(r>4?0.06:0.022);
+        e.set(rnd()*0.4,rnd()*6.28,rnd()*0.4); qq.setFromEuler(e); m4.compose(new THREE.Vector3(Math.cos(a)*r,sc*0.2,Math.sin(a)*r),qq,new THREE.Vector3(sc,sc,sc)); im.setMatrixAt(i,m4);
+        const k=rnd(); col.setRGB(0.42+k*0.35,0.4+k*0.32,0.36+k*0.26); if(rnd()<0.18) col.setRGB(0.85,0.82,0.74); im.setColorAt(i,col); }
+      im.castShadow=true; im.receiveShadow=true; scene.add(im); }
     // rocks & rubble outside the survey area
     const rg=new THREE.IcosahedronGeometry(1,3); const rp=rg.attributes.position;
     for(let k=0;k<34;k++){ const g=rg.clone(), q=g.attributes.position; const seed=k*12.9898;
@@ -119,7 +151,8 @@ export function create(stage, kind, params, onPick, hooks){
     M.tray = woodMat(0xf3dfc2,[0.8,0.8],Math.PI/2,0.55);
     const solid=(color,rot)=>new THREE.MeshStandardMaterial({color,map:tex('woodS',{rot}),roughnessMap:tex('woodSR',{srgb:false,rot}),bumpMap:tex('woodSR',{srgb:false,rot}),bumpScale:0.4,roughness:0.85});
     M.beech = solid(0xf4dcb6,0); M.walnut = solid(0x6f4a33,Math.PI/2);
-    const t = new THREE.Mesh(new RoundedBoxGeometry(30,0.8,20,2,0.08), M.table); t.position.y=-0.4; t.receiveShadow=true; scene.add(t);
+    // the blocks sit on a big wooden table; the robot factory brings its own concrete floor
+    if(!robots){ const t = new THREE.Mesh(new RoundedBoxGeometry(30,0.8,20,2,0.08), M.table); t.position.y=-0.4; t.receiveShadow=true; scene.add(t); }
   }
 
   /* ---------- builders ---------- */
@@ -149,7 +182,10 @@ export function create(stage, kind, params, onPick, hooks){
     st.anchors.unit=()=>grp.localToWorld(new THREE.Vector3(-a/2+0.5,0.35,-b/2+0.5));
     st.dims=[{p:()=>grp.localToWorld(new THREE.Vector3(0,0.05,b/2+0.75)),t:`长 ${a} 米`},{p:()=>grp.localToWorld(new THREE.Vector3(a/2+0.75,0.05,0)),t:`宽 ${b} 米`}];
     const R=Math.max(a,b)/2+2.5; Object.assign(sun.shadow.camera,{left:-R,right:R,top:R,bottom:-R,near:1,far:60}); sun.shadow.camera.updateProjectionMatrix();
-    const ab=a+'x'+b; if(st.lastAB!==ab){ st.lastAB=ab; orbit.dist=clamp(Math.max(a,b)*1.45+5,orbit.min,orbit.max); orbit.target.set(0,0.2,0); }
+    // hands-on: the field's corner is the handle; while the child drags it the camera holds still
+    st.frameObj=grp; st.corner=()=>grp.localToWorld(new THREE.Vector3(a/2,0.05,b/2)); st.toDims=(x,z)=>({a:Math.round(2*Math.abs(x)),b:Math.round(2*Math.abs(z))});
+    st.fit=()=>clamp(Math.max(st.params.a,st.params.b)*1.45+5,orbit.min,orbit.max);
+    const ab=a+'x'+b; if(st.lastAB!==ab && !st.task){ st.lastAB=ab; orbit.dist=clamp(Math.max(a,b)*1.45+5,orbit.min,orbit.max); orbit.target.set(0,0.2,0); }
     buildLabels();
   }
   function tapeTexture(P){
@@ -201,13 +237,20 @@ export function create(stage, kind, params, onPick, hooks){
     const h0=holes[0]||[0,0]; st.burrow=new THREE.Vector3(h0[0],0,h0[1]);
     const hit=new THREE.Mesh(new THREE.CircleGeometry(0.2,24),new THREE.MeshBasicMaterial({visible:false})); hit.rotation.x=-Math.PI/2; hit.position.set(h0[0],0.01,h0[1]);
     hit.userData={kind:'shrimp'}; grp.add(hit); st.pickables.push(hit);
+    // the animal that lives in the burrow: a jointed photoreal relief rig (organism.js)
+    st.org?.dispose(); st.org=null;
+    if(hooks.organism){ const dir=new THREE.Vector2(-h0[0],-h0[1]); if(dir.lengthSq()<1e-6) dir.set(1,0); dir.normalize();
+      const pivot=new THREE.Group(); pivot.position.set(h0[0],0.004,h0[1]); grp.add(pivot);
+      st.org=createOrganism({parent:pivot, o:hooks.organism, outDir:dir, puff:(x,z,n,sp,up)=>puff(x,z,n,sp,up), reduced, stage}); st.orgDir=dir; }
     st.anchors.fence=()=>grp.localToWorld(new THREE.Vector3(0,0.35,b/2));
     st.anchors.tile=()=>grp.localToWorld(new THREE.Vector3(0.5,0.3,0.5));
     st.anchors.unit=()=>grp.localToWorld(new THREE.Vector3(a/2-0.5,0.3,b/2-0.5));
-    st.anchors.shrimp=()=>grp.localToWorld(new THREE.Vector3(h0[0],0.12,h0[1]));
+    st.anchors.shrimp=()=>st.org&&st.org.ready ? st.org.anchor() : grp.localToWorld(new THREE.Vector3(h0[0],0.12,h0[1]));
     st.dims=[{p:()=>grp.localToWorld(new THREE.Vector3(0,0.05,b/2+0.45)),t:`长 ${a} 米`},{p:()=>grp.localToWorld(new THREE.Vector3(a/2+0.45,0.05,0)),t:`宽 ${b} 米`}];
     const R=Math.max(a,b)/2+2; Object.assign(sun.shadow.camera,{left:-R,right:R,top:R,bottom:-R,near:1,far:40}); sun.shadow.camera.updateProjectionMatrix();
-    const ab=a+'x'+b; if(st.lastAB!==ab){ st.lastAB=ab; orbit.dist=clamp(Math.max(a,b)*1.25+3,orbit.min,orbit.max); orbit.target.set(0,0,0); }
+    st.frameObj=grp; st.corner=()=>grp.localToWorld(new THREE.Vector3(a/2,0.05,b/2)); st.toDims=(x,z)=>({a:Math.round(2*Math.abs(x)),b:Math.round(2*Math.abs(z))});
+    st.fit=()=>clamp(Math.max(st.params.a,st.params.b)*1.25+3,orbit.min,orbit.max);
+    const ab=a+'x'+b; if(st.lastAB!==ab && !st.task){ st.lastAB=ab; orbit.dist=clamp(Math.max(a,b)*1.25+3,orbit.min,orbit.max); orbit.target.set(0,0,0); }
     buildLabels();
   }
   function buildWheel(){
@@ -237,6 +280,7 @@ export function create(stage, kind, params, onPick, hooks){
     w.group.rotation.y += reduced()? dy : dy*0.25; w.spin.rotation.x = d / w.r; }
 
   function buildArray(){
+    if(robots) return buildRobots();
     clear(); const {r,c} = st.params, s=1, gap=0.14, W=c*(s+gap)-gap, D=r*(s+gap)-gap;
     const tray = new THREE.Group(); world.add(tray); st.tray=tray; tray.rotation.y = st.rotTarget;
     const board = new THREE.Mesh(new RoundedBoxGeometry(W+0.9,0.16,D+0.9,2,0.04), M.tray); board.position.y=0.08; board.receiveShadow=true; board.castShadow=true; tray.add(board);
@@ -250,9 +294,27 @@ export function create(stage, kind, params, onPick, hooks){
     st.anchors.col=()=>tray.localToWorld(new THREE.Vector3(-W/2+0.5,1.5,-D/2-0.95));
     st.anchors.total=()=>tray.localToWorld(new THREE.Vector3(0,2.0,0));
     const R=Math.max(W,D)/2+3; Object.assign(sun.shadow.camera,{left:-R,right:R,top:R,bottom:-R,near:1,far:40}); sun.shadow.camera.updateProjectionMatrix();
-    orbit.target.set(0,0.6,0); const k=r+'x'+c; if(st.lastAB!==k){st.lastAB=k; orbit.dist=clamp(Math.max(W,D)*1.25+5,orbit.min,orbit.max);}
+    const pitch=s+gap; st.frameObj=tray; st.corner=()=>tray.localToWorld(new THREE.Vector3(W/2+0.3,0.16+s,D/2+0.3));
+    st.toDims=(x,z)=>({c:Math.round((2*(Math.abs(x)-0.3)+gap)/pitch), r:Math.round((2*(Math.abs(z)-0.3)+gap)/pitch)});
+    st.fit=()=>clamp(Math.max(st.params.c,st.params.r)*pitch*1.25+5,orbit.min,orbit.max);
+    orbit.target.set(0,0.6,0); const k=r+'x'+c; if(st.lastAB!==k && !st.task){st.lastAB=k; orbit.dist=clamp(Math.max(W,D)*1.25+5,orbit.min,orbit.max);}
     buildLabels();
   }
+  // the robot factory: an industrial arm sets the array down row by row (robot-cell.js)
+  function buildRobots(){
+    st.cell?.dispose(); clear();
+    const cell=createRobotCell({world, params:st.params, reduced, sun, hooks}); st.cell=cell;
+    st.pickables.push(...cell.pickables); Object.assign(st.anchors, cell.anchors);
+    const R=cell.shadowR; Object.assign(sun.shadow.camera,{left:-R,right:R,top:R,bottom:-R,near:1,far:40}); sun.shadow.camera.updateProjectionMatrix();
+    orbit.min=cell.view.min; orbit.target.copy(cell.view.target); if(!def){ orbit.az=cell.view.az; orbit.el=cell.view.el; }
+    st.corner=null; st.fit=null;
+    const k=st.params.r+'x'+st.params.c; if(st.lastAB!==k && !st.task){st.lastAB=k; orbit.dist=clamp(cell.view.dist,orbit.min,orbit.max);}
+    buildLabels();
+  }
+  function puff(x,z,count,spread,up){ if(!st.puff||reduced()) return; const p=st.puff, a=p.pts.geometry.attributes.position, n=st.puff.life.length;
+    for(let i=0;i<count;i++){ const k=p.next=(p.next+1)%n, ang=Math.random()*Math.PI*2, r=Math.random()*spread;
+      a.setXYZ(k,x+Math.cos(ang)*r*0.3,0.01,z+Math.sin(ang)*r*0.3); p.v[k*3]=Math.cos(ang)*r; p.v[k*3+1]=up*(0.4+Math.random()); p.v[k*3+2]=Math.sin(ang)*r; p.life[k]=1.2+Math.random()*1.4; }
+    a.needsUpdate=true; }
   function build(){ reef ? buildReef() : garden ? buildGarden() : buildArray(); if(!def) def={az:orbit.az,el:orbit.el,dist:orbit.dist}; }
 
   /* ---------- labels ---------- */
@@ -266,19 +328,20 @@ export function create(stage, kind, params, onPick, hooks){
     const put=(el,v,isHs)=>{ const p=v.clone().project(cam); if(p.z>1){el.hidden=true;return} el.hidden = isHs && st.hideLabels; el.style.left=((p.x+1)/2*rect.width)+'px'; el.style.top=((1-p.y)/2*rect.height)+'px'; };
     Object.entries(st.labels).forEach(([id,el])=>st.anchors[id]&&put(el,st.anchors[id](),true));
     st.dims.forEach(d=>d.el&&put(d.el,d.p(),false));
+    if(st.handle){ if(st.task&&st.corner) put(st.handle,st.corner(),false); else st.handle.hidden=true; }
   }
 
   /* ---------- input: drag rotate, pinch/wheel zoom, tap pick ---------- */
   const cv = renderer.domElement, ptrs=new Map(); let down=null, pinch0=null;
-  cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});if(ptrs.size===1)down={x:e.clientX,y:e.clientY,t:performance.now(),moved:false};if(ptrs.size===2){const [p,q]=[...ptrs.values()];pinch0={d:Math.hypot(p.x-q.x,p.y-q.y),dist:orbit.dist};if(down)down.moved=true}});
+  cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});if(ptrs.size===1)down={x:e.clientX,y:e.clientY,t:performance.now(),moved:false};if(ptrs.size===2){goal=null;const [p,q]=[...ptrs.values()];pinch0={d:Math.hypot(p.x-q.x,p.y-q.y),dist:orbit.dist};if(down)down.moved=true}});
   cv.addEventListener('pointermove',e=>{if(!ptrs.has(e.pointerId))return;const p=ptrs.get(e.pointerId),dx=e.clientX-p.x,dy=e.clientY-p.y;ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
     if(ptrs.size===2&&pinch0){const [u,v]=[...ptrs.values()];orbit.dist=clamp(pinch0.dist*pinch0.d/Math.max(1,Math.hypot(u.x-v.x,u.y-v.y)),orbit.min,orbit.max);return}
     if(down&&Math.hypot(e.clientX-down.x,e.clientY-down.y)>6)down.moved=true;
-    if(down&&down.moved){orbit.az-=dx*0.008;orbit.el=clamp(orbit.el+dy*0.006,orbit.elMin,orbit.elMax)}});
+    if(down&&down.moved){goal=null;follow=false;orbit.az-=dx*0.008;orbit.el=clamp(orbit.el+dy*0.006,orbit.elMin,orbit.elMax)}});
   const ray=new THREE.Raycaster();
   cv.addEventListener('pointerup',e=>{ptrs.delete(e.pointerId);if(ptrs.size<2)pinch0=null;
     if(ptrs.size===0&&down){ if(!down.moved&&performance.now()-down.t<450){const r=cv.getBoundingClientRect();ray.setFromCamera(new THREE.Vector2(((e.clientX-r.left)/r.width)*2-1,-((e.clientY-r.top)/r.height)*2+1),cam);
-      const hit=ray.intersectObjects(st.pickables,false).find(h=>h.object.visible); if(hit&&onPick)onPick(hit.object.userData)} down=null }});
+      const hit=ray.intersectObjects(st.pickables,false).find(h=>h.object.visible); if(hit&&hit.object.userData.kind==='shrimp'&&st.org){ st.org.cmd('tap'); } if(hit&&onPick)onPick(hit.object.userData)} down=null }});
   cv.addEventListener('pointercancel',e=>{ptrs.delete(e.pointerId);down=null;pinch0=null});
   cv.addEventListener('wheel',e=>{e.preventDefault();orbit.dist=clamp(orbit.dist*(1+Math.sign(e.deltaY)*0.08),orbit.min,orbit.max)},{passive:false});
 
@@ -290,23 +353,39 @@ export function create(stage, kind, params, onPick, hooks){
     if(st.dead) return; st.raf=requestAnimationFrame(frame); const dt=Math.min(0.05,clock.getDelta()), now=performance.now();
     if(reef){
       st.caus.forEach((m,i)=>{m.map.offset.x+=dt*(i?0.011:-0.007);m.map.offset.y+=dt*(i?0.006:0.009)});
+      st.rays.forEach(m=>{ m.rotation.z=0.24+Math.sin(now*0.00021+m.userData.ph)*0.05; m.material.opacity=Math.max(0.02,m.material.opacity+Math.sin(now*0.0004+m.userData.ph)*0.0004); });
+      { const p=st.puff, a=p.pts.geometry.attributes.position; let live=false;
+        for(let k=0;k<p.life.length;k++){ if(p.life[k]<=0) continue; live=true; p.life[k]-=dt; const drag=Math.exp(-dt*2.2);
+          p.v[k*3]*=drag; p.v[k*3+2]*=drag; p.v[k*3+1]=p.v[k*3+1]*drag-dt*0.12;
+          let y=a.getY(k)+p.v[k*3+1]*dt; if(y<0.003){y=0.003;p.v[k*3+1]=0}
+          a.setXYZ(k,a.getX(k)+p.v[k*3]*dt,y,a.getZ(k)+p.v[k*3+2]*dt); if(p.life[k]<=0) a.setY(k,-99); }
+        if(live) a.needsUpdate=true; }
+      // a few grains trickle out of the burrow now and then: something lives in there
+      if(st.burrow && Math.random()<dt*0.6) puff(st.burrow.x,st.burrow.z,4,0.08,0.05);
+      if(st.org){ for(const m of st.org.pickables) if(!st.pickables.includes(m)) st.pickables.push(m); st.org.update(dt, now);
+        if(st.orgFollow && st.org.ready && !goal){ const a=st.org.center(); orbit.target.lerp(a.setY(Math.max(0.02,a.y*0.5)),Math.min(1,dt*1.2)); } }
       const sp=st.snow.geometry.attributes.position; for(let i=0;i<sp.count;i++){let y=sp.getY(i)-dt*0.04; if(y<0)y=6; sp.setY(i,y); sp.setX(i,sp.getX(i)+Math.sin(now*0.0003+i)*dt*0.03)} sp.needsUpdate=true;
-      if(st.walk){ const P=2*(st.params.a+st.params.b); st.walk.d=Math.min(P, st.walk.d+(reduced()?P:dt*0.9));
-        const p=pathAt(st.walk.d,0); st.reel.position.set(p.x,0.25,p.z); st.reel.rotation.y=p.yaw-Math.PI/2; st.reel.children[0].rotation.y=st.walk.d*8;
+      if(st.walk){ const P=2*(st.params.a+st.params.b); st.walk.d=Math.min(P, st.walk.d+(reduced()?P:dt*1.3));
+        const p=pathAt(st.walk.d,0); st.reel.position.set(p.x,0.25+Math.sin(now*0.004)*0.02,p.z);
+        if(follow){ orbit.target.lerp(new THREE.Vector3(p.x*0.55,0,p.z*0.55),Math.min(1,dt*1.5)); }
+        if(Math.random()<dt*6) puff(p.x,p.z,2,0.12,0.06); st.reel.rotation.y=p.yaw-Math.PI/2; st.reel.children[0].rotation.y=st.walk.d*8;
         st.tape.forEach(m=>{m.visible=m.userData.d<st.walk.d});
-        hooks.onWalk && hooks.onWalk(st.walk.d); if(st.walk.d>=P){ st.walk=null; hooks.onWalkDone&&hooks.onWalkDone(); } }
+        hooks.onWalk && hooks.onWalk(st.walk.d); if(st.walk.d>=P){ st.walk=null; if(follow){ follow=false; glide({target:new THREE.Vector3(0,reef?0:0.2,0)}); } hooks.onWalkDone&&hooks.onWalkDone(); } }
       if(st.fill){ const f=st.fill, n=st.tiles.length, per=reduced()?0:0.22;
         while(f.next<n && (now-f.t0)/1000 >= f.next*per){ const m=st.tiles[f.next]; m.visible=true; m.userData.t0=now; f.next++; hooks.onFill&&hooks.onFill(f.next); }
-        st.tiles.forEach(m=>{ if(m.visible&&m.userData.t0){ const t=(now-m.userData.t0)/900; const e=Math.min(1,t); m.position.y=0.012+0.8*(1-easeOut(e)); m.rotation.z=(1-e)*0.25*Math.sin(t*9); m.rotation.x=(1-e)*0.18*Math.cos(t*7); if(t>=1){m.userData.t0=0;m.rotation.set(0,0,0)} } });
+        // quadrats sink through water: slow fall with drag, a little rocking, then a puff of sand on landing
+        st.tiles.forEach(m=>{ if(m.visible&&m.userData.t0){ const t=(now-m.userData.t0)/1100; const e=Math.min(1,t); m.position.y=0.012+0.9*Math.pow(1-e,1.6); m.rotation.z=(1-e)*0.22*Math.sin(t*7.5); m.rotation.x=(1-e)*0.16*Math.cos(t*6.1); if(t>=1){m.userData.t0=0;m.rotation.set(0,0,0); puff(m.position.x,m.position.z,26,0.55,0.18);} } });
         if(f.next>=n && st.tiles.every(m=>!m.userData.t0)){ st.fill=null; hooks.onFillDone&&hooks.onFillDone(); } }
     } else if(garden){
       if(st.walk){ const P=2*(st.params.a+st.params.b); st.walk.d=Math.min(P, st.walk.d+(reduced()?P:dt*1.3)); placeWheel(st.walk.d);
+        if(follow){ const p=pathAt(st.walk.d); orbit.target.lerp(new THREE.Vector3(p.x*0.5,0.2,p.z*0.5),Math.min(1,dt*1.5)); }
         const m=Math.floor(st.walk.d+1e-6); while(st.walk.marks<m){ st.walk.marks++; const p=pathAt(st.walk.marks); const dot=new THREE.Mesh(new THREE.CircleGeometry(0.035,20),M.chalk); dot.rotation.x=-Math.PI/2; dot.position.set(p.x,0.006,p.z); st.chalk.add(dot); }
-        hooks.onWalk && hooks.onWalk(st.walk.d); if(st.walk.d>=P){ st.walk=null; hooks.onWalkDone&&hooks.onWalkDone(); } }
+        hooks.onWalk && hooks.onWalk(st.walk.d); if(st.walk.d>=P){ st.walk=null; if(follow){ follow=false; glide({target:new THREE.Vector3(0,reef?0:0.2,0)}); } hooks.onWalkDone&&hooks.onWalkDone(); } }
       if(st.fill){ const f=st.fill; const n=st.tiles.length; const per=reduced()?0:0.16;
         while(f.next<n && (now-f.t0)/1000 >= f.next*per){ const m=st.tiles[f.next]; m.visible=true; m.userData.t0=now; f.next++; hooks.onFill&&hooks.onFill(f.next); }
         st.tiles.forEach(m=>{ if(m.visible&&m.userData.t0){ const t=(now-m.userData.t0)/420; m.position.y=0.085+0.6*settle(t); if(t>=1)m.userData.t0=0; } });
         if(f.next>=n && st.tiles.every(m=>!m.userData.t0)){ st.fill=null; hooks.onFillDone&&hooks.onFillDone(); } }
+    } else if(st.cell){ st.cell.update(dt, now);
     } else {
       if(st.tray){ const d=st.rotTarget-st.tray.rotation.y; st.tray.rotation.y += reduced()? d : d*Math.min(1,dt*4); }
       if(st.reveal){ const f=st.reveal, {r,c}=st.params, rowDur=reduced()?0:0.9;
@@ -315,24 +394,61 @@ export function create(stage, kind, params, onPick, hooks){
         if(f.rows>=r && st.cubes.every(m=>!m.userData.t0 || now-m.userData.t0>500)){ st.reveal=null; st.cubes.forEach(m=>{m.userData.t0=0;m.position.y=m.userData.baseY}); hooks.onRevealDone&&hooks.onRevealDone(); } }
       st.cubes && st.cubes.forEach(m=>{ if(m.userData.t0){ const t=(now-m.userData.t0)/450; if(t<0){m.position.y=m.userData.baseY+1.6;return} m.position.y=m.userData.baseY+1.6*settle(t); } });
     }
+    if(goal){ const k=Math.min(1,dt*2.4); let da=goal.az-orbit.az; while(da>Math.PI)da-=2*Math.PI; while(da<-Math.PI)da+=2*Math.PI;
+      orbit.az+=da*k; orbit.el+=(goal.el-orbit.el)*k; orbit.dist+=(goal.dist-orbit.dist)*k; orbit.target.lerp(goal.target,k);
+      if(Math.abs(da)+Math.abs(goal.el-orbit.el)+Math.abs(goal.dist-orbit.dist)+orbit.target.distanceTo(goal.target)<0.002) goal=null; }
     const o=orbit; cam.position.set(o.target.x+o.dist*Math.cos(o.el)*Math.sin(o.az), o.target.y+o.dist*Math.sin(o.el), o.target.z+o.dist*Math.cos(o.el)*Math.cos(o.az)); cam.lookAt(o.target);
+    // underwater the viewer drifts very slightly, like a diver holding position
+    if(reef && !reduced()){ cam.position.y+=Math.sin(now*0.0007)*0.015*o.dist/6; cam.rotation.z+=Math.sin(now*0.00043)*0.004; }
     renderer.render(scene,cam); placeLabels();
+    if(st.org&&st.org.placeLabels){ const rect=renderer.domElement.getBoundingClientRect(); st.org.placeLabels(v=>{ const p=v.project(cam); return {x:(p.x+1)/2*rect.width, y:(1-p.y)/2*rect.height}; }); }
   }
   build(); frame();
 
   return {
     get params(){return st.params},
     setParams(p){ st.params={...p}; st.walk=null; st.fill=null; st.reveal=null; build(); },
-    walk(){ if(!garden)return; if(reef){st.tape.forEach(m=>m.visible=false)} else st.chalk.clear(); st.walk={d:0,marks:0}; },
-    focusShrimp(){ if(!st.burrow)return; orbit.target.copy(st.burrow); orbit.dist=1.1; orbit.el=0.75; },
+    walk(){ if(!garden)return; if(reef){st.tape.forEach(m=>m.visible=false)} else st.chalk.clear(); st.walk={d:0,marks:0}; follow=true; },
+    focusShrimp(){ if(!st.burrow)return; follow=false;
+      // an animal that says how much ground it covers (a metre-long worm) is framed by that, lower down to see it rise
+      const f=st.org&&st.org.ready&&st.org.frame?st.org.frame():null, t=st.burrow.clone();
+      if(st.orgDir) t.add(new THREE.Vector3(st.orgDir.x,0,st.orgDir.y).multiplyScalar(f?f.focus/2:0.12));
+      glide({target:t, dist:f?Math.max(0.36,f.focus*1.7):st.org?0.36:1.1, el:f?0.62:st.org?0.9:0.62}); puff(st.burrow.x,st.burrow.z,30,0.25,0.12);
+      if(st.org){ st.orgFollow=true; setTimeout(()=>st.org&&st.org.cmd('show'), reduced()?0:600); } },
+    organism(cmd){ if(!st.org) return; if(cmd==='anatomy'){ st.orgFollow=true; const f=st.org.frame?st.org.frame():null; glide({dist:f?Math.max(0.46,f.anatomy*1.25):0.46, el:1.3}); } st.org.cmd(cmd); },
+    organismState(){ return st.org&&st.org.ready ? {mode:st.org.mode, exploded:!!st.org.exploded} : null; },
+    // a still picture of the setup (a challenge's illustration): the reef's tape laid round the edge, nothing moving
+    // view: overview (the default angle), top (straight down, as far as the orbit goes) or side (nearly level)
+    still(view){ st.walk=null; st.fill=null; if(reef) st.tape.forEach(m=>{m.visible=true}); if(view==='top') orbit.el=orbit.elMax; else if(view==='side') orbit.el=Math.max(orbit.elMin,0.22); },
     fill(){ if(!garden)return; st.tiles.forEach(m=>{m.visible=false;m.userData.t0=0}); st.fill={next:0,t0:performance.now()}; },
-    reveal(){ if(garden)return; st.cubes.forEach(m=>{m.visible=false;m.userData.t0=0}); st.reveal={rows:0,t0:performance.now()}; },
-    setRot(on){ st.rotTarget = on? Math.PI/2 : 0; },
+    reveal(){ if(garden)return; if(st.cell){ st.cell.reveal(); return; } st.cubes.forEach(m=>{m.visible=false;m.userData.t0=0}); st.reveal={rows:0,t0:performance.now()}; },
+    setRot(on){ st.rotTarget = on? Math.PI/2 : 0; st.cell?.setRot(on); },
     showAllTiles(n){ if(garden) st.tiles.forEach((m,i)=>{m.visible=i<n;m.position.y=0.085}); },
-    reset(){ if(def){ Object.assign(orbit,def); if(garden) orbit.target.set(0,reef?0:0.2,0); } },
-    zoom(f){ orbit.dist=clamp(orbit.dist*f,orbit.min,orbit.max); },
+    reset(){ if(def){ follow=false; st.orgFollow=false; glide({...def, target:st.cell?st.cell.view.target.clone():new THREE.Vector3(0,reef?0:garden?0.2:0.6,0)}); } },
+    zoom(f){ if(goal) goal.dist=clamp(goal.dist*f,orbit.min,orbit.max); else orbit.dist=clamp(orbit.dist*f,orbit.min,orbit.max); },
     toggleLabels(){ st.hideLabels=!st.hideLabels; },
-    dispose(){ st.dead=true; cancelAnimationFrame(st.raf); ro.disconnect(); stage.querySelectorAll('.hs,.dimlab').forEach(n=>n.remove());
+    /* Hands-on question: the child sizes the scene by dragging its corner handle (a marker, not a scene object) or with
+       the player's steppers. ctrls: engine params the child may change; lim: their [min,max]; cb gets the new params. */
+    taskOn(ctrls, lim, cb){
+      st.task={ctrls,lim,cb}; if(reef) st.tape.forEach(m=>{m.visible=true});
+      if(!st.handle){
+        const h=document.createElement('button'); h.className='taskhandle'; h.type='button'; h.setAttribute('aria-label','拖这里改变大小'); h.textContent='⤡'; stage.appendChild(h); st.handle=h;
+        const plane=new THREE.Plane(new THREE.Vector3(0,1,0),0), hit=new THREE.Vector3();
+        h.addEventListener('pointerdown',e=>{ e.stopPropagation(); e.preventDefault(); h.setPointerCapture(e.pointerId); st.drag=true; goal=null; h.classList.add('on'); });
+        h.addEventListener('pointermove',e=>{ if(!st.drag||!st.task||!st.corner) return;
+          const r=cv.getBoundingClientRect(); ray.setFromCamera(new THREE.Vector2(((e.clientX-r.left)/r.width)*2-1,-((e.clientY-r.top)/r.height)*2+1),cam);
+          plane.constant=-st.corner().y; if(!ray.ray.intersectPlane(plane,hit)) return;
+          const want=st.toDims(...(()=>{ const l=st.frameObj.worldToLocal(hit.clone()); return [l.x,l.z]; })()), next={...st.params};
+          for(const k of st.task.ctrls) if(k in want) next[k]=clamp(want[k],st.task.lim[k][0],st.task.lim[k][1]);
+          if(st.task.ctrls.some(k=>next[k]!==st.params[k])){ st.params=next; build(); if(reef) st.tape.forEach(m=>{m.visible=true}); st.task.cb({...st.params}); } });
+        const up=()=>{ if(!st.drag) return; st.drag=false; h.classList.remove('on'); if(st.fit) glide({dist:st.fit()}); };
+        h.addEventListener('pointerup',up); h.addEventListener('pointercancel',up);
+      }
+      if(st.fit) glide({dist:st.fit()});
+    },
+    taskSet(p){ st.params={...st.params,...p}; st.walk=null; st.fill=null; st.reveal=null; build(); if(reef) st.tape.forEach(m=>{m.visible=true}); if(st.fit) glide({dist:st.fit()}); },
+    taskOff(){ st.task=null; st.drag=false; st.handle?.remove(); st.handle=null; },
+    dispose(){ st.dead=true; st.handle?.remove(); st.org?.dispose(); st.cell?.dispose(); cancelAnimationFrame(st.raf); ro.disconnect(); stage.querySelectorAll('.hs,.dimlab').forEach(n=>n.remove());
       scene.traverse(n=>{ if(n.isMesh){ n.geometry.dispose(); } }); envRT.dispose(); pm.dispose(); renderer.dispose(); renderer.domElement.remove(); }
   };
 }

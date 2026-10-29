@@ -18,10 +18,22 @@ describe('theme rotation', () => {
     expect(s.theme.id).toBe('reef');
     expect(s.wish.options[0]).toBe('还是螳螂虾');
   });
-  it("puts the child's own next-lesson wish first, and notes skins still to build", () => {
+  it("puts the child's own next-lesson wish first: without its scene, the robot itself becomes the subject to make", () => {
     const s = run('gege', [io('IO-0002', 'gege', '螳螂虾', '近期最喜欢'), io('IO-0009', 'gege', '机器人', '下一课心愿')]);
     expect(s.notes.join()).toContain('扫地机器人清扫');
-    expect(s.theme.id).toBe('reef'); // robot skin not built yet, so the next usable interest is used
+    expect(s.theme).toMatchObject({ name: '机器人', skin: 'garden', interest_refs: ['IO-0009'], subject: { name: '机器人', kind: 'object' } });
+    expect(s.theme.id).toMatch(/^topic-/);
+  });
+  it('does what the parent named, for either child, before any interest', () => {
+    const worm = run('gege', [io('IO-0003', 'gege', '螳螂虾', '近期最喜欢'), io('IO-0010', 'gege', '博比特虫', '家长指定')]);
+    expect(worm.theme).toMatchObject({ name: '博比特虫', interest_refs: ['IO-0010'], subject: { name: '博比特虫', kind: 'organism' } });
+    expect(worm.theme.subject!.asset_id).toBe(run('gege', [io('IO-0011', 'gege', '博比特虫', '家长指定')]).theme.subject!.asset_id); // one id per subject
+    // 妹妹's robot lesson for multiplication gets the real robot factory, not blocks
+    const robot = run('meimei', [io('IO-0006', 'gege', '机器人', '喜欢'), io('IO-0012', 'meimei', '机器人', '家长指定')], [], 'ArrayMultiplier');
+    expect(robot.theme).toMatchObject({ id: 'robot_factory', skin: 'robot_factory', interest_refs: ['IO-0012'] });
+    expect(run('meimei', [io('IO-0013', 'meimei', '工厂里的机器人', '家长指定')], [], 'ArrayMultiplier').theme.skin).toBe('robot_factory');
+    // for perimeter and area there is no robot scene yet: the robot itself becomes the subject to make
+    expect(run('meimei', [io('IO-0012', 'meimei', '机器人', '家长指定')]).theme).toMatchObject({ name: '机器人', subject: { kind: 'object' } });
   });
   it("never uses a sibling's interests", () => {
     const s = run('meimei', [io('IO-0002', 'gege', '螳螂虾', '近期最喜欢')], [], 'ArrayMultiplier');

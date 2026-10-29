@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { evalExpr, ExprError, loadContext, validate } from '../packages/validator/src/index.js';
+import { evalExpr, ExprError, isNewLesson, loadContext, validate } from '../packages/validator/src/index.js';
 import type { LessonSpec } from '../packages/schema/src/index.js';
 
 const root = join(import.meta.dirname, '..');
@@ -23,15 +23,25 @@ describe('safe formulas', () => {
 });
 
 describe('sample lessons', () => {
-  it('哥哥 L-PA@1.0 passes with no warnings', () => {
+  it('哥哥 L-PA@1.0 passes; written before the question-type and picture rules, it only warns about them (V20, V23)', () => {
     const r = validate(load('L-PA', '1.0'), ctx());
     expect(r.ok).toBe(true);
-    expect(r.warnings).toBe(0);
+    expect(r.results.filter(x => !x.ok).map(x => x.id)).toEqual(['V20', 'V23']);
+    expect(isNewLesson('L-PA@1.0')).toBe(false);
   });
-  it('妹妹 L-ARR@1.0 passes and warns about the family-only wood texture', () => {
+  it('妹妹 L-ARR@1.0 passes and warns about the family-only wood texture (and, written before them, the question types and pictures)', () => {
     const r = validate(load('L-ARR', '1.0'), ctx());
     expect(r.ok).toBe(true);
-    expect(r.results.filter(x => !x.ok).map(x => x.id)).toEqual(['V12']);
+    expect(r.results.filter(x => !x.ok).map(x => x.id)).toEqual(['V12', 'V20', 'V23']);
+  });
+  it('the example L-PA@1.1 has every question type and picture, and passes with nothing to warn about', () => {
+    const r = validate(load('L-PA', '1.1'), ctx(), { newLesson: true });
+    expect(r.results.filter(x => !x.ok).map(x => x.id)).toEqual([]);
+  });
+  it('a new lesson must follow the question-type and picture rules: V20 and V23 are errors for it', () => {
+    const r = validate(load('L-PA', '1.0'), ctx(), { newLesson: isNewLesson('L-PA-9@1.0') });
+    expect(r.ok).toBe(false);
+    expect(r.results.filter(x => !x.ok && x.level === 'error').map(x => x.id)).toEqual(['V20', 'V23']);
   });
 });
 
@@ -60,9 +70,76 @@ describe('each rule catches its failure', () => {
     const sp = clone(base); sp.hotspots[0].language_pack.zh = ' ';
     expect(failed(sp)).toContain('V04');
     const sp2 = clone(base); sp2.hotspots[0].language_pack.en = ['only one'];
-    const r = validate(sp2, ctx());
-    expect(r.ok).toBe(true);
-    expect(r.results.find(x => x.id === 'V05')?.ok).toBe(false);
+    expect(failed(sp2)).toContain('V05');
+    const sp3 = clone(base); sp3.learner_profile.language.cycle_enabled = false;
+    expect(failed(sp3)).toContain('V05');
+  });
+  it('V16 step time limits fit the lesson', () => {
+    const sp = clone(base); sp.learner_profile.est_minutes = [8, 10];
+    sp.timing = { steps: { explain: 60, demo: 240, challenge: 240, chat: 60 } };
+    expect(failed(sp)).not.toContain('V16');
+    sp.timing.steps!.demo = 400;
+    expect(failed(sp)).toContain('V16');
+  });
+  it('V17 every question has a step-by-step demo ending in the answer and a similar question to do alone', () => {
+    expect(failed(base)).not.toContain('V17');
+    const sp = clone(base); delete sp.challenges[0].worked_example;
+    expect(failed(sp)).toContain('V17');
+    const sp2 = clone(base); sp2.challenges[0].worked_example = { steps: ['卷尺走一圈。', '所以是 16 米。'] };
+    expect(validate(sp2, ctx()).results.find(r => r.id === 'V17')!.issues[0].msg).toContain('没说出答案 15');
+    const sp3 = clone(base); sp3.challenges[0].twin = { prompt: sp3.challenges[0].prompt, answers: sp3.challenges[0].answers };
+    expect(failed(sp3)).toContain('V17');
+    const sp4 = clone(base); sp4.challenges[0].twin!.answers = [{ field: 'X', value: 1 }];
+    expect(failed(sp4)).toContain('V17');
+    const sp5 = clone(base); delete sp5.challenges[1].twin;
+    expect(failed(sp5)).toContain('V17');
+  });
+  it('V18 a wrong answer comes with a real reason to keep going', () => {
+    expect(failed(base)).not.toContain('V18');
+    const sp = clone(base); delete sp.encouragement;
+    expect(failed(sp)).toContain('V18');
+    const sp2 = clone(base); sp2.encouragement = { persist: ['加油！', '螳螂虾的洞也是一点一点挖出来的。'] };
+    expect(failed(sp2)).toContain('V18');
+  });
+  /** L-PA with a hands-on first question (size the survey area 5 × 3 m) and choice questions after it. */
+  const handsOn = () => {
+    const sp = clone(base);
+    const [c0, c1, c2] = sp.challenges;
+    Object.assign(c0, { prompt: '把调查区摆成长 5 米、宽 3 米。', task: { type: 'build', start: { a: 2, b: 2 }, controls: ['a', 'b'] },
+      answers: [{ field: 'a', label: '长', value: 5, unit: '米' }, { field: 'b', label: '宽', value: 3, unit: '米' }],
+      worked_example: { steps: ['先把长拉到 5 米。', '再把宽拉到 3 米：长 5 米、宽 3 米。'] },
+      twin: { prompt: '把调查区摆成长 6 米、宽 2 米。', task: { type: 'build', start: { a: 1, b: 1 }, controls: ['a', 'b'] },
+        answers: [{ field: 'a', label: '长', value: 6, unit: '米' }, { field: 'b', label: '宽', value: 2, unit: '米' }] } });
+    delete c0.options;
+    for (const c of [c1, c2]) {
+      c.answers = [{ field: 'P', value: '16 米' }]; c.options = ['16 米', '15 米', '31 米'];
+      c.worked_example = { steps: ['一圈是 5 + 3 + 5 + 3。', '所以是 16 米。'] };
+      c.twin = { prompt: `${c.prompt}（换一块）`, answers: [{ field: 'P', value: '12 米' }], options: ['12 米', '8 米', '20 米'] };
+    }
+    return sp;
+  };
+  it('V20 mostly choice and hands-on questions, at most one fill-in, a hands-on one when the scene allows (warnings)', () => {
+    const sp = handsOn();
+    expect(failed(sp)).not.toContain('V20');
+    const v20 = (x: LessonSpec) => validate(x, ctx()).results.find(r => r.id === 'V20')!;
+    const noHands = clone(sp); delete noHands.challenges[0].task; delete noHands.challenges[0].twin!.task;
+    expect(v20(noHands).level).toBe('warn');
+    expect(v20(noHands).issues.map(i => i.msg)).toEqual(['这节课还没有动手题']);
+    const fills = clone(sp); delete fills.challenges[1].options; delete fills.challenges[2].options;
+    expect(v20(fills).issues).toHaveLength(1);
+    const many = clone(sp); many.challenges[1].options = ['1', '2', '3', '4', '5'];
+    expect(v20(many).issues).toHaveLength(1);
+  });
+  it('V21 a hands-on question can be done: allowed params, in range, not solved at the start, twin hands-on too', () => {
+    expect(failed(handsOn())).not.toContain('V21');
+    const msgs = (f: (sp: LessonSpec) => void) => { const sp = handsOn(); f(sp); return validate(sp, ctx()).results.find(r => r.id === 'V21')!.issues.map(i => i.msg).join(' | '); };
+    expect(msgs(sp => { sp.challenges[0].task!.controls = ['rows', 'a', 'b']; })).toContain('rows 不能让孩子改');
+    expect(msgs(sp => { delete sp.challenges[0].task!.start.b; })).toContain('start 缺少 b');
+    expect(msgs(sp => { sp.challenges[0].task!.start = { a: 5, b: 3 }; })).toContain('一开始就已经是答案了');
+    expect(msgs(sp => { sp.challenges[0].answers[0].value = 11; })).toContain('不是范围内的整数');
+    expect(msgs(sp => { sp.challenges[0].task!.controls = ['a']; })).toContain('答案要正好是孩子能改的');
+    expect(msgs(sp => { delete sp.challenges[0].twin!.task; })).toContain('同类题也要是');
+    expect(msgs(sp => { sp.scene_component_ids = ['ArrayMultiplier@1.0']; })).toContain('不能让孩子改');
   });
   it('V06 unknown component, unreviewed version, code in content', () => {
     const sp = clone(base); sp.scene_component_ids = ['FancyGame@1.0'];

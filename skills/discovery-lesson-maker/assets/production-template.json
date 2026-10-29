@@ -1,0 +1,101 @@
+{
+  "format": "discovery-production/1",
+  "topic": "",
+  "status": "draft",
+  "brief": {
+    "question": "",
+    "audience": "unknown",
+    "objectives": [],
+    "hostRules": [],
+    "assumptions": [],
+    "learningWeave": {
+      "chineseExpression": "",
+      "english": "",
+      "math": "",
+      "science": "",
+      "interest": "",
+      "confidence": "",
+      "emotionalSupport": ""
+    },
+    "experienceDesign": {
+      "centralQuestion": "",
+      "keyDiscovery": "",
+      "meaningfulOperation": "",
+      "changedRepresentation": "",
+      "transfer": "",
+      "freshnessComparedWithRecentLessons": "unknown"
+    }
+  },
+  "app": {
+    "status": "pending",
+    "schemaSource": null,
+    "capabilitiesSource": null,
+    "contentFile": null,
+    "nativeValidation": null
+  },
+  "scene": {
+    "entry": null,
+    "heroAsset": null,
+    "requiredCapabilities": [
+      "orbit",
+      "zoom",
+      "inspect-underside",
+      "reset-pose",
+      "play-action",
+      "pause-action"
+    ],
+    "verifiedCapabilities": [],
+    "limits": []
+  },
+  "assets": [],
+  "clips": [],
+  "sources": [],
+  "claims": [],
+  "reviews": {
+    "science": {
+      "status": "pending",
+      "evidence": []
+    },
+    "visual": {
+      "status": "pending",
+      "evidence": [],
+      "target": "按本轮真实感要求填写",
+      "observedRepresentation": null,
+      "referenceComparisons": [],
+      "blockingFindings": [],
+      "userFeedback": "pending"
+    },
+    "motion": {
+      "status": "pending",
+      "evidence": []
+    },
+    "interaction": {
+      "status": "pending",
+      "evidence": []
+    },
+    "video": {
+      "status": "pending",
+      "evidence": []
+    },
+    "teachingFlow": {
+      "status": "pending",
+      "evidence": []
+    },
+    "learningOutcome": {
+      "status": "pending",
+      "evidence": []
+    },
+    "voice": {
+      "status": "pending",
+      "evidence": []
+    }
+  },
+  "voiceRequired": true,
+  "narration": [],
+  "requirements": {
+    "interactive3D": true,
+    "action": true,
+    "video": false,
+    "reason": "本模板以可操作三维为核心，独立视频可选；调用时按本轮需求填写，不能覆盖用户明确要求。"
+  }
+}

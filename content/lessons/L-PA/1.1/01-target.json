@@ -1,0 +1,49 @@
+{
+  "lesson_id": "L-PA",
+  "version": "1.1",
+  "tenant_id": "family-001",
+  "for_child": "gege",
+  "previous_version": "1.0",
+  "trigger_judgment_ref": null,
+  "primary_concept": {
+    "id": "M3.MEAS.perimeter_vs_area",
+    "name": "周长与面积的区别",
+    "target_misconceptions": [
+      "MC.unit_len_vs_area",
+      "MC.perim_area_swap"
+    ]
+  },
+  "prerequisites": [
+    "M2.MEAS.length_metre",
+    "M2.MUL.table",
+    "M.MEAS.length_cm_m"
+  ],
+  "curriculum_mapping": {
+    "region": "上海",
+    "system": "五四制",
+    "grade": 4,
+    "term": "2026 秋",
+    "source": "沪学习 App 参考目录",
+    "publisher": "待核对",
+    "unit": "待核对",
+    "status": "先修补强",
+    "verified_by": null,
+    "checked_on": "2026-10-24"
+  },
+  "learner_profile": {
+    "grade": 4,
+    "scaffold": [
+      "challenge_first",
+      "short_hints"
+    ],
+    "language": {
+      "default": "zh",
+      "cycle_enabled": true
+    },
+    "recent_judgment_ref": null,
+    "est_minutes": [
+      10,
+      15
+    ]
+  }
+}

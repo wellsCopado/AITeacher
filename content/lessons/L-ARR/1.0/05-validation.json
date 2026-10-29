@@ -38,9 +38,9 @@
     },
     {
       "id": "V05",
-      "name": "英文 3 条齐全（缺失时回落中文）",
+      "name": "讲解固定 1 中 3 英：每个热点英文 3 条齐全，不提供纯中文模式",
       "basis": "FR13 / BL06",
-      "level": "warn",
+      "level": "error",
       "ok": true,
       "issues": []
     },
@@ -117,6 +117,46 @@
       "id": "V14",
       "name": "主题来自该孩子的兴趣记录；课末有「下一课心愿」；不含养殖经营",
       "basis": "BL05 / BL12",
+      "level": "error",
+      "ok": true,
+      "issues": []
+    },
+    {
+      "id": "V19",
+      "name": "主题讲的东西要看得到：有主角时，主角的写实画面或 3D 已在素材里或列为待制作",
+      "basis": "BL02 / BL14",
+      "level": "error",
+      "ok": true,
+      "issues": []
+    },
+    {
+      "id": "V15",
+      "name": "同一机制连续 3 次重教未见效时必须换机制",
+      "basis": "FR24",
+      "level": "error",
+      "ok": true,
+      "issues": []
+    },
+    {
+      "id": "V16",
+      "name": "每一步都有时间上限，加起来不超过本课预计时长",
+      "basis": "FR10",
+      "level": "error",
+      "ok": true,
+      "issues": []
+    },
+    {
+      "id": "V17",
+      "name": "每道题都有“错三次就演示一遍，再做一道同类题”",
+      "basis": "家长要求：不能卡在一道题上",
+      "level": "error",
+      "ok": true,
+      "issues": []
+    },
+    {
+      "id": "V18",
+      "name": "答错时有给孩子坚持下去的理由",
+      "basis": "BL10 · 家长要求：多给孩子信心",
       "level": "error",
       "ok": true,
       "issues": []
