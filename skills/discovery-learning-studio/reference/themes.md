@@ -35,7 +35,7 @@
 
 blocks 积木只有积木（habitat none），不放任何主角：一节讲金鱼的课不能只是积木加上“金鱼”两个字。
 
-3. 哪个组件都没有这种场景时，系统不写这节课。家长出课时会看到“「金鱼」生活在河湖池塘，课里还没有这样的 3D 场景”，心愿准备单上也这样写。这时建议做成探索课（`skills/discovery-learning-studio` 之外的 `skills/discovery-lesson-maker`），或者开新场景工单。
+3. 哪个组件都没有这种场景时，系统不写这节课。家长出课时会看到“「金鱼」生活在河湖池塘，课里还没有这样的 3D 场景”，心愿准备单上也这样写。家长端会给一个按钮，一键改成探索课：家里 Mac 上的 Codex 按 `skills/discovery-lesson-maker` 自己建它住的环境。也可以开新场景工单。
 
 每个现成场景里画面上有什么，写在 `shows` 里，上下文的 `themes_ready[].shows` 也有。讲解和题目只说画面上有的东西，见 [writing.md](writing.md)。
 

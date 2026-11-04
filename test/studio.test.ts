@@ -563,6 +563,41 @@ describe('ChatGPT through Codex on the home computer, all from the parent app', 
     expect(t).toMatchObject({ ok: false, error: LOGIN_CODEX });
   });
 
+  it('makes a whole 探索课 from a topic: Codex works from the 探索课 Skill, decides what to learn, and the package waits for the parent', async () => {
+    const { p } = await setup();
+    expect((await req('POST', '/v1/explore/make', p, { child: 'gege', topic: '蜜蜂' })).status).toBe(403); // only after consent
+    await req('PUT', '/v1/studio/settings', p, { consent: true });
+    await req('PUT', '/v1/progress/gege', p, { text: '第三单元 角的度量' });
+    expect((await req('POST', '/v1/explore/make', p, { child: 'gege' })).status).toBe(400);
+    const r = await req('POST', '/v1/explore/make', p, { child: 'gege', topic: '蜜蜂', wish: '讲讲蜂巢为什么是六边形' });
+    expect(r.status).toBe(202);
+    const done = await until(`/v1/studio/jobs/${r.body.job}`, p);
+    expect(done.status, JSON.stringify(done)).toBe('done');
+    const run = runs().at(-1)!;
+    // what Codex is told: the topic, grade and school progress, to find out what to learn first, not to default to tape measures
+    for (const words of ['「蜜蜂」', '4 年级', '第三单元 角的度量', '讲讲蜂巢为什么是六边形', './skill/SKILL.md', '不要默认周长和面积', 'check_package.py']) expect(run.prompt).toContain(words);
+    expect(run.args).toContain('workspace-write');
+    const said = done.log.map((l: { msg: string }) => l.msg).join('\n');
+    expect(said).toContain('查到了：蜜蜂的巢房是六边形'); // its progress shows while it works
+    expect(said).toContain('运行：');
+    expect(said).toContain('已放进“课程库 → 探索课”：蜜蜂的六边形巢房');
+    // it waits in 探索课 like an uploaded package; the parent previews it, nothing is published
+    const x = (await req('GET', '/v1/explore', p)).body.find((k: { key: string }) => k.key === done.key);
+    expect(x).toMatchObject({ title: '蜜蜂的六边形巢房', for_child: 'gege', status: '待审核', concept: '角的度量', bridge: true });
+    expect(x.imported_by).toMatch(/^AI 做探索课 · /);
+    expect(x.files).toBe(3); // the built page only: no node_modules, no link out of Codex's folder
+    expect(done.key).toMatch(/^X-GEGE-\d{8}-[0-9a-f]{4}@1\.0$/);
+    expect((await app.inject({ method: 'GET', url: `/explore/${done.key}/index.html` })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'GET', url: `/explore/${done.key}/leak.txt` })).statusCode).toBe(404); // a link out of Codex's folder stays out
+    expect((await req('GET', '/v1/lessons', p)).body.some((l: { key: string }) => l.key === done.key)).toBe(false);
+
+    // nothing handed in: it says so
+    writeFileSync(join(home, 'no-package'), '');
+    const bad = await until(`/v1/studio/jobs/${(await req('POST', '/v1/explore/make', p, { child: 'gege', topic: '蚂蚁' })).body.job}`, p);
+    expect(bad).toMatchObject({ status: 'failed' });
+    expect(bad.error).toContain('没有交出课程包');
+  });
+
   it('plans the lesson in a chat in the parent app and hands the agreed plan to another model to write', async () => {
     const { p, codex } = await setup();
     const ds = (await req('POST', '/v1/studio/models', p, { provider: 'deepseek', base_url: 'https://api.deepseek.com', model: 'deepseek-v4-pro', api_key: 'sk-1' })).body.models.at(-1).id;

@@ -119,11 +119,9 @@ export async function exploreRoutes(app: FastifyInstance, d: Deps) {
   const known = (key: string) => !!store.exploration(key) || drafts().some(x => x.key === key);
 
   app.addContentTypeParser(['application/zip', 'application/x-zip-compressed'], { parseAs: 'buffer', bodyLimit: MAX_ZIP }, (_req, body, done) => done(null, body));
-  /** The parent (or an AI assistant the parent let in) hands in a package; it waits for review. */
-  app.post('/v1/explore/import', { ...d.agentOrParent, bodyLimit: MAX_ZIP }, async (req, reply) => {
-    const q = req.query as { child?: string; name?: string };
-    if (!Buffer.isBuffer(req.body)) fail(415, '要上传课程包 .zip');
-    const pkg = readPackage(new Uint8Array(req.body as Buffer));
+  /** A package into the review queue: from the parent's upload, an AI assistant, or an 探索课 Codex made here. */
+  const importPackage = (zip: Uint8Array, q: { child?: string; name?: string }, who: string) => {
+    const pkg = readPackage(new Uint8Array(zip));
     const m = pkg.manifest;
     const kids = store.children();
     // who it's for: the parent's pick, else the package's, else the grade its name says (四年级 → the grade-4 child)
@@ -156,8 +154,13 @@ export async function exploreRoutes(app: FastifyInstance, d: Deps) {
     for (const f of pkg.docs) { const p = join(tmp, 'docs', f.path); mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, f.data); }
     rmSync(folder(key), { recursive: true, force: true });
     renameSync(tmp, folder(key));
-    store.upsertExploreDraft(x, req.who ?? '家长', iso());
-    return reply.code(201).send({ key, status: '待审核', ...x });
+    store.upsertExploreDraft(x, who, iso());
+    return { key, status: '待审核' as const, ...x };
+  };
+  /** The parent (or an AI assistant the parent let in) hands in a package; it waits for review. */
+  app.post('/v1/explore/import', { ...d.agentOrParent, bodyLimit: MAX_ZIP }, async (req, reply) => {
+    if (!Buffer.isBuffer(req.body)) fail(415, '要上传课程包 .zip');
+    return reply.code(201).send(importPackage(new Uint8Array(req.body as Buffer), req.query as { child?: string; name?: string }, req.who ?? '家长'));
   });
 
   app.get('/v1/explore', d.parent, async () => drafts().map(r => ({ ...r.meta, key: r.key, status: r.status, note: r.note, imported_by: r.imported_by })));
@@ -222,6 +225,7 @@ export async function exploreRoutes(app: FastifyInstance, d: Deps) {
   });
 
   return {
+    importPackage,
     /** For the Pad: how to open a published 探索课. */
     forPad: (key: string) => { const x = store.exploration<Exploration>(key); return x && { kind: 'explore' as const, key, title: x.title, for_child: x.for_child, concept: x.concept, url: `/explore/${key}/`, bridge: x.bridge, minutes: x.minutes }; },
     /** Folders of packages nobody refers to any more (a replaced draft whose removal was interrupted). */

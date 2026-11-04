@@ -7,7 +7,9 @@ import type { Ctx } from './homework.js';
 interface Provider { id: string; label: string; base_url: string; models: string[]; key_url?: string }
 interface Model { id: string; label: string; provider: string; base_url: string; model: string; json_mode?: boolean; has_key: boolean; key_tail: string | null }
 interface Models { providers: Provider[]; models: Model[]; active: string | null; consent: boolean }
-interface Job { id: string; child: string; model: string; status: 'running' | 'done' | 'failed'; log?: { at: string; msg: string }[]; key?: string; title?: string; error?: string; issues?: { rule: string; path: string; msg: string }[] }
+interface Job { id: string; child: string; model: string; status: 'running' | 'done' | 'failed'; log?: { at: string; msg: string }[]; key?: string; title?: string; error?: string; issues?: { rule: string; path: string; msg: string }[];
+  /** explore: a whole 探索课 ChatGPT (Codex) is making; it runs beside ordinary lesson writing. */
+  kind?: 'lesson' | 'explore'; topic?: string }
 /** A planning chat turn or a picture being drawn. */
 interface Task { id: string; status: 'running' | 'done' | 'failed'; model: string; reply?: string; brief?: string | null; asset?: string; media_id?: string; error?: string; step?: string }
 interface CodexStatus { installed: boolean; version: string | null; logged_in: boolean; detail: string }
@@ -18,8 +20,8 @@ const isLocal = (m: Model) => /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])[:/]/
 const isCodex = (m: Model) => m.provider === 'codex';
 
 // The cards are drawn first and wired after the page puts them in (wireStudio).
-let shown: { models?: Models; running?: Job; tasks?: Task[]; onDone?: () => Promise<void> } = {};
-export function wireStudio(c: Ctx) { wireWriter(c); wirePlan(c); wireModels(c); wireAgents(c); }
+let shown: { models?: Models; running?: Job; making?: Job; tasks?: Task[]; onDone?: () => Promise<void> } = {};
+export function wireStudio(c: Ctx) { wireWriter(c); wireMaker(c); wirePlan(c); wireModels(c); wireAgents(c); }
 /** Whether ChatGPT (Codex on the home computer) is set up, so 生物素材 can offer to draw. Known once writerCard ran. */
 export const canDraw = () => !!shown.models?.models.some(isCodex);
 
@@ -44,15 +46,15 @@ function poll(c: Ctx, id: string, alive: () => boolean, end: (t: Task) => Promis
 // ---- 课程库: write a lesson with one button ----
 export async function writerCard(c: Ctx, onDone: () => Promise<void>): Promise<string> {
   const [m, jobs, tasks] = await Promise.all([c.api<Models>('/v1/studio/models'), c.api<Job[]>('/v1/studio/jobs'), c.api<Task[]>('/v1/studio/tasks')]);
-  const running = jobs.find(j => j.status === 'running');
-  shown = { ...shown, models: m, running, tasks, onDone };
+  const lessonJobs = jobs.filter(j => j.kind !== 'explore'), running = lessonJobs.find(j => j.status === 'running');
+  shown = { ...shown, models: m, running, making: jobs.find(j => j.kind === 'explore' && j.status === 'running'), tasks, onDone };
   if (!m.models.length) return `<div class="card" id="writer"><h3>AI 出一节课</h3><p class="muted">还没有设置大模型。到「设备与数据 → 大模型」添加一个（DeepSeek、通义千问、Kimi、智谱、豆包、GPT、Claude、Gemini、本机 Ollama 都可以），这里就能一键出课。</p></div>`;
   const active = m.models.find(x => x.id === m.active) ?? m.models[0];
   const needConsent = !m.consent && !isLocal(active);
   const plan = planStore.get(), talker = m.models.find(isCodex) ?? active;
   const opts = (sel: Model) => m.models.map(x => `<option value="${esc(x.id)}" ${x.id === sel.id ? 'selected' : ''}>${esc(x.label)}</option>`).join('');
   return `<div class="card" id="writer"><h3>AI 出一节课</h3>
-    <p class="muted small">选孩子、写主题（例如“博比特虫”“机器人”），就按你说的做；主题里的动物或东西会作为主角出现在画面里，场景里还没有它时会先做它的写实图。直接写一句要求就能出课。想先把方案谈清楚，就打开下面的“和 AI 商量方案”，谈好后点“用这个方案写课”。AI 按 Skill 写课、自己校验并修改，通过后放到“等你审核”，发布还是要你看过、勾完再点。</p>
+    <p class="muted small">选孩子、写主题（例如“博比特虫”“机器人”），就按你说的做；主题里的动物或东西会作为主角出现在画面里，场景里还没有它时会先做它的写实图；现成场景里没有它住的地方时，会提示改做探索课。直接写一句要求就能出课。想先把方案谈清楚，就打开下面的“和 AI 商量方案”，谈好后点“用这个方案写课”。AI 按 Skill 写课、自己校验并修改，通过后放到“等你审核”，发布还是要你看过、勾完再点。</p>
     <form id="wform"><div class="row"><label>孩子 <select name="child">${c.kids.map(k => `<option value="${esc(k.id)}" ${plan?.child === k.id ? 'selected' : ''}>${esc(k.name)}</option>`).join('')}</select></label>
       <label>写课用 <select name="model">${opts(active)}</select></label>
       <label>主题 <input name="topic" maxlength="20" placeholder="可选，例如：蟋蟀、博比特虫、机器人"></label></div>
@@ -67,7 +69,7 @@ export async function writerCard(c: Ctx, onDone: () => Promise<void>): Promise<s
     <p class="small"><button type="button" class="btn" id="dbtn">复制设计说明（到 ChatGPT 网页或手机 App 里聊）</button></p>
     <div id="dbox" hidden><p class="small">把下面这段发给 ChatGPT，和它谈这节课的方案。谈好后它会输出【课程方案】，整段复制粘到上面的框里，点“开始写课”。</p><textarea readonly rows="8"></textarea></div>
     ${needConsent ? '<p class="toast bad small">还没有同意把年级和兴趣主题发给大模型：到「设备与数据 → 大模型」勾选后才能出课。</p>' : ''}
-    <ol id="wlog" class="log small"></ol>${!running && jobs[0] ? `<p class="small muted" id="wlast">上一次（${esc(jobs[0].model)}）：${jobs[0].status === 'done' ? `写好了「${esc(jobs[0].title)}」，在下面等你审核` : `没写成：${esc(jobs[0].error)}`}</p>` : ''}</div>`;
+    <ol id="wlog" class="log small"></ol>${!running && lessonJobs[0] ? `<p class="small muted" id="wlast">上一次（${esc(lessonJobs[0].model)}）：${lessonJobs[0].status === 'done' ? `写好了「${esc(lessonJobs[0].title)}」，在下面等你审核` : `没写成：${esc(lessonJobs[0].error)}`}</p>` : ''}</div>`;
 }
 
 /** Copy text, falling back to selecting it (the home server is plain http, where the clipboard API is off). */
@@ -81,7 +83,17 @@ function wireWriter(c: Ctx) {
   if (form) form.onsubmit = e => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(form)) as Record<string, string>;
-    c.guard(async () => { const r = await c.api<{ job: string }>('/v1/studio/generate', { method: 'POST', body: JSON.stringify(f) }); follow(c, r.job, onDone); })();
+    c.guard(async () => {
+      try { const r = await c.api<{ job: string }>('/v1/studio/generate', { method: 'POST', body: JSON.stringify(f) }); follow(c, r.job, onDone); }
+      catch (e) {
+        // no 3D scene where this topic lives: offer to make it an 探索课 that builds its own
+        const topic = /「(.+?)」[^「]*探索课/.exec((e as Error).message)?.[1];
+        if (!topic || !document.getElementById('xmake')) throw e;
+        const box = document.getElementById('wlog')!;
+        box.innerHTML = `<li class="toast bad">${esc((e as Error).message)}<div class="row"><button type="button" class="btn primary" id="toexplore">让 AI 把「${esc(topic)}」做成探索课</button></div></li>`;
+        document.getElementById('toexplore')!.onclick = () => startMaking(c, { child: f.child, topic, wish: f.wish });
+      }
+    })();
   };
   const dbtn = document.getElementById('dbtn');
   if (form && dbtn) dbtn.onclick = c.guard(async () => {
@@ -197,6 +209,54 @@ export function wireMake(c: Ctx, reload: () => Promise<void>) {
     const running = shown.tasks?.find(t => t.status === 'running' && t.asset === asset);
     if (running) watch(running.id);
   });
+}
+
+// ---- 课程库 → 探索课: ChatGPT (Codex on the home computer) makes a whole 探索课 from a topic ----
+/** The form inside the 探索课 card; it needs the parent's ChatGPT account. Call after writerCard. */
+export function makerForm(c: Ctx): string {
+  if (!shown.models?.models.some(isCodex)) return `<p class="small muted">想让 AI 直接做一节探索课（按主题自己查该学什么、自己建场景），先在「设备与数据 → 大模型」添加“ChatGPT 账号（Codex）”。</p>`;
+  return `<form id="xmake"><h4>让 AI 做一节探索课</h4>
+    <p class="muted small">写个主题就行，例如“蜜蜂”。家里 Mac 上的 ChatGPT（Codex）按「探索课制作」Skill 先查资料、对照课内进度定该学什么，再按主题真实的环境建场景、做课、打包，做好放到这里等你预览。一节一般要几十分钟到几小时，用 ChatGPT 套餐的额度；只发年级、主题和课内进度。</p>
+    <div class="row"><label>给谁 <select name="child">${c.kids.map(k => `<option value="${esc(k.id)}">${esc(k.name)}</option>`).join('')}</select></label>
+      <label>主题 <input name="topic" maxlength="20" required placeholder="例如：蜜蜂"></label></div>
+    <textarea name="wish" rows="2" maxlength="2000" placeholder="可选，一句要求，例如：多动手、讲讲蜂巢为什么是六边形"></textarea>
+    <div class="row"><button class="btn primary" ${shown.making ? 'disabled' : ''}>开始做</button></div>
+    <ol id="xlog" class="log small"></ol></form>`;
+}
+function startMaking(c: Ctx, f: Record<string, string>) {
+  const form = document.getElementById('xmake') as HTMLFormElement | null;
+  if (form) {
+    for (const k of ['child', 'topic', 'wish']) { const el = form.elements.namedItem(k) as HTMLInputElement | null; if (el && f[k] !== undefined) el.value = f[k]; }
+    form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  c.guard(async () => {
+    const r = await c.api<{ job: string }>('/v1/explore/make', { method: 'POST', body: JSON.stringify({ child: f.child, topic: f.topic, wish: f.wish }) });
+    c.toast(`开始做「${f.topic}」的探索课了，可以先做别的，做好会出现在「探索课」里。`);
+    followMaking(c, r.job);
+  })();
+}
+function wireMaker(c: Ctx) {
+  const form = document.getElementById('xmake') as HTMLFormElement | null;
+  if (!form) return;
+  form.onsubmit = e => { e.preventDefault(); startMaking(c, Object.fromEntries(new FormData(form)) as Record<string, string>); };
+  if (shown.making) followMaking(c, shown.making.id);
+}
+function followMaking(c: Ctx, id: string) {
+  if (following.has(id)) return;
+  following.add(id);
+  const tick = c.guard(async () => {
+    const j = await c.api<Job>(`/v1/studio/jobs/${id}`);
+    const box = document.getElementById('xlog');
+    if (!box) { following.delete(id); return; }
+    const log = j.log ?? [];
+    box.innerHTML = [log[0], ...log.slice(1).slice(-10)].filter(Boolean).map(l => `<li>${esc(l!.at.slice(11, 19))} ${esc(l!.msg)}</li>`).join('')
+      + (j.status === 'failed' ? `<li class="toast bad">没做成：${esc(j.error)}</li>` : '');
+    document.querySelector<HTMLButtonElement>('#xmake button.primary')?.toggleAttribute('disabled', j.status === 'running');
+    if (j.status === 'running') { setTimeout(tick, 5000); return; }
+    following.delete(id);
+    if (j.status === 'done') { await (shown.onDone ?? (async () => undefined))(); c.toast(`探索课做好了：${j.title}。先点“预览这节课”走一遍，再决定。`); }
+  });
+  tick();
 }
 
 /** Show a writing job's progress until it ends (one poller per job, whichever page draws the log). */

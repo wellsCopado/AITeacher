@@ -73,6 +73,18 @@ onHost((m) => { if (m.type === 'pause') { stopVoice(); world.setPaused(true); } 
 - 家长预览用 `?learner=preview`，不动孩子的记录；地址带 `?qa=1` 的制作验收模式照旧可用。
 - 家长在 App 里定过的上课规则（一中三英、每步计时、错三次先演示再做同类题，见 `skills/discovery-learning-studio/reference/lesson-flow.md`）是 LessonSpec 课的固定流程。探索课的流程由页面自己决定，App 不强加；做给这个家庭的课，按家长本轮的要求取舍，并在 `课程设计.md` 写明取舍了什么。
 
+## 从家长端直接做（Codex 在家里的 Mac 上）
+
+家长在「课程库 → 探索课 → 让 AI 做一节探索课」写上给谁、主题和一句可选的要求，服务器就在一个空的临时文件夹里运行 Codex。
+
+- 这份 Skill 复制在 `./skill/` 下。
+- 指令里写着孩子的年级、编号（`gege` / `meimei`）、主题、家长的要求、课内进度、最近上过的课和家长没采用的课；不含名字、照片、学习记录和孩子的原话。
+- 中途没有人回答问题：要问的都自己定，写进 `课程设计.md`。
+- 先查资料、对照课内进度定学什么，再做，不默认周长和面积。
+- 做成 `package/` 文件夹，`exploration.json` 用指令里给的 `id` 和 `for_child`，`python3 ./skill/scripts/check_package.py package` 没有 errors 才算完。
+- 服务器把 `package/` 打包导入（不带 `node_modules`、不带链接到文件夹外的文件），课就进「探索课」等家长预览。发布还是只有家长能点。
+- Codex 说的话和跑的命令会一条条显示在家长端，最多做 4 个小时（`ADW_EXPLORE_MINUTES` 可改）。
+
 ## 交给家长
 
 - 先构建（`cd web && pnpm build`），再打包，然后预检：

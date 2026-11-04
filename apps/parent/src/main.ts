@@ -3,7 +3,7 @@
 import { summarize, type Ev } from './summary.js';
 import { dataSection, homeworkView, masteryView, type Ctx } from './homework.js';
 import { downscale } from './image.js';
-import { agentsCard, canDraw, drawRow, follow, makeRow, modelsCard, wireDraw, wireMake, wireStudio, writerCard } from './studio.js';
+import { agentsCard, canDraw, drawRow, follow, makeRow, makerForm, modelsCard, wireDraw, wireMake, wireStudio, writerCard } from './studio.js';
 import qrcode from 'qrcode-generator';
 
 interface Child { id: string; name: string; grade: number }
@@ -197,7 +197,7 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
       <div class="card" id="xbox"><h3>探索课</h3><p class="muted">整节的三维网页课：用 Codex、ChatGPT 等照「探索课制作」Skill 做好的课程包（.zip）。导入后先预览走一遍，再决定通过、退回修改或不要；通过后和别的课一样排课，孩子在平板上全屏上。</p>
         <form id="ximport" class="row"><input type="file" name="file" accept=".zip,application/zip" required>
           <label>给谁 <select name="child"><option value="">按课程包里写的年级</option>${kids.map(k => `<option value="${esc(k.id)}">${esc(k.name)}（${k.grade} 年级）</option>`).join('')}</select></label>
-          <button class="btn primary">导入课程包</button></form></div>
+          <button class="btn primary">导入课程包</button></form>${makerForm(ctx())}</div>
       ${xopen.map(x => `<div class="card xdraft" data-k="${esc(x.key)}"><h3>${esc(x.title)} <span class="badge">探索课</span> <span class="badge">${esc(x.status)}</span></h3>
         <p class="muted small">${esc(name(x.for_child))} · ${esc(x.concept || '课程包没写知识点')} · ${esc(x.key)} · ${mb(x.bytes)}，${x.files} 个文件 · 由 ${esc(x.imported_by)} 导入${x.source_name ? `（${esc(x.source_name)}）` : ''}</p>
         ${x.summary ? `<p>${esc(x.summary)}</p>` : ''}

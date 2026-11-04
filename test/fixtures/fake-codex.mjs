@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Stands in for the Codex command line in tests: same arguments, canned answers, every run logged.
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const args = process.argv.slice(2);
@@ -35,6 +35,23 @@ process.stdin.on('end', () => {
     photos.push({ file: '../outside.jpg', source_url: 'https://example.com', author: 'x', license: 'x', caption: 'outside the folder' });
     writeFileSync(join(dir, 'refs.json'), JSON.stringify({ scientific_name: 'Eunice aphroditois', length_cm: 100, habitat: 'sea_floor', photos, facts: ['白天躲在沙里的洞中', '夜里伸出头部等猎物经过'] }));
     text = `找到了 ${n} 张实拍照片。`;
+  } else if (prompt.includes('./skill/SKILL.md') && prompt.includes('exploration.json')) {
+    // making a whole 探索课 from the Skill copied next to it: research on the web, then a package folder
+    if (!args.includes('web_search="live"') || !args.includes('sandbox_workspace_write.network_access=true')) { console.error('no network in this sandbox'); process.exit(1); }
+    if (!existsSync(join(dir, 'skill', 'SKILL.md')) || existsSync(join(dir, 'skill', 'tests'))) { console.error('the Skill is not here as ./skill'); process.exit(1); }
+    console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: '查到了：蜜蜂的巢房是六边形，四年级刚学角的度量，就从六边形的角开始。' } }));
+    console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: "/bin/zsh -lc 'cd package/web && pnpm build'" } }));
+    if (existsSync(join(home, 'no-package'))) { writeFileSync(out, '没能做完：构建失败。'); process.exit(0); }
+    const id = /id "(X-[A-Za-z0-9-]+)"/.exec(prompt)?.[1], kid = /for_child "([a-z]+)"/.exec(prompt)?.[1];
+    const put = (f, t) => { mkdirSync(join(dir, 'package', f, '..'), { recursive: true }); writeFileSync(join(dir, 'package', f), t); };
+    put('exploration.json', JSON.stringify({ format: 'adw-explore/1', id, version: '1.0', for_child: kid, grade: 4, title: '蜜蜂的六边形巢房', concept: '角的度量', subjects: ['数学', '科学'], minutes: 25, summary: '转动三维蜂巢，量六边形的角。', entry: 'web/dist/index.html' }));
+    put('web/dist/index.html', '<!doctype html><title>蜜蜂</title><script type="module" src="./assets/index.js"></script>');
+    put('web/dist/assets/index.js', "const BRIDGE = 'adw-explore/1'; fetch('./models/hive.glb');");
+    put('web/dist/models/hive.glb', 'glTF');
+    put('web/node_modules/three/index.js', 'not packed');
+    for (const f of ['README.md', '课程设计.md', '验收结果.md', 'licenses/README.md']) put(f, `# ${f}`);
+    symlinkSync('/etc/hosts', join(dir, 'package', 'web', 'dist', 'leak.txt'));
+    text = '做好了「蜜蜂的六边形巢房」：孩子转动蜂巢、量六边形的角；配音还是机器声。';
   } else if (prompt.includes('$imagegen')) {
     const png = env.FAKE_CODEX_IMAGE ? readFileSync(env.FAKE_CODEX_IMAGE) : Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8cfc0f01f0005000201a3e1d2a80000000049454e44ae426082', 'hex');
     const saved = join(home, 'generated_images', 'thread-1', 'ig_1.png');

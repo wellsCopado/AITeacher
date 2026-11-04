@@ -212,6 +212,21 @@ try {
   const drawn = page.locator('.media.pending', { hasText: 'ChatGPT（本机 Codex）' });
   check(await drawn.count() === 1 && await drawn.locator('.refs li').count() === 3, 'ChatGPT 画的图标着“等你确认”，列出 3 张参考照片');
   await drawn.screenshot({ path: join(shots, 'parent-chatgpt-picture.png') });
+
+  // A topic with no 3D scene where it lives: the writer says so and offers to make it an 探索课, which ChatGPT
+  // (Codex) builds from the 探索课 Skill and hands in for the parent to preview.
+  await page.selectOption('#wform [name=model]', { label: '家里的测试模型' });
+  await page.fill('#wform [name=topic]', '金鱼');
+  await page.click('#wform button.primary');
+  await page.waitForSelector('#toexplore', { timeout: 30_000 });
+  check((await page.textContent('#wlog'))?.includes('「金鱼」生活在河湖池塘'), '写一个没有场景的主题（金鱼）：不硬写，说明它住的地方还没有 3D 场景');
+  const xbefore = await page.locator('.xdraft').count();
+  await page.fill('#xmake [name=topic]', '');
+  await page.click('#toexplore');
+  check(await page.inputValue('#xmake [name=topic]') === '金鱼', '点“让 AI 把「金鱼」做成探索课”，主题自动带到探索课');
+  await page.waitForFunction(() => document.getElementById('toast')?.textContent?.includes('探索课做好了'), null, { timeout: 60_000 });
+  check(await page.locator('.xdraft').count() === xbefore + 1 && (await page.locator('.xdraft').last().textContent())?.includes('由 AI 做探索课'), 'ChatGPT 做好的探索课进了「探索课」等你预览');
+  await page.locator('#xbox').screenshot({ path: join(shots, 'parent-explore-made.png') });
   check(!errors.length, `页面没有脚本错误${errors.length ? '：' + errors.join('；') : ''}`);
 } finally {
   await browser.close();

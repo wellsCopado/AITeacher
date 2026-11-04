@@ -15,12 +15,17 @@ export const LOGIN_CODEX = 'Codex 还没登录 ChatGPT 账号：在服务器电�
 const bin = (o: CodexOpts) => o.bin ?? (o.env ?? process.env).ADW_CODEX_BIN ?? 'codex';
 const home = (o: CodexOpts) => (o.env ?? process.env).CODEX_HOME ?? join(homedir(), '.codex');
 
-function run(o: CodexOpts, args: string[], input: string | null, timeoutMs: number): Promise<{ code: number | null; out: string; err: string }> {
+function run(o: CodexOpts, args: string[], input: string | null, timeoutMs: number, onLine?: (line: string) => void): Promise<{ code: number | null; out: string; err: string }> {
   return new Promise((resolve, reject) => {
     const p = spawn(bin(o), args, { env: { ...(o.env ?? process.env), NO_COLOR: '1' }, stdio: ['pipe', 'pipe', 'pipe'] });
-    let out = '', err = '';
+    let out = '', err = '', part = '';
     const keep = (s: string, d: Buffer) => (s + d.toString()).slice(-400_000);
-    p.stdout.on('data', d => { out = keep(out, d); });
+    p.stdout.on('data', d => {
+      out = keep(out, d);
+      if (!onLine) return;
+      const lines = (part + d.toString()).split('\n'); part = lines.pop() ?? '';
+      for (const l of lines) if (l.trim()) { try { onLine(l); } catch { /* a progress line is only for the log */ } }
+    });
     p.stderr.on('data', d => { err = keep(err, d); });
     const timer = setTimeout(() => { p.kill('SIGKILL'); reject(new ModelError(`Codex 超过 ${Math.round(timeoutMs / 60_000)} 分钟没有回答，已停止`)); }, timeoutMs);
     p.on('error', e => { clearTimeout(timer); reject(new ModelError((e as NodeJS.ErrnoException).code === 'ENOENT' ? INSTALL_CODEX : `启动 Codex 失败：${e.message}`)); });
@@ -58,18 +63,34 @@ export interface CodexRun {
   write?: boolean;
   /** Let it search the web and download into its scratch folder (finding real photos). */
   web?: boolean;
+  /** Put files into the scratch folder before Codex starts (the Skill it works from). */
+  seed?: (dir: string) => void;
+  /** What Codex says while it works (its messages, from the --json stream), for a long job's log. */
+  onProgress?: (text: string) => void;
+}
+
+/** A Codex --json line as a short progress note: what it said, or the command it ran. */
+export function progressNote(line: string): string | null {
+  let e: any;
+  try { e = JSON.parse(line); } catch { return null; }
+  const item = e?.type === 'item.completed' ? e.item : null;
+  if (item?.type === 'agent_message' && typeof item.text === 'string') return item.text.trim().split('\n')[0].slice(0, 200) || null;
+  if (item?.type === 'command_execution' && typeof item.command === 'string') return `运行：${item.command.replace(/^\S*(ba|z)?sh -lc /, '').slice(0, 120)}`;
+  return null;
 }
 
 /** One `codex exec` in an empty scratch folder. Returns its last message and the folder (the caller removes it). */
 export async function codexExec(r: CodexRun, o: CodexOpts = {}): Promise<{ text: string; dir: string; out: string; started: number }> {
   const dir = mkdtempSync(join(tmpdir(), 'adw-codex-')), last = join(dir, '.reply.txt'), started = Date.now();
+  try { r.seed?.(dir); } catch (e) { rmSync(dir, { recursive: true, force: true }); throw e; }
   const args = [
     'exec', '--skip-git-repo-check', '--ignore-user-config', '-C', dir, '--sandbox', r.write ? 'workspace-write' : 'read-only', '-o', last,
     ...(r.write ? ['--json'] : ['--ephemeral']), ...(r.model ? ['-m', r.model] : []), ...(r.images ?? []).map(i => `--image=${i}`),
     ...(r.web ? ['-c', 'web_search="live"', '-c', 'sandbox_workspace_write.network_access=true'] : []),
   ];
   try {
-    const p = await run(o, args, r.prompt, o.timeoutMs ?? 15 * 60_000);
+    const note = r.onProgress, onLine = note && r.write ? (l: string) => { const t = progressNote(l); if (t) note(t); } : undefined;
+    const p = await run(o, args, r.prompt, o.timeoutMs ?? 15 * 60_000, onLine);
     const text = existsSync(last) ? readFileSync(last, 'utf8').trim() : '';
     if (p.code !== 0) throw failure(p.code, `${p.err}\n${p.out}`);
     if (!text && !r.write) throw new ModelError('Codex 没有返回内容');

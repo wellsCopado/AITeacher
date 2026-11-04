@@ -6,10 +6,13 @@
 // ChatGPT draw photoreal pictures from real photos, so nothing has to be done inside Codex itself.
 import type { FastifyInstance, FastifyReply, FastifyRequest, RouteShorthandOptions } from 'fastify';
 import { randomBytes } from 'node:crypto';
+import { existsSync, lstatSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { join, relative } from 'node:path';
+import { zipSync } from 'fflate';
 import type { LessonSpec, ReteachTicket } from '../../../packages/schema/src/index.js';
 import type { Ctx, Report } from '../../../packages/validator/src/index.js';
 import {
-  BRIEF_HEADER, PROVIDERS, briefFields, topicFromWish, chatWith, checkStages, codexImage, codexResearch, codexStatus, createMcp, designPrompt, disassemble, exampleStages, generateLesson, guide,
+  BRIEF_HEADER, PROVIDERS, briefFields, topicFromWish, chatWith, codexExec, explorePrompt, exploreId, seedExploreSkill, checkStages, codexImage, codexResearch, codexStatus, createMcp, designPrompt, disassemble, exampleStages, generateLesson, guide,
   isCodex, listModels, outcome, studioContext,
   type Chat, type CodexOpts, type GuideTopic, type LessonRequest, type Message, type ModelConfig, type Stages, type StudioBackend,
 } from '../../../packages/studio/src/index.js';
@@ -36,13 +39,17 @@ interface Deps {
   };
   /** The children's next-lesson wishes and their prep lists. */
   wishes: WishBook;
+  /** 探索课 packages into the review queue (an 探索课 Codex made here goes the same way as an uploaded one). */
+  explore: { importPackage: (zip: Uint8Array, q: { child?: string; name?: string }, who: string) => { key: string; title: string; for_child: string; warnings: string[] } };
   /** Tests swap the network and the codex command out. */
   fetchImpl?: typeof fetch;
   codex?: CodexOpts;
 }
 
 const MODELS = 'studio.models', ACTIVE = 'studio.active', CONSENT = 'studio.consent';
-type Job = { id: string; child: string; model: string; planner?: string; status: 'running' | 'done' | 'failed'; started_at: string; log: { at: string; msg: string }[]; key?: string; title?: string; error?: string; issues?: { rule: string; path: string; msg: string }[] };
+type Job = { id: string; child: string; model: string; planner?: string; status: 'running' | 'done' | 'failed'; started_at: string; log: { at: string; msg: string }[]; key?: string; title?: string; error?: string; issues?: { rule: string; path: string; msg: string }[];
+  /** explore: a whole 探索课 Codex is making (it takes long, so it runs beside ordinary lesson writing). */
+  kind?: 'lesson' | 'explore'; topic?: string };
 /** A planning chat turn, or a picture ChatGPT is drawing: both take a minute or more, so the app polls them. */
 type Task = { id: string; status: 'running' | 'done' | 'failed'; started_at: string; model: string; reply?: string; brief?: string | null; asset?: string; media_id?: string; error?: string;
   /** Making a lesson's animal: which step it is on (finding photos, drawing the top view). */
@@ -181,7 +188,7 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
     if (!b.revise && plan.child && childId(plan.child)) b.child = childId(plan.child);
     const boxed = String(b.topic ?? '').trim().slice(0, 20) || plan.topic;
     const topic = boxed || (b.wish && !b.revise ? topicFromWish(String(b.wish)) ?? undefined : undefined);
-    if ([...jobs.values()].some(j => j.status === 'running')) fail(409, '上一节课还在写，写完再开始下一节');
+    if ([...jobs.values()].some(j => j.status === 'running' && j.kind !== 'explore')) fail(409, '上一节课还在写，写完再开始下一节');
     const request: LessonRequest = { wish: b.wish ? String(b.wish).slice(0, 8000) : undefined, component: b.component || undefined };
     let child = childId(String(b.child ?? '')) ?? String(b.child ?? '');
     if (b.revise) {
@@ -470,6 +477,58 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
     return { label, token: d.issue('agent', label) };
   });
   app.delete('/v1/agents/:label', d.parent, async (req) => { store.revokeAgent((req.params as { label: string }).label); return { ok: true }; });
+
+  // ---- 探索课 made here: Codex works from the 探索课 Skill, decides what is worth learning about the topic, builds
+  // the topic's own scene and lesson, and the package goes into 课程库 → 探索课 like an uploaded one ----
+  const EXPLORE_MIN = Number(process.env.ADW_EXPLORE_MINUTES) || 240;
+  /** The package Codex left: its zip, or its package/ folder zipped here (without node_modules). */
+  const packed = (dir: string): Uint8Array | null => {
+    const top = readdirSync(dir);
+    const folder = top.includes('package') ? join(dir, 'package') : null;
+    if (folder && existsSync(join(folder, 'exploration.json'))) {
+      const files: Record<string, Uint8Array> = {};
+      const walk = (at: string) => { for (const n of readdirSync(at)) {
+        if (/^(node_modules|\.git|__MACOSX|\.DS_Store)$/.test(n)) continue;
+        const f = join(at, n), st = lstatSync(f); // links stay out: nothing outside Codex's folder goes into a package
+        if (st.isDirectory()) walk(f); else if (st.isFile()) files[`package/${relative(folder, f).split('\\').join('/')}`] = new Uint8Array(readFileSync(f));
+      } };
+      walk(folder);
+      return zipSync(files, { level: 0 });
+    }
+    const zip = top.find(n => n.endsWith('.zip'));
+    return zip ? new Uint8Array(readFileSync(join(dir, zip))) : null;
+  };
+  app.post('/v1/explore/make', d.parent, async (req, reply) => {
+    const b = (req.body ?? {}) as { child?: string; topic?: string; wish?: string };
+    const topic = String(b.topic ?? '').trim().slice(0, 20) || fail(400, '写一下这节探索课的主题，例如：蜜蜂');
+    const child = childId(String(b.child ?? '')) ?? fail(400, '选一下给谁做');
+    const m = codexModel() ?? fail(400, '做探索课要用 ChatGPT 账号：先在「设备与数据 → 大模型」添加“ChatGPT 账号（Codex）”');
+    if (!consent()) fail(403, '先在「设备与数据 → 大模型」勾选同意（只发年级、主题和课内进度）');
+    if ([...jobs.values()].some(j => j.status === 'running' && j.kind === 'explore')) fail(409, '上一节探索课还在做，做好再开始下一节');
+    const ctx = context(child);
+    const job: Job = { id: randomBytes(6).toString('hex'), child, model: m.label, status: 'running', started_at: iso(), log: [], kind: 'explore', topic };
+    jobs.set(job.id, job);
+    for (const old of [...jobs.keys()].slice(0, -10)) jobs.delete(old);
+    const log = (msg: string) => { job.log.push({ at: iso(), msg }); if (job.log.length > 300) job.log.splice(1, job.log.length - 300); };
+    const id = exploreId(child, iso().slice(0, 10), randomBytes(2).toString('hex'));
+    log(`让 ChatGPT（Codex）给${ctx.child.label}做一节「${topic}」的探索课：先查该学什么，再建场景、做课、打包。一般要几十分钟到几小时，可以先做别的`);
+    void (async () => {
+      let dir = '';
+      try {
+        const r = await codexExec({ prompt: explorePrompt(ctx, { topic, wish: b.wish ? String(b.wish).slice(0, 2000) : undefined, id }), model: m.model || undefined, write: true, web: true,
+          seed: at => seedExploreSkill(root, at), onProgress: log }, { ...d.codex, timeoutMs: EXPLORE_MIN * 60_000 });
+        dir = r.dir;
+        const zip = packed(dir);
+        if (!zip) throw new Error(`ChatGPT 没有交出课程包${r.text ? `：${r.text.slice(0, 200)}` : ''}`);
+        const x = d.explore.importPackage(zip, { child, name: `AI 做的「${topic}」` }, `AI 做探索课 · ${m.label}`);
+        if (r.text) log(r.text.slice(0, 400));
+        Object.assign(job, { status: 'done', key: x.key, title: x.title });
+        log(`已放进“课程库 → 探索课”：${x.title}。先点“预览这节课”走一遍，再决定${x.warnings.length ? `（有 ${x.warnings.length} 条提示，看卡片上的红字）` : ''}`);
+      } catch (e) { job.status = 'failed'; job.error = (e as Error).message; log(`没做成：${(e as Error).message}`); }
+      finally { if (dir) rmSync(dir, { recursive: true, force: true }); }
+    })();
+    return reply.code(202).send({ job: job.id });
+  });
 
   app.get('/v1/studio/jobs', d.parent, async () => [...jobs.values()].reverse().map(({ log: _l, ...j }) => j));
   app.get('/v1/studio/jobs/:id', d.parent, async (req) => jobs.get((req.params as { id: string }).id) ?? fail(404, '没有这个任务'));

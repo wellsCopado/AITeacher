@@ -470,7 +470,7 @@ export async function buildApp(o: AppOptions) {
   explore = await exploreRoutes(app, { store, dir: join(dirname(o.dbPath), 'explore'), iso, parent, agentOrParent, childParam });
   explore.tidy();
   const media = mediaRoutes(app, { store, root: o.root, mediaDir: join(dirname(o.dbPath), 'media'), iso, parent, anyone });
-  prepare = studioRoutes(app, { store, root: o.root, tenant, iso, parent, agentOrParent, issue, vet, media, wishes, fetchImpl: o.fetchImpl, codex: o.codex }).prepare;
+  prepare = studioRoutes(app, { store, root: o.root, tenant, iso, parent, agentOrParent, issue, vet, media, wishes, explore, fetchImpl: o.fetchImpl, codex: o.codex }).prepare;
 
   // ---- static apps ----
   if (o.serveApps) {

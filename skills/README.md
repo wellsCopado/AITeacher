@@ -9,7 +9,9 @@
 | `photoreal-3d-production` | 找、做、接入、验收写实 3D 素材、场景、动手操作题和课末主持人；先读 `reference/gaps.md` |
 | `homework-analysis` | 看作业照片、写判断、触发重教 |
 
-两份做课的 Skill 怎么选：要整节写实三维、自己建模的课（台北101那种）用 `discovery-lesson-maker`；用 App 里已审组件填参数的课（家长端「AI 出一节课」、按作业重教）用 `discovery-learning-studio`。家长没说清时按前者做，因为家长说过参数课的画面达不到要求（2026-10-26）。
+两份做课的 Skill 怎么选：要整节写实三维、自己建模的课（台北101那种）用 `discovery-lesson-maker`；用 App 里已审组件填参数的课（家长端「AI 出一节课」、按作业重教）用 `discovery-learning-studio`。家长没说清时按前者做，因为家长说过参数课的画面达不到要求（2026-10-26），也说过场景不能写死、不能每节都是拉卷尺（2026-11-04）。
+
+家长端「课程库 → 探索课 → 让 AI 做一节探索课」会让家里 Mac 上的 Codex 直接按 `discovery-lesson-maker` 做课。参数课遇到没有合适场景的主题时，也会提示改做探索课。
 
 ## 各种模型怎么读到
 
