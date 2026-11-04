@@ -1,5 +1,6 @@
 // Plays the sample lessons as `dls preview` files in a real browser (three.js served from node_modules):
-// start, the intro, the demo in order with its readouts, then each component at the edges of its parameter range.
+// start, the intro, the demo in order with its readouts, then each component at the edges of its parameter range,
+// then a land animal's lesson (a cricket in the garden: shown from its real photos, never in the reef's burrow).
 // The whole lesson on the tablet (questions, timers, help, wishes, records) is checked by `pnpm e2e:apps`.
 // Usage: pnpm e2e [outDir]   — screenshots go to outDir (default: ./e2e-shots)
 import { createRequire } from 'node:module';
@@ -110,4 +111,35 @@ try {
       rmSync(specFile); rmSync(html);
     }
   } finally { await b2.close(); }
+}
+
+// A land animal is shown where it lives: a cricket lesson is in the garden, its button opens its real photos,
+// and nothing of the reef's burrow animal (its controls, its label) shows up there.
+{
+  const spec = JSON.parse(JSON.stringify(JSON.parse(readFileSync(join(root, 'content/lessons/L-PA/1.1/lessonspec.json'), 'utf8')))
+    .replace(/螳螂虾|mantis shrimp/gi, '蟋蟀').replace(/珊瑚礁|珊瑚|海底/g, '院子').replace(/卷尺/g, '测距轮').replace(/样方/g, '地砖'));
+  spec.theme = { ...spec.theme, id: 'topic-e2e00000', name: '蟋蟀', skin: 'garden', subject: { name: '蟋蟀', asset_id: 'S-e2e00000', kind: 'organism' } };
+  spec.component_params.PerimeterArea.theme = 'garden';
+  spec.pending_assets = [{ asset_id: 'S-e2e00000', kind: 'organism', realism_required: 'ai_from_photo', status: '待制作', until_ready: '不展示' }];
+  const specFile = join(tmpdir(), 'cricket-garden.json'), html = join(tmpdir(), 'cricket-garden.html');
+  writeFileSync(specFile, JSON.stringify(spec));
+  preview(specFile, html);
+  const b3 = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'] });
+  try {
+    const { page, errors } = await open(b3, html);
+    try {
+      await toDemo(page);
+      const label = (await page.textContent('[data-act="focus"]'))?.trim();
+      const readout = (await page.textContent('#readout'))?.trim();
+      await demo(page, 'focus');
+      await page.waitForSelector('.pending-card, .observe', { timeout: 20000 });
+      const stray = await page.$$eval('.hs', bs => bs.filter(b => !b.hidden && b.textContent.includes('蟋蟀')).length);
+      label === '看看真实的蟋蟀' && readout.startsWith('测距轮') ? ok(`蟋蟀课在花园里：按钮“${label}”，读数“${readout}”`) : fail(`蟋蟀课的按钮或读数不对：${label} / ${readout}`);
+      !(await page.$('.orgbar')) && !stray ? ok('点它打开蟋蟀的实拍照片卡，没有海底洞穴动物的出拳、回洞按钮，也没有悬空的标签')
+        : fail('花园里出现了海底洞穴动物的控制条或悬空标签');
+      await (await page.$('#stage')).screenshot({ path: join(shots, 'cricket-garden.png') });
+      errors.length ? fail(`蟋蟀课页面错误：${errors.join(' | ')}`) : ok('蟋蟀课无页面错误');
+    } catch (e) { fail(`蟋蟀课卡住：${e.message.split('\n')[0]}`); }
+    await page.close();
+  } finally { await b3.close(); rmSync(specFile); rmSync(html); }
 }

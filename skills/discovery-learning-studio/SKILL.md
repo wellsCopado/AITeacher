@@ -16,7 +16,9 @@ description: 为 AI Discovery World 制作、校验并交给家长审核一节�
 - **家长只给方向和主题，其余你来做**：给哪个孩子、什么主题、可选一句方向，就是全部输入。教材位置、数学目标、场景、素材清单、题目、配图要求都由你和系统完成，不回头问家长要资料。
 - **数学优先**（BL01）：先定知识点和误区，再选主题。主题只是包装。
 - **家长说了算，其次是孩子本人的兴趣**（BL05）：家长指定给哪个孩子、做什么主题，就照做（系统会给这个孩子记一条“家长指定”的兴趣记录，`suggested_theme` 就是它）。家长没指定时，主题引用这个孩子自己的兴趣记录；不拿另一个孩子的兴趣套用。都没有时用中性题材（`neutral: true`）。
-- **主题讲的东西要看得到**（V19）：主题里的动物、机器人、大桥等是这节课的主角（`theme.subject`）。现成 3D 场景里没有它时，从 `themes_ready` 选最接近它真实环境的场景，主角列进 `pending_assets`，由系统自动做成写实图片或 3D（或家长上传照片），家长确认后才能发布。绝不拿别的东西冒充：不用积木冒充机器人，不用螳螂虾冒充别的动物，也不能只在文字里提到它。机器人、机械臂、工厂的乘法课用 ArrayMultiplier 的 `robot_factory`（工业机械臂一行一行摆齿轮）；这个场景现在的版本家长判定不够写实，正在按 `skills/photoreal-3d-production/reference/gaps.md` 替换，替换前这类课照常写好交审，但不会发布。
+- **主题讲的东西要看得到**（V19）：主题里的动物、机器人、大桥等是这节课的主角（`theme.subject`）。主角列进 `pending_assets`，由系统自动做成写实图片或 3D（或家长上传照片），家长确认后才能发布。
+- **主角放在它真实生活的地方**（V24）：家长写在「主题」框里，或者在要求里说的“写一个蟋蟀的课程”，都是主题。系统按主角住在哪里（海里、院子和草丛、河湖池塘、野外、城市……，`content/themes.json` 的 `habitats`）替你选好场景：蟋蟀用花园，不用海底；积木场景只有积木，不放主角。`suggested_theme.skin` 原样用，`component_params` 里的 `theme` 和它一样。哪个组件都没有这种场景时，系统不写这节课，告诉家长可以做成探索课。示例课的螳螂虾和海底只借结构，主角不是螳螂虾就不出现螳螂虾，不住在海里就不出现海底、珊瑚、潜水。
+- **主角贯穿全课**（V25）：说明页正文讲它，anchor 为 `shrimp` 的热点讲它本身（名字是历史原因），写 1–3 条带出处的事实。数学从它的世界里真会发生的测量或数数里长出来，讲解和题目只说画面上有的东西（`themes_ready[].shows`；V26：花园里不写卷尺、样方框）。写之前读 [reference/writing.md](reference/writing.md)，交之前按里面的清单自查。绝不拿别的东西冒充：不用积木冒充机器人，不用螳螂虾冒充别的动物，也不能只在文字里提到它。机器人、机械臂、工厂的乘法课用 ArrayMultiplier 的 `robot_factory`（工业机械臂一行一行摆齿轮）；这个场景现在的版本家长判定不够写实，正在按 `skills/photoreal-3d-production/reference/gaps.md` 替换，替换前这类课照常写好交审，但不会发布。
 - **资料不全也不停下**：课内进度看上下文 `school`；家长没填就按年级和日期推断，在 `parent_tip` 里写明“推断”。不要停下来问家长要教材、“沪学习”的单元或别的资料。
 - **写实底线**（BL14）：所有 3D 和动画写实，标准是“截图放进纪录片里不违和，不像动画片”，细则见 `skills/photoreal-3d-production/reference/realism-spec.md`。生物只能用扫描、实拍或依据真实照片的 AI 生成素材（须 ≥ 3 张参考照片、核对人、标注“AI 依据照片生成”）。素材没到位就写进 `pending_assets`，写明“不展示”，绝不用卡通或简化模型代替。
 - **准确可追溯**（BL03）：数值、单位、事实都写出处；不确定的写“待科学审核”，不编造。数字自己算一遍，参考算例必须和公式一致。
@@ -29,7 +31,7 @@ description: 为 AI Discovery World 制作、校验并交给家长审核一节�
 - **不做养殖经营**（BL12），**不开放聊天、不外链**（BL11）。
 - **人工审核不可替代**：发布只能由家长在家长端「课程库」点按钮完成。没有服务器时，只有家长在对话里明确确认某一类后，才能运行 `dls review --approve <类别> --by <家长称呼>`。
 
-详细原则见 [reference/principles.md](reference/principles.md)；孩子上课的固定流程、夸奖和演示怎么写，见 [reference/lesson-flow.md](reference/lesson-flow.md)（阶段 2 之前必读）。
+怎样把课写好（主角、场景、数学是同一件事，蟋蟀课的好坏对照和交前自查）见 [reference/writing.md](reference/writing.md)；详细原则见 [reference/principles.md](reference/principles.md)；孩子上课的固定流程、夸奖和演示怎么写，见 [reference/lesson-flow.md](reference/lesson-flow.md)（阶段 2 之前必读）。
 
 ## 绝对不要做
 
@@ -63,7 +65,7 @@ pnpm -s dls context --child gege --json   # 完整内容
 | 2 导演设计 | `02-director.json` | `dls theme --write` | 主题引用这个孩子的兴趣；每道题有演示和同类题；有 `encouragement.persist`；课末有心愿题 |
 | 3 素材核验 | `03-assets.json` | `dls assets` | 只用登记过的素材；没到位的在 `pending` 里写“不展示” |
 | 4 组装 | `lessonspec.json` | `dls assemble` | 能组装，没有未登记素材 |
-| 5 自动校验 | `05-validation.json` | `dls validate`、`dls preview` | V01–V23 没有错误；警告告诉家长 |
+| 5 自动校验 | `05-validation.json` | `dls validate`、`dls preview` | V01–V26 没有错误；警告告诉家长 |
 | 6 家长审核 | 家长端「课程库 → 等你审核」 | `dls submit` | 家长看过、勾完四类审核、点发布（只有家长能做） |
 
 ### 1. 目标锁定 → `01-target.json`
@@ -111,7 +113,7 @@ pnpm -s dls assemble content/lessons/L-XXX/1.0
 pnpm -s dls validate content/lessons/L-XXX/1.0
 ```
 
-V01–V23 全部无错误才能继续；警告要告诉家长。按每条问题后面的“→”提示修改阶段文件，再从阶段 4 重跑。规则解释见 [reference/validation.md](reference/validation.md)。
+V01–V26 全部无错误才能继续；警告要告诉家长。按每条问题后面的“→”提示修改阶段文件，再从阶段 4 重跑。规则解释见 [reference/validation.md](reference/validation.md)。
 
 ### 预览（阶段 5 之后、审核之前）
 
@@ -186,6 +188,9 @@ pnpm -s dls publish content/lessons/L-XXX/1.0
 | V14 兴趣或心愿不对 | 主题没引用这个孩子的兴趣、心愿题不对 | 主题用上下文的 `suggested_theme`，心愿题原样用 `wish_question` |
 | V17 演示或同类题不全 | 少 `worked_example` / `twin`，或最后一步没说出全部答案 | 2–5 步，最后一步写出所有答案的数值；`twin` 的 `field` 和原题一致 |
 | V18 坚持的理由不够 | `encouragement.persist` 少于 2 句或是空话 | 写 2–5 句和主题相连的话 |
+| V24 场景不是主角生活的地方 | 改了系统选的场景，或照抄了示例课的螳螂虾、海底 | `theme.skin` 和 `component_params` 的 `theme` 都用 `suggested_theme.skin`；按主角自己的样子和生活重写那几句 |
+| V26 说了画面上没有的东西 | 照抄了示例课的卷尺、样方框，或在机器人工厂里写积木 | 换成这个场景里的东西（`themes_ready[].shows`），英文那 3 条也换 |
+| V25 主角没贯穿全课 | 说明页正文没讲它、没有讲它的热点、事实没出处 | 第一段写它；加 anchor 为 `shrimp` 的热点讲它本身，`facts` 每条写出处或“待科学审核” |
 
 ## 课后：记录孩子的心愿
 

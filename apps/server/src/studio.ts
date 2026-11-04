@@ -9,7 +9,7 @@ import { randomBytes } from 'node:crypto';
 import type { LessonSpec, ReteachTicket } from '../../../packages/schema/src/index.js';
 import type { Ctx, Report } from '../../../packages/validator/src/index.js';
 import {
-  BRIEF_HEADER, PROVIDERS, briefFields, chatWith, checkStages, codexImage, codexResearch, codexStatus, createMcp, designPrompt, disassemble, exampleStages, generateLesson, guide,
+  BRIEF_HEADER, PROVIDERS, briefFields, topicFromWish, chatWith, checkStages, codexImage, codexResearch, codexStatus, createMcp, designPrompt, disassemble, exampleStages, generateLesson, guide,
   isCodex, listModels, outcome, studioContext,
   type Chat, type CodexOpts, type GuideTopic, type LessonRequest, type Message, type ModelConfig, type Stages, type StudioBackend,
 } from '../../../packages/studio/src/index.js';
@@ -18,7 +18,7 @@ import { fail, HttpError } from './http.js';
 import { reteachHistory } from './homework.js';
 import { dateText, type WishBook } from './wishes.js';
 import type { PrepRow } from './db.js';
-import { loadThemes, topicPlan } from '../../../packages/cli/src/lib.js';
+import { habitatName, habitatOf, loadThemes, sceneFor, skinsOf, subjectKind, topicPlan } from '../../../packages/cli/src/lib.js';
 
 interface Deps {
   store: Store; root: string; tenant: string; iso: () => string;
@@ -175,10 +175,12 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
   const jobs = new Map<string, Job>();
   const startJob = (b: { child?: string; wish?: string; component?: string; model?: string; revise?: string; topic?: string; prep?: string }, planner?: string): Job => {
     const m = pick(b.model);
-    // an agreed plan says for whom and about what; the parent's own 主题 box says what it is about
+    // an agreed plan says for whom and about what; the parent's own 主题 box says what it is about, and so does a
+    // one-line request that names one (“写一个蟋蟀的课程”): before, that topic never became the lesson's subject or scene
     const plan = b.wish ? briefFields(String(b.wish)) : {};
     if (!b.revise && plan.child && childId(plan.child)) b.child = childId(plan.child);
-    const topic = String(b.topic ?? '').trim().slice(0, 20) || plan.topic;
+    const boxed = String(b.topic ?? '').trim().slice(0, 20) || plan.topic;
+    const topic = boxed || (b.wish && !b.revise ? topicFromWish(String(b.wish)) ?? undefined : undefined);
     if ([...jobs.values()].some(j => j.status === 'running')) fail(409, '上一节课还在写，写完再开始下一节');
     const request: LessonRequest = { wish: b.wish ? String(b.wish).slice(0, 8000) : undefined, component: b.component || undefined };
     let child = childId(String(b.child ?? '')) ?? String(b.child ?? '');
@@ -194,13 +196,27 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
       if (!p || p.status !== '准备中') fail(400, '这张准备单不在排队里（已经安排、跳过了，或者还要你先确认主题）');
       child = p!.child;
     }
+    // a subject goes only into a scene of where it lives: when no component has one, say so now instead of writing it wrong
+    if (topic && !b.revise) {
+      const th = loadThemes(root), habitat = habitatOf(th, topic, subjectKind(topic));
+      const comps = request.component ? [request.component.split('@')[0]] : [...new Set(Object.values(th.skins).map(s => s.component))];
+      const fits = (comp: string) => skinsOf(th, topic).some(id => th.skins[id]?.component === comp && th.skins[id].status === '已有') || !!sceneFor(th, comp, habitat);
+      if (!comps.some(fits)) fail(400, `「${topic}」生活在${habitatName(th, habitat)}，课里还没有这样的 3D 场景，写出来只能放错地方，所以先不写。可以把它做成一节探索课（课程库 → 探索课），或者换一个主题。`);
+    }
     const directed = topic && !b.revise && store.hasChild(child) ? store.directTopic(child, topic, iso().slice(0, 7), iso()) : null;
     const ctx = context(child, b.prep);
+    // the same for a child's queued wish: an animal no scene can hold (大象, 金鱼) is not written in the wrong place
+    const stuck = !b.revise && ctx.components.every(c => c.suggested_theme.subject && !c.suggested_theme.skin) ? ctx.components[0]?.suggested_theme.subject : undefined;
+    if (stuck) {
+      const th = loadThemes(root);
+      fail(400, `「${stuck.name}」生活在${habitatName(th, habitatOf(th, stuck.name, stuck.kind === 'object' ? 'object' : 'organism'))}，课里还没有这样的 3D 场景，写出来只能放错地方，所以先不写。可以把它做成一节探索课（课程库 → 探索课），或者在「兴趣与心愿」里跳过这张准备单。`);
+    }
     const job: Job = { id: randomBytes(6).toString('hex'), child, model: m.label, status: 'running', started_at: iso(), log: [], ...(planner ? { planner } : {}) };
     jobs.set(job.id, job);
     for (const old of [...jobs.keys()].slice(0, -10)) jobs.delete(old);
     const log = (msg: string) => job.log.push({ at: iso(), msg });
     log(b.revise ? `按家长意见修改 ${b.revise}（${m.label}）` : `用 ${m.label} 给${ctx.child.label}写课${planner ? `（方案来自 ${planner}）` : request.wish && request.wish.length > 200 ? '（按粘贴的课程方案）' : ''}`);
+    if (topic && !boxed) log(`主题「${topic}」：从你写的要求里看出来的。不对的话，在「主题」框里写上想要的主题再出一次`);
     void (async () => {
       try {
         const r = await generateLesson({ root, ctx, request, chat: chatFor(m), validatorCtx: valCtx(request.revise?.stages ?? ({} as Stages)), onLog: log });
@@ -213,6 +229,8 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
         const s = submit(r.spec, `AI 出课 · ${m.label}${planner ? ` · 方案：${planner}` : ''}`);
         if (!s.report.ok) { job.status = 'failed'; job.error = '服务器校验没通过'; return; }
         Object.assign(job, { status: 'done', key: s.key, title: r.spec.title });
+        const th = loadThemes(root), t = r.spec.theme;
+        if (t.subject && t.skin && th.skins[t.skin]) log(`场景用「${th.skins[t.skin].name}」：${t.subject.name}生活在${habitatName(th, habitatOf(th, t.subject.name, t.subject.kind))}`);
         for (const p of s.followed) log(`按${ctx.child.label}${dateText(p.wished_on)}的心愿「${p.topic}」准备的`);
         if (directed && r.spec.theme.interest_refs.includes(directed.id)) store.topicUsed(directed.id, s.key);
         const subj = r.spec.theme.subject, cm = codexModel();
@@ -335,9 +353,12 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
   // ---- next-lesson prep lists (pipeline P0): get the wished-for topic ready before its lesson ----
   /** How far a prep list's topic is: the scene it will use, or its subject's pictures. */
   const readiness = (p: PrepRow) => {
-    const plan = topicPlan(p.topic, loadThemes(root));
+    const th = loadThemes(root), plan = topicPlan(p.topic, th);
     const ready = plan.skins.filter(s => s.status === '已有');
     const subj = p.subject ?? plan.subject;
+    // a subject without its own scene goes into the scene of where it lives, or into none
+    const habitat = subj && !ready.length ? habitatOf(th, subj.name, subj.kind === 'object' ? 'object' : 'organism') : null;
+    const home = habitat ? [...new Set(Object.values(th.skins).map(s => s.component))].map(c => sceneFor(th, c, habitat)).find(Boolean) : null;
     const media = subj ? store.mediaFor(subj.asset_id) : [];
     const running = subj ? subjectTask(subj.asset_id) : undefined;
     const subject = subj && {
@@ -348,7 +369,8 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
       scenes: ready.map(s => ({ name: s.name, component: s.component, ...(s.realism ? { realism: s.realism } : {}) })),
       planned: plan.skins.filter(s => s.status !== '已有').map(s => s.name),
       subject,
-      ready: !!ready.length && ready.every(s => !s.realism) || subject?.state === '画面已确认',
+      ...(habitat ? { lives: habitatName(th, habitat), home_scene: home ? th.skins[home].name : null } : {}),
+      ready: !!ready.length && ready.every(s => !s.realism) || (subject?.state === '画面已确认' && !!home),
     };
   };
   const prepView = (p: PrepRow, withWords: boolean) => {
@@ -366,6 +388,8 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
       return;
     }
     const s = r.subject!;
+    if (!r.home_scene) { say(`「${s.name}」生活在${r.lives}，课里还没有这样的 3D 场景，写出来只能放错地方：可以做成探索课（课程库 → 探索课），或者跳过这张准备单`); return; }
+    say(`下一课用「${r.home_scene}」场景：${s.name}生活在${r.lives}`);
     if (s.state === '画面已确认') { say(`「${s.name}」的画面已经确认过，下一课直接用`); return; }
     if (s.kind === 'object') { say(`「${s.name}」是机器或建筑：要按“写实 3D 制作”Skill 做写实素材，交给 AI 助手（它们在 adw_next_lessons 里看得到这张准备单）`); return; }
     const cm = codexModel();

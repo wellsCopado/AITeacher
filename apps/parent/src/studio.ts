@@ -55,8 +55,8 @@ export async function writerCard(c: Ctx, onDone: () => Promise<void>): Promise<s
     <p class="muted small">选孩子、写主题（例如“博比特虫”“机器人”），就按你说的做；主题里的动物或东西会作为主角出现在画面里，场景里还没有它时会先做它的写实图。直接写一句要求就能出课。想先把方案谈清楚，就打开下面的“和 AI 商量方案”，谈好后点“用这个方案写课”。AI 按 Skill 写课、自己校验并修改，通过后放到“等你审核”，发布还是要你看过、勾完再点。</p>
     <form id="wform"><div class="row"><label>孩子 <select name="child">${c.kids.map(k => `<option value="${esc(k.id)}" ${plan?.child === k.id ? 'selected' : ''}>${esc(k.name)}</option>`).join('')}</select></label>
       <label>写课用 <select name="model">${opts(active)}</select></label>
-      <label>主题 <input name="topic" maxlength="20" placeholder="可选，例如：博比特虫、机器人"></label></div>
-      <textarea name="wish" rows="3" maxlength="8000" placeholder="一句要求，例如：用大桥做主题、再难一点；或者粘贴谈好的【课程方案】"></textarea>
+      <label>主题 <input name="topic" maxlength="20" placeholder="可选，例如：蟋蟀、博比特虫、机器人"></label></div>
+      <textarea name="wish" rows="3" maxlength="8000" placeholder="一句要求，例如：写一节蟋蟀的课、再难一点；或者粘贴谈好的【课程方案】"></textarea>
       <div class="row"><button class="btn primary" ${running ? 'disabled' : ''}>开始写课</button></div></form>
     <details id="plan" ${plan?.messages.length ? 'open' : ''}><summary>和 AI 商量方案（可选）</summary>
       <p class="muted small">像聊天一样说你想要什么，AI 会问你一两个问题、给几个方向。满意了说一句“好了”，它会写出【课程方案】。${m.models.some(isCodex) ? '用“ChatGPT 账号”商量不花 API 费用，用的是 Plus 套餐的额度。' : '想用 ChatGPT Plus 的额度来商量：在「设备与数据 → 大模型」添加“ChatGPT 账号（本机 Codex）”。'}</p>

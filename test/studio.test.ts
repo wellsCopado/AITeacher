@@ -11,6 +11,15 @@ import {
 
 const root = join(import.meta.dirname, '..');
 const example = () => structuredClone(exampleStages(root));
+/** What a model that follows the Skill sends back: the example's structure, written about the subject and where it lives (V24). */
+const about = (name: string, land = false) => {
+  const e = example();
+  let s = JSON.stringify(e.director).replaceAll('螳螂虾', name).replace(/mantis shrimp/gi, 'the animal');
+  // …and in the garden it names the garden's own tools, not the reef's tape and quadrats (V26)
+  if (land) s = s.replace(/珊瑚礁|珊瑚|海底|潜到|sea floor|卷尺|样方|PVC |tape|quadrat/g, w => ({ 珊瑚礁: '花园', 珊瑚: '石头', 海底: '草地', 潜到: '走到', 'sea floor': 'ground', 卷尺: '测距轮', 样方: '地砖', 'PVC ': '', tape: 'wheel', quadrat: 'paver' } as Record<string, string>)[w]);
+  e.director = JSON.parse(s);
+  return e;
+};
 const reply = (s: unknown) => '好的，这是课：\n```json\n' + JSON.stringify(s) + '\n```';
 
 describe('lesson studio core', () => {
@@ -306,8 +315,8 @@ describe('server: models, AI lesson writer, MCP for agents', () => {
     await req('PUT', '/v1/progress/meimei', p, { text: '第二单元 表内乘法（一）' });
     expect((await req('GET', '/v1/progress', p)).body).toMatchObject({ meimei: '第二单元 表内乘法（一）', gege: '' });
 
-    const titled = (t: string) => { const e = example(); e.director.title = t; return reply(e); };
-    modelReplies = [titled('珊瑚礁沙底：博比特虫的伏击圈有多大')];
+    const titled = (t: string, name: string) => { const e = about(name); e.director.title = t; return reply(e); };
+    modelReplies = [titled('珊瑚礁沙底：博比特虫的伏击圈有多大', '博比特虫')];
     const { job } = (await req('POST', '/v1/studio/generate', p, { child: 'gege', topic: '博比特虫' })).body;
     const done = await until(`/v1/studio/jobs/${job}`, p);
     expect(done.status, JSON.stringify(done)).toBe('done');
@@ -337,6 +346,7 @@ describe('server: models, AI lesson writer, MCP for agents', () => {
 
     // an agreed plan for 妹妹 is written for 妹妹, about what it says, whoever was selected
     const arr = JSON.parse(JSON.stringify(Object.fromEntries((['target', 'director', 'assets'] as const).map((k, i) => [k, JSON.parse(readFileSync(join(root, 'content/lessons/L-ARR/1.0', ['01-target.json', '02-director.json', '03-assets.json'][i]), 'utf8'))]))));
+    arr.director = JSON.parse(JSON.stringify(arr.director).replaceAll('积木', '齿轮').replace(/blocks/g, 'gears').replace(/"(theme|skin|id)":"gears"/g, '"$1":"blocks"'));
     arr.director.title = '机器人工厂：机械臂摆零件';
     // a new lesson: a hands-on question and a choice question with its picture (the 1.0 sample predates both rules)
     arr.director.challenges = [
@@ -359,6 +369,53 @@ describe('server: models, AI lesson writer, MCP for agents', () => {
     expect((await req('GET', `/v1/drafts/${d2.key}`, p)).body.component_params.ArrayMultiplier.theme).toBe('robot_factory');
     expect(JSON.stringify(calls.at(-1)!.body)).toContain('第二单元 表内乘法（一）'); // her school progress went along
     expect((await req('GET', '/v1/interests?child=meimei', p)).body.some((x: { topic: string }) => x.topic === '机器人')).toBe(true);
+  });
+
+  it('puts a cricket where crickets live, also when the parent only names it in the request', async () => {
+    const p = await login();
+    await req('POST', '/v1/studio/models', p, { provider: 'deepseek', base_url: 'https://api.deepseek.com', model: 'deepseek-v4-pro', api_key: 'sk-1' });
+    await req('PUT', '/v1/studio/settings', p, { consent: true });
+    // the parent's words from 2026-11-04; the model even leaves the example's reef in, as it did then
+    const cricket = about('蟋蟀', true); cricket.director.title = '草地上的蟋蟀：围出它的地盘';
+    modelReplies = [reply(cricket)];
+    const { job } = (await req('POST', '/v1/studio/generate', p, { child: 'gege', wish: '写一个蟋蟀的课程' })).body;
+    const done = await until(`/v1/studio/jobs/${job}`, p);
+    expect(done.status, JSON.stringify(done)).toBe('done');
+    const draft = (await req('GET', `/v1/drafts/${done.key}`, p)).body;
+    expect(draft.theme).toMatchObject({ name: '蟋蟀', skin: 'garden', subject: { name: '蟋蟀', kind: 'organism' } });
+    expect(draft.component_params.PerimeterArea.theme).toBe('garden');
+    const said = done.log.map((l: { msg: string }) => l.msg).join('\n');
+    expect(said).toContain('主题「蟋蟀」：从你写的要求里看出来的');
+    expect(said).toContain('场景用「花园围栏与铺砖」：蟋蟀生活在院子和草丛');
+    expect(JSON.stringify(calls.at(-1)!.body)).toContain('蟋蟀');
+
+    // the model sends a cricket on the sea floor anyway: it never reaches the parent
+    calls.length = 0;
+    const wrong = about('蟋蟀'); wrong.director.title = '海底的蟋蟀';
+    modelReplies = [reply(wrong), reply(wrong), reply(wrong)];
+    const bad = await until(`/v1/studio/jobs/${(await req('POST', '/v1/studio/generate', p, { child: 'gege', topic: '蟋蟀' })).body.job}`, p);
+    expect(bad.status).toBe('failed');
+    expect(JSON.stringify(calls.at(-1)!.body)).toContain('V24');
+
+    // nowhere real to put it: say so before writing anything
+    const fish = await req('POST', '/v1/studio/generate', p, { child: 'gege', topic: '金鱼', component: 'PerimeterArea@1.2' });
+    expect(fish.status).toBe(400);
+    expect(fish.body.error).toContain('「金鱼」生活在河湖池塘');
+    expect(fish.body.error).toContain('探索课');
+    expect((await req('GET', '/v1/interests?child=gege', p)).body.some((x: { topic: string }) => x.topic === '金鱼')).toBe(false);
+  });
+
+  it('does not write a queued wish into the wrong place either: an elephant has no scene yet', async () => {
+    const p = await login();
+    await req('POST', '/v1/studio/models', p, { provider: 'deepseek', base_url: 'https://api.deepseek.com', model: 'deepseek-v4-pro', api_key: 'sk-1' });
+    await req('PUT', '/v1/studio/settings', p, { consent: true });
+    await req('POST', '/v1/interests', p, { child: 'gege', topic: '大象', state: '下一课心愿', said: '我想看大象' });
+    calls.length = 0;
+    const r = await req('POST', '/v1/studio/generate', p, { child: 'gege' });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toContain('「大象」生活在野外');
+    expect(r.body.error).toContain('跳过这张准备单');
+    expect(calls).toHaveLength(0); // nothing went to a model
   });
 
   it('writes the next lesson from the first queued wish, never sends the child\'s words, and marks the wish 已安排', async () => {
@@ -391,7 +448,7 @@ describe('server: models, AI lesson writer, MCP for agents', () => {
 
     // the parent can have a later one written now; a used one can't be used twice
     expect((await req('POST', '/v1/studio/generate', p, { prep: first.id })).status).toBe(400);
-    const robot = example(); robot.director.title = '机器人巡检：围出机器人的工作区';
+    const robot = about('机器人', true); robot.director.title = '机器人巡检：围出机器人的工作区';
     modelReplies = [reply(robot)];
     const j2 = (await req('POST', '/v1/studio/generate', p, { prep: second.id })).body.job;
     const d2 = await until(`/v1/studio/jobs/${j2}`, p);
@@ -490,12 +547,12 @@ describe('ChatGPT through Codex on the home computer, all from the parent app', 
     expect((await req('POST', '/v1/studio/generate', p, { child: 'gege', model: codex })).status).toBe(403); // goes to OpenAI's cloud: consent first
     await req('PUT', '/v1/studio/settings', p, { consent: true });
     writeFileSync(join(home, 'replies.json'), JSON.stringify([reply(example())]));
-    const { job } = (await req('POST', '/v1/studio/generate', p, { child: 'gege', model: codex, wish: '用大桥' })).body;
+    const { job } = (await req('POST', '/v1/studio/generate', p, { child: 'gege', model: codex, wish: '再难一点' })).body;
     expect(await until(`/v1/studio/jobs/${job}`, p)).toMatchObject({ status: 'done', key: 'L-PA-2@1.0' });
     const run = runs().at(-1)!;
     expect(run.args).toEqual(expect.arrayContaining(['exec', '--skip-git-repo-check', '--ignore-user-config', '--sandbox', 'read-only', '--ephemeral']));
     expect(run.prompt).toContain('lesson-flow.md'); // the Skill rides along
-    expect(run.prompt).toContain('用大桥');
+    expect(run.prompt).toContain('再难一点');
     expect(run.prompt).not.toContain('"said"');
     const mine = async () => (await req('GET', '/v1/drafts', p)).body.find((x: { key: string }) => x.key === 'L-PA-2@1.0');
     expect(await mine()).toMatchObject({ submitted_by: 'AI 出课 · ChatGPT（本机 Codex）', status: '待审核' });
@@ -571,7 +628,7 @@ describe('ChatGPT through Codex on the home computer, all from the parent app', 
   it('makes the animal a lesson is about by itself: real photos from the web, then a top view the scene turns into 3D', async () => {
     const { p, codex } = await setup();
     await req('PUT', '/v1/studio/settings', p, { consent: true });
-    const e = example(); e.director.title = '珊瑚礁沙底：博比特虫的伏击圈有多大';
+    const e = about('博比特虫'); e.director.title = '珊瑚礁沙底：博比特虫的伏击圈有多大';
     writeFileSync(join(home, 'replies.json'), JSON.stringify([reply(e)]));
     const { job } = (await req('POST', '/v1/studio/generate', p, { child: 'gege', topic: '博比特虫', model: codex })).body;
     const done = await until(`/v1/studio/jobs/${job}`, p);

@@ -2,7 +2,7 @@
   "lesson": "L-ARR@1.0",
   "ok": true,
   "errors": 0,
-  "warnings": 1,
+  "warnings": 3,
   "results": [
     {
       "id": "V01",
@@ -128,6 +128,89 @@
       "level": "error",
       "ok": true,
       "issues": []
+    },
+    {
+      "id": "V24",
+      "name": "主角放在它真实生活的地方（蟋蟀不在海底）；课里不出现示例课的螳螂虾和海底",
+      "basis": "家长：“蟋蟀怎么会生活在海底呢”",
+      "level": "error",
+      "ok": true,
+      "issues": []
+    },
+    {
+      "id": "V25",
+      "name": "主角贯穿全课：说明页正文讲它，讲解里有讲它本身的一条，写它的事实都有出处",
+      "basis": "家长：“课程写的不好”（主角只在标题里出现，换个名字课照样成立）",
+      "level": "error",
+      "ok": true,
+      "issues": []
+    },
+    {
+      "id": "V26",
+      "name": "讲解、说明和题目只说画面上有的东西（花园里没有卷尺和样方框）",
+      "basis": "家长：“环境不对”",
+      "level": "error",
+      "ok": true,
+      "issues": []
+    },
+    {
+      "id": "V20",
+      "name": "挑战题以选择题、应用题和动手题为主，没有选项的填空题最多 1 道，能动手的组件至少 1 道动手题",
+      "basis": "家长要求：少出填空，多出选择、应用和动手题",
+      "level": "warn",
+      "ok": false,
+      "issues": [
+        {
+          "path": "$.challenges",
+          "msg": "这节课还没有动手题",
+          "fix": "加一道 task: { type: \"build\", start, controls } 的动手题（可以把一道填空题改成动手题），让孩子把场景摆成答案要求的样子；能改的参数：rows、cols"
+        }
+      ]
+    },
+    {
+      "id": "V21",
+      "name": "动手题能做：参数是组件允许孩子改的、开始和答案都在范围内、开始时还没做对、同类题也是动手题",
+      "basis": "家长要求：动手操作题",
+      "level": "error",
+      "ok": true,
+      "issues": []
+    },
+    {
+      "id": "V22",
+      "name": "题目配图的参数是这个组件的、在范围内；动手题不写配图",
+      "basis": "流程 P6：配图写明数，不从题目文字里猜",
+      "level": "error",
+      "ok": true,
+      "issues": []
+    },
+    {
+      "id": "V23",
+      "name": "每道题和同类题都写明配图的数，配图的数在题目里",
+      "basis": "流程 P6：配图写明数，不从题目文字里猜",
+      "level": "warn",
+      "ok": false,
+      "issues": [
+        {
+          "path": "$.challenges[0].picture",
+          "msg": "第 1 题没有写配图的数，播放器只能从题目文字里猜",
+          "fix": "picture: { params: { 组件参数: 题目里的数 } }，只摆题目给出的数，不摆答案"
+        },
+        {
+          "path": "$.challenges[0].twin.picture",
+          "msg": "第 1 题的同类题没有写配图的数，播放器只能从题目文字里猜",
+          "fix": "picture: { params: { 组件参数: 题目里的数 } }，只摆题目给出的数，不摆答案"
+        },
+        {
+          "path": "$.challenges[1].picture",
+          "msg": "第 2 题没有写配图的数，播放器只能从题目文字里猜",
+          "fix": "picture: { params: { 组件参数: 题目里的数 } }，只摆题目给出的数，不摆答案"
+        },
+        {
+          "path": "$.challenges[1].twin.picture",
+          "msg": "第 2 题的同类题没有写配图的数，播放器只能从题目文字里猜",
+          "fix": "picture: { params: { 组件参数: 题目里的数 } }，只摆题目给出的数，不摆答案"
+        }
+      ]
     },
     {
       "id": "V15",

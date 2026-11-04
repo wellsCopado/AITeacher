@@ -43,6 +43,7 @@ export function loadContext(root: string, previous?: LessonSpec | null): Ctx {
     interests: existsSync(c('interests.json')) ? readJson(c('interests.json')) : [],
     reteach: existsSync(c('reteach.json')) ? readJson(c('reteach.json')) : [],
     children: readJson(c('children.json')),
+    themes: readJson(c('themes.json')),
     previous: previous ?? null,
   };
 }

@@ -216,8 +216,9 @@ describe('family server', () => {
     await wish('还是机器人');
     await wish('恐龙化石');
     await wish('螳螂虾！');
+    await wish('晚上一直叫的那个');
     let preps = (await req('GET', '/v1/preps', t)).body;
-    expect(preps.map((p: { topic: string; status: string }) => [p.topic, p.status])).toEqual([['螳螂虾', '准备中'], ['机器人', '准备中'], ['恐龙化石', '等你确认主题']]);
+    expect(preps.map((p: { topic: string; status: string }) => [p.topic, p.status])).toEqual([['螳螂虾', '准备中'], ['机器人', '准备中'], ['恐龙化石', '等你确认主题'], ['晚上一直叫的那个', '等你确认主题']]);
     expect(preps[0]).toMatchObject({ child: 'gege', said: '我想看螳螂虾打架', wished: '10月24日', lesson_from: 'L-PA@1.0', subject: null, scenes: [{ name: '珊瑚礁样方调查' }], ready: true });
     expect(preps[0].log.map((l: { msg: string }) => l.msg).join('\n')).toContain('又说了一次想学「螳螂虾」'); // the same wish again joins its list
     expect(preps[1].scenes[0].realism).toContain('不够写实'); // the robot cell is being replaced
@@ -227,12 +228,17 @@ describe('family server', () => {
     expect((await req('GET', '/v1/interests?child=gege', t)).body.find((x: { said: string }) => x.said === '我想看螳螂虾打架')).toMatchObject({ topic: '螳螂虾', state: '下一课心愿' });
 
     // the parent names the words' topic in one tap, or sets a wish aside
-    const fixed = (await req('POST', `/v1/preps/${preps[2].id}/topic`, t, { topic: '恐龙' })).body;
-    expect(fixed).toMatchObject({ topic: '恐龙', status: '准备中', subject: { name: '恐龙', kind: 'organism' }, ready: false });
-    expect(fixed.log.at(-1).msg).toContain('ChatGPT 账号'); // nothing to find photos with yet: it says how
+    const cricket = (await req('POST', `/v1/preps/${preps[3].id}/topic`, t, { topic: '蟋蟀' })).body;
+    expect(cricket).toMatchObject({ topic: '蟋蟀', status: '准备中', subject: { name: '蟋蟀', kind: 'organism' }, lives: '院子和草丛', home_scene: '花园围栏与铺砖', ready: false });
+    expect(cricket.log.map((l: { msg: string }) => l.msg).join('\n')).toContain('下一课用「花园围栏与铺砖」场景：蟋蟀生活在院子和草丛');
+    expect(cricket.log.at(-1).msg).toContain('ChatGPT 账号'); // nothing to find photos with yet: it says how
+    // no scene is where a dinosaur lived: no pictures are made for a lesson that can't be written right
+    const dino = (await req('POST', `/v1/preps/${preps[2].id}/topic`, t, { topic: '恐龙' })).body;
+    expect(dino).toMatchObject({ topic: '恐龙', status: '准备中', home_scene: null, ready: false });
+    expect(dino.log.at(-1).msg).toContain('探索课');
     expect((await req('POST', `/v1/preps/${preps[1].id}/skip`, t)).status).toBe(200);
     preps = (await req('GET', '/v1/preps', t)).body;
-    expect(preps.map((p: { status: string }) => p.status)).toEqual(['准备中', '已跳过', '准备中']);
+    expect(preps.map((p: { status: string }) => p.status)).toEqual(['准备中', '已跳过', '准备中', '准备中']);
     expect((await req('GET', '/v1/interests?child=gege', t)).body.find((x: { topic: string; source: string }) => x.topic === '机器人' && x.source === '孩子自述').state).toBe('喜欢');
     // the parent can write a wish down too
     await req('POST', '/v1/interests', t, { child: 'meimei', topic: '海洋动物', state: '下一课心愿', said: '想看海里的鱼' });

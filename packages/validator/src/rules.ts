@@ -1,9 +1,10 @@
 import Ajv2020 from 'ajv/dist/2020.js';
 import type {
-  AssetEntry, Challenge, ChallengePicture, ChildProfile, ComponentDef, HandsOnTask, InterestObservation, LessonSpec, ReteachHistory,
+  AssetEntry, Challenge, ChallengePicture, ChildProfile, ComponentDef, HandsOnTask, InterestObservation, LessonSpec, ReteachHistory, ThemeTable,
 } from '../../schema/src/index.js';
 import { lessonSpecSchema } from '../../schema/src/index.js';
 import { evalExpr, exprVars, ExprError } from './expr.js';
+import { fitsHabitat, habitatName, habitatOf, sceneFor } from './themes.js';
 
 export interface Concept { name: string; misconceptions: string[] }
 export interface Ctx {
@@ -16,6 +17,8 @@ export interface Ctx {
   previous?: LessonSpec | null;
   /** Earlier reteach attempts and whether they helped; needed for V15. */
   reteach?: ReteachHistory[];
+  /** Scenes and where subjects live; needed for V24. */
+  themes?: ThemeTable;
 }
 
 /** The teaching mechanism of a lesson: which reviewed components carry the representation. */
@@ -273,6 +276,68 @@ export const RULES: Rule[] = [
       if (!listed) issues.push({ path: '$.pending_assets', msg: `主角「${t.subject.name}」（${t.subject.asset_id}）不在素材里`, fix: `在 03-assets 的 pending 里加 ${t.subject.asset_id}，until_ready 写“不展示……”` });
       if (!sp.title.includes(t.subject.name) && !sp.intro?.headline?.includes(t.subject.name)) issues.push({ path: '$.title', msg: `标题或说明页标题里要出现主角「${t.subject.name}」` });
       return issues;
+    },
+  },
+  {
+    id: 'V24', name: '主角放在它真实生活的地方（蟋蟀不在海底）；课里不出现示例课的螳螂虾和海底', basis: '家长：“蟋蟀怎么会生活在海底呢”', level: 'error',
+    check(sp, ctx) {
+      const t = sp.theme, out: Issue[] = [];
+      if (!ctx.themes || !t.subject) return out;
+      const th = ctx.themes, habitat = habitatOf(th, t.subject.name, t.subject.kind === 'object' ? 'object' : 'organism'), lives = habitatName(th, habitat);
+      const comp = splitId(sp.scene_component_ids[0] ?? '').name;
+      const param = (sp.component_params?.[comp] as { theme?: string } | undefined)?.theme;
+      const right = sceneFor(th, comp, habitat);
+      const fix = right ? `改成 ${right}（${th.skins[right].name}），theme.skin 和 component_params.${comp}.theme 都改` : `${comp} 还没有${lives}的场景：换一个有这种场景的组件，或者先把场景做出来`;
+      for (const [path, skin] of [['$.theme.skin', t.skin], [`$.component_params.${comp}.theme`, param]] as const) {
+        if (skin && !fitsHabitat(th, skin, habitat)) out.push({ path, fix, msg: th.skins[skin]?.habitat === 'none'
+          ? `「${t.subject.name}」是这节课的主角，场景「${th.skins[skin].name}」里只有积木，孩子看不到它`
+          : `「${t.subject.name}」生活在${lives}，场景「${th.skins[skin]?.name ?? skin}」却在${habitatName(th, th.skins[skin]?.habitat ?? '')}` });
+      }
+      if (t.skin && param && t.skin !== param) out.push({ path: `$.component_params.${comp}.theme`, msg: `3D 场景是 ${param}，theme.skin 却是 ${t.skin}，两个要一样`, fix: `都写 ${t.skin}` });
+      // what the lesson says, not the theme record, the wish options (the child's own interests) or the asset list
+      const said = strings(sp).filter(([p]) => /^\$\.(title|intro|hotspots|activity_graph|challenges|encouragement|parent_tip)/.test(p));
+      const other = !/螳螂虾/.test(t.subject.name), dry = habitat !== 'sea';
+      for (const [path, s] of said) {
+        if (other && /螳螂虾|mantis shrimp/i.test(s)) out.push({ path, msg: `主角是「${t.subject.name}」，这里却写了螳螂虾（多半照抄了示例课）`, fix: `写${t.subject.name}自己的样子和生活` });
+        else if (dry && /海底|珊瑚|潜水|潜到|海水|sea ?floor|seabed|coral|scuba/i.test(s)) out.push({ path, msg: `「${t.subject.name}」生活在${lives}，这里却写了海底、珊瑚或潜水`, fix: `按${t.subject.name}真实生活的地方写` });
+      }
+      return out;
+    },
+  },
+  {
+    id: 'V25', name: '主角贯穿全课：说明页正文讲它，讲解里有讲它本身的一条，写它的事实都有出处', basis: '家长：“课程写的不好”（主角只在标题里出现，换个名字课照样成立）', level: 'error',
+    check(sp, ctx) {
+      const t = sp.theme, out: Issue[] = [];
+      if (!t.subject) return out;
+      const name = t.subject.name, has = (s?: string) => !!s && s.includes(name);
+      if (!sp.intro.paragraphs.some(has)) out.push({ path: '$.intro.paragraphs', msg: `说明页正文没讲「${name}」`, fix: `第一段就写${name}真实的样子、住在哪里、在做什么，再引出今天要量或要数的东西` });
+      const comp = ctx.components[splitId(sp.scene_component_ids[0] ?? '').name];
+      // the anchor is still called “shrimp” for history; it is where the lesson's own animal or thing is shown
+      if (!comp?.hotspotAnchors.includes('shrimp')) return out;
+      const i = sp.hotspots.findIndex(h => h.anchor === 'shrimp');
+      const hs = sp.hotspots[i];
+      if (!hs) { out.push({ path: '$.hotspots', msg: `没有讲「${name}」的热点，孩子在演示里看不到它`, fix: `加一个 anchor 为 shrimp 的热点，label 和中文讲解写${name}本身（样子、大小、生活），并写 facts` }); return out; }
+      if (!has(hs.label) && !has(hs.language_pack.zh)) out.push({ path: `$.hotspots[${i}]`, msg: `anchor 为 shrimp 的热点讲的不是「${name}」`, fix: `label 和中文讲解写${name}本身` });
+      if (!hs.facts?.length) out.push({ path: `$.hotspots[${i}].facts`, msg: `讲「${name}」的热点没写 facts`, fix: '写 1–3 条它的真实事实（大小、住处、习性），每条 ref 写出处；查不到出处就写“待科学审核”' });
+      hs.facts?.forEach((f, k) => { if (!f.ref?.trim()) out.push({ path: `$.hotspots[${i}].facts[${k}].ref`, msg: `事实「${f.text}」没写出处`, fix: '写出处（书、论文、机构网页）；查不到就写“待科学审核”' }); });
+      return out;
+    },
+  },
+  {
+    id: 'V26', name: '讲解、说明和题目只说画面上有的东西（花园里没有卷尺和样方框）', basis: '家长：“环境不对”', level: 'error',
+    check(sp, ctx) {
+      const out: Issue[] = [], th = ctx.themes, skin = sp.theme.skin;
+      if (!th || !skin || !th.skins[skin]) return out;
+      const here = th.skins[skin], mine = new Set(here.words ?? []);
+      // what other scenes of the same 3D component show and this one doesn't: usually copied from the example lesson
+      const foreign = Object.entries(th.skins).filter(([id, s]) => id !== skin && s.component === here.component && s.status === '已有')
+        .flatMap(([, s]) => (s.words ?? []).filter(w => !mine.has(w) && ![...mine].some(m => m.includes(w))).map(w => ({ w, from: s.name })));
+      const at = (s: string, w: string) => /^[a-z ]+$/i.test(w) ? new RegExp(`\\b${w}s?\\b`, 'i').test(s) : s.includes(w);
+      for (const [path, s] of strings(sp).filter(([p]) => /^\$\.(title|intro|hotspots|activity_graph|challenges|encouragement)/.test(p))) {
+        const hit = foreign.filter(f => at(s, f.w));
+        if (hit.length) out.push({ path, msg: `场景「${here.name}」里没有「${hit.map(f => f.w).join('、')}」（那是「${hit[0].from}」里的）`, fix: `只写这个场景里看得到的：${here.shows ?? (here.words ?? []).join('、')}` });
+      }
+      return out;
     },
   },
   {

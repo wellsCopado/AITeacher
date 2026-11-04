@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canonical, contentHash, suggestTheme } from '../packages/cli/src/lib.js';
+import { canonical, contentHash, habitatOf, sceneFor, suggestTheme } from '../packages/cli/src/lib.js';
 import type { ChildProfile, InterestObservation, LessonSpec, ThemeTable } from '../packages/schema/src/index.js';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -23,6 +23,18 @@ describe('theme rotation', () => {
     expect(s.notes.join()).toContain('扫地机器人清扫');
     expect(s.theme).toMatchObject({ name: '机器人', skin: 'garden', interest_refs: ['IO-0009'], subject: { name: '机器人', kind: 'object' } });
     expect(s.theme.id).toMatch(/^topic-/);
+  });
+  it('puts a subject only where it really lives: a cricket in the yard, a bobbit worm on the reef, a goldfish or a lion nowhere yet', () => {
+    expect(['蟋蟀', '博比特虫', '小龙虾', '金鱼', '鳄鱼', '熊猫', '螳螂', '上海中心'].map(t => habitatOf(themes, t, 'organism')))
+      .toEqual(['yard', 'sea', 'fresh', 'fresh', 'wild', 'wild', 'yard', 'city']);
+    expect(habitatOf(themes, '某种没听过的动物', 'organism')).toBe('wild'); // unknown animals aren't guessed into the yard
+    const named = (topic: string, component = 'PerimeterArea') => run('gege', [io('IO-0002', 'gege', '螳螂虾', '近期最喜欢'), io('IO-0012', 'gege', topic, '家长指定')], [], component).theme;
+    expect(named('蟋蟀')).toMatchObject({ name: '蟋蟀', skin: 'garden', subject: { name: '蟋蟀', kind: 'organism' } });
+    expect(named('博比特虫')).toMatchObject({ skin: 'reef' });
+    expect(named('金鱼').skin).toBeUndefined(); // no pond scene: the lesson can't be written with this component
+    expect(named('狮子').skin).toBeUndefined(); // a lion in a backyard is as wrong as a cricket on the sea floor
+    expect(named('金鱼', 'ArrayMultiplier').skin).toBeUndefined(); // blocks show only blocks: never a stand-in for an animal
+    expect(sceneFor(themes, 'ArrayMultiplier', 'yard')).toBeNull(); // nor the robot factory for a cricket
   });
   it('does what the parent named, for either child, before any interest', () => {
     const worm = run('gege', [io('IO-0003', 'gege', '螳螂虾', '近期最喜欢'), io('IO-0010', 'gege', '博比特虫', '家长指定')]);

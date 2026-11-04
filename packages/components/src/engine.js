@@ -326,7 +326,8 @@ export function create(stage, kind, params, onPick, hooks){
   function placeLabels(){
     const rect = renderer.domElement.getBoundingClientRect();
     const put=(el,v,isHs)=>{ const p=v.clone().project(cam); if(p.z>1){el.hidden=true;return} el.hidden = isHs && st.hideLabels; el.style.left=((p.x+1)/2*rect.width)+'px'; el.style.top=((1-p.y)/2*rect.height)+'px'; };
-    Object.entries(st.labels).forEach(([id,el])=>st.anchors[id]&&put(el,st.anchors[id](),true));
+    // a label with no place in this scene (the animal's burrow outside the reef) stays hidden instead of sitting in a corner
+    Object.entries(st.labels).forEach(([id,el])=>st.anchors[id]?put(el,st.anchors[id](),true):(el.hidden=true));
     st.dims.forEach(d=>d.el&&put(d.el,d.p(),false));
     if(st.handle){ if(st.task&&st.corner) put(st.handle,st.corner(),false); else st.handle.hidden=true; }
   }

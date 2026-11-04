@@ -8,6 +8,7 @@ import type { Stages } from './lesson.js';
 export const GUIDE_TOPICS = {
   skill: 'SKILL.md',
   flow: 'reference/lesson-flow.md',
+  writing: 'reference/writing.md',
   challenges: 'reference/challenge-types.md',
   spec: 'reference/lessonspec.md',
   components: 'reference/components.md',
@@ -58,7 +59,7 @@ export function guide(root: string, topic: GuideTopic | string = 'all'): string 
   if (topic === 'skills') return skillIndex(root);
   const other = /^skill:([a-z0-9-]+)(?:\/(.+))?$/.exec(topic);
   if (other) return readSkill(root, other[1], other[2]);
-  const pick = topic === 'all' ? Object.keys(GUIDE_TOPICS) : topic === 'author' ? ['skill', 'flow', 'challenges', 'spec', 'components', 'themes', 'validation', 'principles'] : [topic];
+  const pick = topic === 'all' ? Object.keys(GUIDE_TOPICS) : topic === 'author' ? ['skill', 'writing', 'flow', 'challenges', 'spec', 'components', 'themes', 'validation', 'principles'] : [topic];
   return pick.map(k => {
     const rel = GUIDE_TOPICS[k as keyof typeof GUIDE_TOPICS];
     if (!rel) throw new Error(`没有这个主题：${k}（可选：${Object.keys(GUIDE_TOPICS).join('、')}、all、author）`);

@@ -77,6 +77,9 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
   // the animal the lesson is about (博比特虫…); without one it is the reef's own mantis shrimp
   const subject = sp.theme.subject?.kind === 'organism' ? sp.theme.subject : undefined;
   const animal = subject?.name ?? '螳螂虾', isShrimp = !subject || /螳螂虾/.test(subject.name);
+  // Only the reef has a home for an animal in 3D (a burrow it lives in). Anywhere else the animal is shown
+  // from its real photos and videos, never dropped into a scene that isn't where it lives.
+  const animalIn3d = skin === 'reef';
 
   const log = (type: string, data: Record<string, unknown> = {}) => {
     const e = { at: new Date().toISOString(), type, ...data };
@@ -173,7 +176,7 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
     if (stage) stageSub(stage as HTMLElement, `<span class="tag">${u.lang === 'zh' ? '中' : 'EN'}</span>${esc(u.text)}${u.fallback ? ' <span class="dimtext">（这条暂时没有英文，先用中文）</span>' : ''}`, voice.speak(u.text, u.lang));
     else void voice.speak(u.text, u.lang);
     if (anchor === 'shrimp' && organismPending.length && stage) {
-      if (animalMedia.some(m => m.kind === 'cutout')) organismBar(stage as HTMLElement);
+      if (animalIn3d && animalMedia.some(m => m.kind === 'cutout')) organismBar(stage as HTMLElement);
       else showOrganism(stage as HTMLElement);
     }
     log('hotspot', { hotspot: hs.id, lang: u.lang, ...(u.advance ? { count: pointers[key] } : {}), ...(u.fallback ? { fallback: true } : {}) });
@@ -295,7 +298,7 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
     const name = comp.split('@')[0];
     const actions = sp.activity_graph.filter(n => (n.type === 'demo' || n.type === 'contrast') && n.action).flatMap(n => n.action!.split('+'));
     if (sp.hotspots.some(x => x.anchor === 'shrimp')) actions.push('focus');
-    const labels: Record<string, string> = { ...(ACTION_LABELS[skin] ?? {}), ...(skin === 'reef' ? { focus: `看看${animal}的洞` } : {}) };
+    const labels: Record<string, string> = { ...(ACTION_LABELS[skin] ?? {}), focus: animalIn3d ? `看看${animal}的洞` : `看看真实的${animal}` };
     const predict = sp.activity_graph.find(n => n.type === 'predict');
     $('#body').innerHTML = `
       <div class="demo">
@@ -305,14 +308,14 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
         </div>
         <div class="panel">
           <div class="row wrap">${[...new Set(actions)].map(a => `<button class="btn" data-act="${esc(a)}">${esc(labels[a] ?? a)}</button>`).join('')}</div>
-          <div class="readout" id="readout">${name === 'PerimeterArea' ? '卷尺 <b id="pv">0</b> 米 · 样方 <b id="sv">0</b> 个' : '已经摆了 <b id="rv">0</b> 行'}</div>
+          <div class="readout" id="readout">${name !== 'PerimeterArea' ? '已经摆了 <b id="rv">0</b> 行' : skin === 'reef' ? '卷尺 <b id="pv">0</b> 米 · 样方 <b id="sv">0</b> 个' : '测距轮 <b id="pv">0</b> 米 · 地砖 <b id="sv">0</b> 块'}</div>
           ${predict ? `<div class="card small"><b>想一想：</b>${esc(predict.prompt)}</div>` : ''}
           <div class="row wrap small"><span class="muted">热点列表：</span>${sp.hotspots.map(x => `<button class="btn sm" data-hs="${esc(x.anchor)}">🔊 ${esc(x.label)}</button>`).join('')}</div>
           <button class="btn primary" id="next">我准备好了，去挑战</button>
         </div>
       </div>`;
     const stage = $('#stage');
-    const cut = animalMedia.find(m => m.kind === 'cutout');
+    const cut = animalIn3d ? animalMedia.find(m => m.kind === 'cutout') : undefined;
     scene = mount(stage, comp, sp.component_params[name] as Record<string, unknown>, {
       organism: cut ? { url: cut.url, rig: cut.rig ?? null, rigMeta: cut.rig_meta ?? null, lengthM: (cut.length_cm ?? (isShrimp ? 16 : 30)) / 100 } : undefined,
       hotspots: sp.hotspots.map(x => ({ anchor: x.anchor, label: x.label })),
@@ -326,7 +329,7 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
     root.querySelectorAll<HTMLButtonElement>('[data-act]').forEach(b => b.onclick = async () => {
       const a = b.dataset.act!;
       log('action', { action: a, label: b.textContent?.trim() });
-      if (a === 'focus') { scene?.focus('shrimp'); playHotspot('shrimp'); return; }
+      if (a === 'focus') { if (animalIn3d) scene?.focus('shrimp'); playHotspot('shrimp'); return; }
       b.disabled = true; b.dataset.running = '1'; await scene?.run(a); delete b.dataset.running; b.disabled = b.classList.contains('later'); log('action_done', { action: a });
     });
     root.querySelectorAll<HTMLButtonElement>('[data-hs]').forEach(b => b.onclick = () => playHotspot(b.dataset.hs!));

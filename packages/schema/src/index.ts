@@ -116,10 +116,19 @@ export interface ChildProfile {
   wish_prompt: string; wish_options_from_interests: boolean; wish_fallback_options: string[];
 }
 export interface ThemeTable {
-  /** realism: set while the parent has judged a ready scene not photoreal enough and it is being replaced. */
-  skins: Record<string, { name: string; component: string; status: '已有' | '待开发'; realism?: string }>;
+  /**
+   * realism: set while the parent has judged a ready scene not photoreal enough and it is being replaced.
+   * habitat: where the scene is (sea, land…; any = a tabletop that suits every subject). A lesson's subject only
+   * goes into a scene of its own habitat (V24): a cricket never on the sea floor.
+   * shows: what the child sees in it, so a lesson only talks about things that are on screen.
+   * words: the things only this scene has (卷尺 on the reef, 测距轮 in the garden); another scene's lesson can't name them (V26).
+   */
+  skins: Record<string, { name: string; component: string; habitat: string; status: '已有' | '待开发'; realism?: string; shows?: string; words?: string[] }>;
   topics: Record<string, string[]>;
   neutral: Record<string, string>;
+  /** Where a subject lives, from the words in its name; the longest word that matches wins (小龙虾 over 虾). */
+  habitats: Record<string, { name: string; words: string[] }>;
+  habitat_default: Record<'organism' | 'object', string>;
 }
 
 // ---- homework and judgment (M4) ----

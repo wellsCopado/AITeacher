@@ -36,7 +36,7 @@ export function designPrompt(ctx: StudioContext, others: StudioContext[] = []): 
   const comps = ctx.components.map(m => [
     `- ${m.name}：教「${m.teaches.map(t => t.name).join('、')}」，常见错误：${m.teaches.flatMap(t => t.misconceptions).map(x => MISTAKE[x] ?? x).join('；') || '无'}。`,
     `  参数：${params(m.params_schema)}。孩子能做的动作：${m.actions.map(a => DOES[a] ?? a).join('、')}。能点的讲解位置：${m.hotspot_anchors.map(a => DOES[a] ?? a).join('、')}。`,
-    `  已做好的 3D 场景：${m.themes_ready.map(t => t.name).join('、')}。按家长指定和孩子兴趣建议「${m.suggested_theme.name}」（${m.suggested_theme.why}）。${m.theme_notes.length ? m.theme_notes.join('；') : ''}`,
+    `  已做好的 3D 场景：${m.themes_ready.map(t => `「${t.name}」（${t.habitat}；${t.shows}）`).join('、')}。按家长指定和孩子兴趣建议「${m.suggested_theme.name}」（${m.suggested_theme.why}）。${m.theme_notes.length ? m.theme_notes.join('；') : ''}`,
   ].join('\n')).join('\n');
   const wish = ctx.components[0]?.wish_question as { prompt?: string; options?: string[] } | undefined;
   return `你是 AI Discovery World 的课程设计顾问，和家长一起为${c.label}（${c.grade} 年级，${c.region}${c.system}）设计下一节数学互动课的方案。方案谈好后，会交给另一个模型按固定规则做成完整的课，所以方案要具体、能落地。先问家长这节课想达到什么，再提 2–3 个方向让家长选，最后按下面的格式写出方案。
@@ -90,4 +90,27 @@ export function briefFields(text: string): { child?: string; topic?: string } {
   const child = line('孩子')?.split(/[（(\s，,]/)[0];
   const topic = line('主题')?.split(/[（(，,。；;]/)[0].replace(/[…\.]+$/, '').trim().slice(0, 20);
   return { ...(child ? { child } : {}), ...(topic && topic !== '无' ? { topic } : {}) };
+}
+
+/**
+ * The topic a parent's one-line request names when the 主题 box is empty: “写一个蟋蟀的课程”, “用大桥做主题、再难一点”,
+ * “讲讲蚂蚁”. Null when it names none (“再难一点”), or only names maths (“做一节面积的课”), so the lesson then follows
+ * the child's own interests. Before this, the topic in the request never became the lesson's subject and its scene.
+ */
+export function topicFromWish(text: string): string | null {
+  const t = text.trim();
+  if (!t || t.includes(BRIEF_HEADER)) return null;
+  const said = [
+    /(?:用|以|拿)(.{1,12}?)(?:来)?(?:做|当|作|为)主题/,
+    /主题(?:是|为|用|定为|[：:])\s*([^，,。；;、\s]{1,12})/,
+    /(?:写|做|出|来|讲|上|备)(?:一|1|两|几)?(?:个|节|堂|篇|次)?(?:关于|有关|讲)?(.{1,12}?)(?:的|主题的)?(?:探索课|课程|课)/,
+    /(?:关于|有关)(.{1,12}?)的/,
+    /(?:讲讲|讲一讲|学学|学一学|看看|认识|了解|讲)(.{1,12}?)(?:怎么|为什么|是怎么|吧|[，,。！!？?]|$)/,
+    /^([\p{Script=Han}A-Za-z]{1,10})$/u,
+  ].map(r => r.exec(t)?.[1]).find(Boolean);
+  const topic = said?.replace(/^(?:一个|一节|给哥哥|给妹妹|哥哥|妹妹|关于|有关|用|以|拿)+/, '').replace(/(?:的|吧|呢)$/, '').trim();
+  if (!topic || !/^[\p{Script=Han}A-Za-z0-9·]+$/u.test(topic)) return null;
+  // maths and difficulty words are what the lesson teaches or how hard, not what it is about
+  if (/数学|面积|周长|乘法|除法|加法|减法|难|简单|容易|一点|知识|题|新课|下一/.test(topic)) return null;
+  return topic.slice(0, 20);
 }

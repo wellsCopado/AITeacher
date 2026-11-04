@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { AssetEntry, ChildProfile, InterestObservation, LessonSpec, ThemeTable } from '../../schema/src/index.js';
+import { habitatName, habitatOf, sceneFor } from '../../validator/src/themes.js';
+export { fitsHabitat, habitatName, habitatOf, sceneFor } from '../../validator/src/themes.js';
 
 export const readJson = <T = any>(p: string): T => JSON.parse(readFileSync(p, 'utf8'));
 export function writeJson(p: string, v: unknown) { mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, JSON.stringify(v, null, 2) + '\n'); }
@@ -45,8 +47,8 @@ export const STATE_RANK: Record<InterestObservation['state'], number> = { 家长
 /** The asset id of a theme's subject (博比特虫, 机器人…): the same topic always gets the same id. */
 export const subjectId = (topic: string) => 'S-' + createHash('sha1').update(topic.trim()).digest('hex').slice(0, 8);
 /** Machines and buildings are objects; everything else a child names is taken to be an animal or plant. */
-const subjectKind = (topic: string): 'organism' | 'object' => /机器|车|楼|桥|隧道|船|飞机|火箭|塔|房|工厂|电|器/.test(topic) ? 'object' : 'organism';
-/** A theme whose own scene isn't built yet: the model picks the closest ready scene, the subject is made as an asset. */
+export const subjectKind = (topic: string): 'organism' | 'object' => /机器|车|楼|桥|隧道|船|飞机|火箭|塔|房|工厂|电|器/.test(topic) ? 'object' : 'organism';
+/** A theme whose own scene isn't built yet: it uses the ready scene of the subject's habitat, the subject is made as an asset. */
 export const isCustomTheme = (t: { id: string }) => t.id.startsWith('topic-');
 
 /** The scenes made for a topic: "机器人工厂" or "工厂里的机器人" finds the 机器人 scenes too. */
@@ -107,9 +109,13 @@ export function suggestTheme(opts: {
     const why = `${rec.source}：${rec.topic}（${rec.state}）`;
     if (ready) { theme = { id: ready.id, name: ready.name, skin: ready.id, interest_refs: [rec.id], why, no_husbandry: true }; break; }
     if (rec.state === '家长指定' || rec.state === '下一课心愿') {
-      theme = { id: `topic-${subjectId(rec.topic).slice(2)}`, name: rec.topic, skin: themes.neutral[component], interest_refs: [rec.id], why, no_husbandry: true,
-        subject: { name: rec.topic, asset_id: subjectId(rec.topic), kind: subjectKind(rec.topic) } };
-      notes.push(`「${rec.topic}」还没有专门的 3D 场景：skin 从 themes_ready 里选最接近它真实环境的一个；「${rec.topic}」本身是这节课的主角（theme.subject），要做成写实画面或 3D，做好并经家长确认前这节课不能发布`);
+      // the scene is where the subject really lives, picked here and not by the model: a cricket on grass, never on the sea floor
+      const kind = subjectKind(rec.topic), habitat = habitatOf(themes, rec.topic, kind), skin = sceneFor(themes, component, habitat);
+      theme = { id: `topic-${subjectId(rec.topic).slice(2)}`, name: rec.topic, ...(skin ? { skin } : {}), interest_refs: [rec.id], why, no_husbandry: true,
+        subject: { name: rec.topic, asset_id: subjectId(rec.topic), kind } };
+      notes.push(skin
+        ? `「${rec.topic}」生活在${habitatName(themes, habitat)}，还没有专门的 3D 场景，这节课用「${themes.skins[skin].name}」（已经定好，不要换）；「${rec.topic}」本身是这节课的主角（theme.subject），要做成写实画面或 3D，做好并经家长确认前这节课不能发布`
+        : `「${rec.topic}」生活在${habitatName(themes, habitat)}，${component} 还没有这样的 3D 场景，这个组件不能用来写「${rec.topic}」的课`);
       for (const s of fit) notes.push(`专门场景「${s.name}」待开发`);
       break;
     }

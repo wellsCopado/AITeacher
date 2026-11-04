@@ -130,6 +130,71 @@ describe('each rule catches its failure', () => {
     const many = clone(sp); many.challenges[1].options = ['1', '2', '3', '4', '5'];
     expect(v20(many).issues).toHaveLength(1);
   });
+  it('V24 the subject lives where the scene is: a cricket is never on the sea floor, and nothing is copied from the example', () => {
+    // the 螳螂虾 lesson itself has no subject of its own: the reef is its scene, nothing to check
+    expect(failed(clone(base))).not.toContain('V24');
+    const cricket = (skin: string) => {
+      const sp = clone(base);
+      sp.theme = { ...sp.theme, id: 'topic-1234abcd', name: '蟋蟀', skin, subject: { name: '蟋蟀', asset_id: 'S-1234abcd', kind: 'organism' } };
+      (sp.component_params.PerimeterArea as { theme: string }).theme = skin;
+      return sp;
+    };
+    // what kenking got: a cricket lesson on the reef, still talking about the mantis shrimp and the sea floor
+    const wrong = validate(cricket('reef'), ctx()).results.find(r => r.id === 'V24')!;
+    expect(wrong.ok).toBe(false);
+    expect(wrong.issues[0]).toMatchObject({ path: '$.theme.skin', msg: '「蟋蟀」生活在院子和草丛，场景「珊瑚礁样方调查」却在海里' });
+    expect(wrong.issues[0].fix).toContain('garden');
+    expect(wrong.issues.some(i => i.msg.includes('写了螳螂虾'))).toBe(true);
+    expect(wrong.issues.some(i => i.msg.includes('海底、珊瑚或潜水'))).toBe(true);
+    // on grass it still fails while the words are the example's
+    const grass = cricket('garden');
+    expect(validate(grass, ctx()).results.find(r => r.id === 'V24')!.issues.every(i => !i.path.includes('skin') && !i.path.includes('theme'))).toBe(true);
+    const clean = JSON.parse(JSON.stringify(grass).replace(/螳螂虾|mantis shrimp|珊瑚礁|珊瑚|海底|潜到|sea floor/gi, '蟋蟀'));
+    clean.theme = grass.theme; clean.end_chat = grass.end_chat;
+    expect(failed(clean)).not.toContain('V24');
+    // the scene the 3D engine draws and the theme's scene have to be the same one
+    const split = clone(clean); (split.component_params.PerimeterArea as { theme: string }).theme = 'reef';
+    expect(validate(split, ctx()).results.find(r => r.id === 'V24')!.issues.map(i => i.msg).join()).toContain('两个要一样');
+    // a sea animal on the reef is right
+    const worm = JSON.parse(JSON.stringify(clone(base)).replaceAll('螳螂虾', '博比特虫').replace(/mantis shrimp/gi, 'bobbit worm'));
+    worm.theme = { ...worm.theme, id: 'topic-5678abcd', name: '博比特虫', subject: { name: '博比特虫', asset_id: 'S-5678abcd', kind: 'organism' } };
+    worm.end_chat = base.end_chat;
+    expect(failed(worm)).not.toContain('V24');
+    // blocks show only blocks: an animal lesson there would only name it
+    const onBlocks = clone(clean); onBlocks.theme.skin = 'blocks';
+    expect(validate(onBlocks, ctx()).results.find(r => r.id === 'V24')!.issues[0].msg).toContain('只有积木，孩子看不到它');
+  });
+
+  it('V26 a lesson names only what its own scene shows: no tape and quadrats in the garden, no blocks in the robot factory', () => {
+    expect(failed(clone(base))).not.toContain('V26');
+    expect(failed(load('L-ARR', '1.0'))).not.toContain('V26');
+    const garden = clone(base); garden.theme.skin = 'garden';
+    const issues = validate(garden, ctx()).results.find(r => r.id === 'V26')!.issues;
+    expect(issues.map(i => i.msg).join()).toContain('场景「花园围栏与铺砖」里没有「卷尺」');
+    expect(issues.some(i => /tape|quadrat/i.test(i.msg))).toBe(true); // the English lines too
+    expect(issues[0].fix).toContain('测距轮');
+    const factory = load('L-ARR', '1.0'); factory.theme.skin = 'robot_factory';
+    expect(validate(factory, ctx()).results.find(r => r.id === 'V26')!.issues.map(i => i.msg).join()).toContain('没有「积木」');
+  });
+
+  it('V25 the subject runs through the lesson: the intro talks about it, one hotspot is about it, its facts have a source', () => {
+    const cricket = JSON.parse(JSON.stringify(clone(base)).replace(/螳螂虾|mantis shrimp|珊瑚礁|珊瑚|海底|潜到|sea floor/gi, '蟋蟀')) as LessonSpec;
+    cricket.theme = { ...base.theme, id: 'topic-1234abcd', name: '蟋蟀', skin: 'garden', subject: { name: '蟋蟀', asset_id: 'S-1234abcd', kind: 'organism' } };
+    (cricket.component_params.PerimeterArea as { theme: string }).theme = 'garden';
+    cricket.end_chat = base.end_chat;
+    expect(failed(cricket)).not.toContain('V25');
+    expect(failed(clone(base))).not.toContain('V25'); // the example has no subject of its own
+    const msgs = (f: (sp: LessonSpec) => void) => { const sp = clone(cricket); f(sp); return validate(sp, ctx()).results.find(r => r.id === 'V25')!.issues.map(i => i.msg).join(' | '); };
+    // only the title names it: change the name and the lesson would still stand
+    expect(msgs(sp => { sp.intro.paragraphs = ['调查员要量一块地。', '卷尺和样方不一样。']; })).toContain('说明页正文没讲「蟋蟀」');
+    expect(msgs(sp => { sp.hotspots = sp.hotspots.filter(h => h.anchor !== 'shrimp'); })).toContain('孩子在演示里看不到它');
+    expect(msgs(sp => { const h = sp.hotspots.find(x => x.anchor === 'shrimp')!; h.label = '洞口'; h.language_pack.zh = '这是一个洞口。'; })).toContain('讲的不是「蟋蟀」');
+    expect(msgs(sp => { delete sp.hotspots.find(x => x.anchor === 'shrimp')!.facts; })).toContain('没写 facts');
+    expect(msgs(sp => { sp.hotspots.find(x => x.anchor === 'shrimp')!.facts![0].ref = ' '; })).toContain('没写出处');
+    // multiplication has no place for an animal on stage: only the intro is checked
+    expect(msgs(sp => { sp.scene_component_ids = ['ArrayMultiplier@1.0']; sp.hotspots = []; })).toBe('');
+  });
+
   it('V21 a hands-on question can be done: allowed params, in range, not solved at the start, twin hands-on too', () => {
     expect(failed(handsOn())).not.toContain('V21');
     const msgs = (f: (sp: LessonSpec) => void) => { const sp = handsOn(); f(sp); return validate(sp, ctx()).results.find(r => r.id === 'V21')!.issues.map(i => i.msg).join(' | '); };
