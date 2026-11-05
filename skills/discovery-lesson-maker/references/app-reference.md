@@ -50,7 +50,8 @@
 2. **相对路径。** App 把课放在 `/explore/<课号>/` 下。Vite 在 `vite.config.mjs` 写 `base: './'`；代码里载入文件写 `./models/x.glb`、`./audio/intro.m4a`，不写 `/models/…`。用了绝对路径 App 会尽量转接，但会在家长的卡片上提示。
 3. **不连外网。** 运行时只用包里的文件；平板只连家里的 Mac。给大人核对的来源链接可以留，但放在说明抽屉或文档里：孩子点到外链，App 会跳到平板浏览器。
 4. **大小。** 网页部分最好在 150 MB 以内（平板第一次打开要下载）；超过 800 MB 拒收。
-5. **接 App 的进度接口**：把 [`assets/web/adw-host.mjs`](../assets/web/adw-host.mjs) 复制进源码，原样使用：
+5. **用家庭上课流程**：`web/dist/lesson-flow.json`、`web/dist/audio/family/` 下每句话的录音、源码里的 `adw-family.mjs`，见 [家庭档案](family-profile.md)。`adw-family.mjs` 的 `report()` 直接交给下面的 `report`。
+6. **接 App 的进度接口**：把 [`assets/web/adw-host.mjs`](../assets/web/adw-host.mjs) 复制进源码，原样使用：
 
 ```js
 import { storageKey, report, ready, failed, onHost } from './adw-host.mjs';
@@ -71,7 +72,7 @@ onHost((m) => { if (m.type === 'pause') { stopVoice(); world.setPaused(true); } 
 - 平板上全屏打开网页，上面一条窄栏：「⏸ 休息 / 退出」和“已核对 n/m 项”。点它时 App 先发 `pause`；孩子选“继续探索”发 `resume`，选“退出，下次接着上”就回到课程列表，当天再点开从页面自己的记录接着做。
 - App 记下开始、休息、继续、退出、每次进度、学完和孩子说的下一课心愿，家长在「学习记录」看到“核对了 3/4 项：公平比较（改错后完成）……”。
 - 家长预览用 `?learner=preview`，不动孩子的记录；地址带 `?qa=1` 的制作验收模式照旧可用。
-- 家长在 App 里定过的上课规则（一中三英、每步计时、错三次先演示再做同类题，见 `skills/discovery-learning-studio/reference/lesson-flow.md`）是 LessonSpec 课的固定流程。探索课的流程由页面自己决定，App 不强加；做给这个家庭的课，按家长本轮的要求取舍，并在 `课程设计.md` 写明取舍了什么。
+- 家长定的上课规则（一中三英、每步计时、顺序解锁、字幕加朗读、错三次先演示再做同类题）对探索课同样是硬要求（家长 2026-11-05 定的）。用 [`assets/web/adw-family.mjs`](../assets/web/adw-family.mjs) 跑流程，内容写在 `web/public/lesson-flow.json`，规则见 [家庭档案](family-profile.md)。`check_package.py` 没看到它们会报错。
 
 ## 从家长端直接做（Codex 在家里的 Mac 上）
 
@@ -94,7 +95,7 @@ zip -qr -X 台北101_四年级探索课_20261029.zip 台北101_四年级探索�
 python3 scripts/check_package.py 台北101_四年级探索课_20261029.zip
 ```
 
-  `check_package.py` 用和 App 导入时同一套规则查：`exploration.json` 字段、有没有构建好的网页、绝对路径、运行时外网文件、进度接口、大小、密钥文件。`errors` 不为空先改；`warnings` 写进 `验收结果.md`。它不运行网页，过了也要在App里预览。
+  `check_package.py` 用和 App 导入时同一套规则查：`exploration.json` 字段、有没有构建好的网页、绝对路径、运行时外网文件、进度接口、大小、密钥文件；再按家庭档案查上课流程、录音、实验和对照图。`errors` 不为空先改；`warnings` 写进 `验收结果.md`。它不运行网页，过了也要在App里预览。
 - 默认：打好 .zip 交给家长，家长在 Mac 的「AI 探索世界 → 课程库 → 探索课」选文件导入。
 - 能连家里的服务器时（`ADW_SERVER`、家长在「设备与数据 → AI 助手接入」给的 `ADW_TOKEN`），可以直接交：
 

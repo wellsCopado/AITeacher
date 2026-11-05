@@ -8,6 +8,8 @@ import re
 import zipfile
 from pathlib import Path, PurePosixPath
 
+from family_flow import check_flow, stray_chinese
+
 PAGES = ['web/dist/index.html', 'site/index.html', 'dist/index.html', 'index.html']
 SKIP_DIRS = ('node_modules', '.git', '__MACOSX')
 SKIP = re.compile(r'(^|/)(__MACOSX|node_modules|\.git)/|(^|/)\.DS_Store$')
@@ -19,6 +21,7 @@ ABSOLUTE = re.compile(r'''["'`(]/(?!/)[\w.\-/]+\.(?:%s)\b''' % MEDIA)
 EXTERNAL = re.compile(r'''(?:\bsrc\s*=\s*["']|<link\b[^>]*\bhref\s*=\s*["']|\bfrom\s*["']|\bimport\(\s*["']|\bfetch\(\s*["']|url\(\s*["']?)https?://|https?://[^\s"'`)<>]+\.(?:%s)(?=[?#"'`)\s]|$)''' % MEDIA)
 SOURCE_PAGE = re.compile(r'''<script[^>]+src=["']/?src/[^"']+\.(m?js|ts)["']''')
 SOFT_LIMIT, HARD_LIMIT, MAX_FILES = 150 * 2**20, 800 * 2**20, 5000
+STRAY_MAX = 200  # 页面上不在 lesson-flow.json 里的汉字（没朗读的文字）
 
 
 def zip_name(info):
@@ -141,12 +144,32 @@ def check(path):
     elif size > SOFT_LIMIT:
         warnings.append(f'网页部分 {size / 2**20:.0f} MB，平板第一次打开会慢；压缩模型和贴图，尽量在 150 MB 以内')
 
-    absolute, external, bridge = set(), set(), False
+    flow = None
+    if prefix + 'lesson-flow.json' in has:
+        try:
+            flow = json.loads(pkg.read(prefix + 'lesson-flow.json').decode('utf-8'))
+        except (ValueError, UnicodeDecodeError) as error:
+            errors.append(f'lesson-flow.json 不是合法的 JSON：{error}')
+    else:
+        errors.append('网页里没有 lesson-flow.json：给这个家庭做的课要按 references/family-profile.md 写上课流程'
+                      '（一中三英、每步计时、顺序解锁、朗读、错三次演示、3 个以上实验），放在 web/public/')
+    if isinstance(flow, dict):
+        flow_errors, flow_warnings = check_flow(flow, lambda rel: prefix + rel in has)
+        errors.extend(flow_errors)
+        warnings.extend(flow_warnings)
+        sheet = (flow.get('visual_gate') or {}).get('sheet')
+        if sheet and base + sheet not in has and prefix + sheet not in has:
+            errors.append(f'画面对照图不在包里：{sheet}')
+
+    absolute, external, bridge, family, stray = set(), set(), False, False, 0
     for name in site:
         if not re.search(r'\.(html|m?js|css)$', name):
             continue
         text = pkg.read(name).decode('utf-8', 'replace')
         bridge = bridge or 'explore/1' in text
+        family = family or 'adw-family/1' in text
+        if isinstance(flow, dict) and re.search(r'\.(html|m?js)$', name):
+            stray += stray_chinese(text, flow)
         rel = name[len(prefix):]
         if ABSOLUTE.search(text) or (name.endswith('.html') and re.search(r'''(src|href)=["']/(?!/)''', text)):
             absolute.add(rel)
@@ -156,6 +179,10 @@ def check(path):
         warnings.append(f'用了绝对路径（/models/… 这类）：{sorted(absolute)[:3]}。vite 写 base: "./"，代码里写 ./models/…；App 会尽量转接，但家长卡片上会提示')
     if external:
         warnings.append(f'运行时要连外网：{sorted(external)[:3]}。平板只连家里的 Mac，把这些文件放进包里')
+    if flow is not None and not family:
+        errors.append('网页没用 assets/web/adw-family.mjs 跑上课流程：复制进源码并 mountFamilyLesson()，不要自己另写计时和夸奖')
+    if stray > STRAY_MAX:
+        errors.append(f'页面代码里有 {stray} 个汉字不在 lesson-flow.json 里：这些字孩子看得到却没有朗读。给孩子的话写进 lesson-flow.json，给家长的写进 parent_notes')
     if not bridge:
         warnings.append('没接 App 的进度接口：复制 assets/web/adw-host.mjs 进源码并调用 ready/report/onHost，不然 App 不知道孩子做到哪')
     missing_docs = [d for d in DOCS if base + d not in has]
@@ -165,7 +192,8 @@ def check(path):
         warnings.append('没有 licenses/ 或 research/sources.json：素材的许可和来源要随课保存')
 
     facts.update({'root': base or '.', 'entry': entry, 'id': lesson_id, 'version': version,
-                  'siteFiles': len(site), 'siteMB': round(size / 2**20, 1), 'bridge': bridge})
+                  'siteFiles': len(site), 'siteMB': round(size / 2**20, 1), 'bridge': bridge,
+                  'familyFlow': flow is not None and family, 'strayChinese': stray})
     return {'errors': errors, 'warnings': warnings, 'checks': facts}
 
 

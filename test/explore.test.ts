@@ -16,7 +16,8 @@ function pkg(o: { manifest?: object | null; js?: string; html?: string; extra?: 
   const f = o.folder ?? '台北101_四年级探索课';
   const files: Record<string, Uint8Array> = {
     [`${f}/web/dist/index.html`]: strToU8(o.html ?? '<!doctype html><title>台北101 · 风中的稳定秘密</title><script type="module" src="./assets/app.js"></script>'),
-    [`${f}/web/dist/assets/app.js`]: strToU8(o.js ?? "parent.postMessage({adw:'explore/1',type:'ready'},location.origin)"),
+    [`${f}/web/dist/assets/app.js`]: strToU8(o.js ?? "parent.postMessage({adw:'explore/1',type:'ready'},location.origin);const F='adw-family/1'"),
+    [`${f}/web/dist/lesson-flow.json`]: strToU8('{"format":"adw-family/1"}'),
     [`${f}/web/dist/models/tower.glb`]: new Uint8Array([103, 108, 84, 70]),
     [`${f}/web/src/main.mjs`]: strToU8('// source, not served'),
     [`${f}/README.md`]: strToU8('# 台北101\n\n说明'),
@@ -55,7 +56,7 @@ describe('探索课 packages', () => {
     const t = await login();
     const r = await upload(t, pkg(), '?name=' + encodeURIComponent('台北101_四年级探索课_20261027.zip'));
     expect(r.status).toBe(201);
-    expect(r.body).toMatchObject({ key: 'X-TAIPEI101@1.0', status: '待审核', title: '台北101：风中的稳定秘密', for_child: 'gege', bridge: true, files: 3, docs: ['README.md', '课程设计.md'] });
+    expect(r.body).toMatchObject({ key: 'X-TAIPEI101@1.0', status: '待审核', title: '台北101：风中的稳定秘密', for_child: 'gege', bridge: true, files: 4, docs: ['README.md', '课程设计.md'] });
     expect(r.body.warnings).toEqual([]);
     const list = (await req('GET', '/v1/explore', t)).body;
     expect(list.map((x: { key: string }) => x.key)).toEqual(['X-TAIPEI101@1.0']);
@@ -150,6 +151,7 @@ describe('探索课 packages', () => {
     expect(r.body).toMatchObject({ key: 'X-shanghai-tower-angle-course@1.0', title: '上海中心 · 追踪一条外缘', for_child: 'gege', bridge: false });
     expect(r.body.warnings.join()).toContain('没接 App 的进度接口');
     expect(r.body.warnings.join()).toContain('绝对路径');
+    expect(r.body.warnings.join()).toContain('没按家里的上课规则做');
     // built with absolute paths: /assets/app.js asked by its page still arrives
     const asset = await req('GET', '/assets/app.js', undefined, undefined, { referer: 'http://mac.local:8787/explore/X-shanghai-tower-angle-course@1.0/?adw=1' });
     expect(asset.status).toBe(200);

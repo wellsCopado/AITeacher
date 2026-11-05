@@ -84,6 +84,9 @@ export function readPackage(zip: Uint8Array) {
   const bridge = site.some(f => /\.(m?js|html)$/.test(f.name) && Buffer.from(byName.get(f.name)!).includes('explore/1'));
   const warnings: string[] = [];
   if (!bridge) warnings.push('这节课没接 App 的进度接口：App 不知道孩子做到哪；孩子退出时自己选“学完了”还是“下次接着上”。');
+  // 家长定的上课规则（一中三英、每步计时、错三次演示……）由课里的 adw-family.mjs 执行；旧课没有，导入照收，但要让家长知道
+  const family = has.has(prefix + 'lesson-flow.json') && site.some(f => /\.(m?js|html)$/.test(f.name) && Buffer.from(byName.get(f.name)!).includes('adw-family/1'));
+  if (!family) warnings.push('这节课没按家里的上课规则做（一中三英、每步计时、按顺序解锁、错三次先演示）：孩子可以自由跳着上。新课让做课的 AI 按 family-profile.md 重做。');
   if (/(src|href)=["']\/(?!\/)/.test(html)) warnings.push('网页里用的是绝对路径（/assets/…）。App 会自动转接，一般能打开；以后请让做课的 AI 用相对路径构建（vite 的 base: "./"）。');
   if (bytes > 150 * 1048576) warnings.push(`网页有 ${Math.round(bytes / 1048576)} MB，平板第一次打开会比较慢。`);
   const title = String(manifest.title ?? '').trim() || /<title>([^<]+)<\/title>/i.exec(html)?.[1]?.trim() || base.replace(/\/$/, '').split('/').pop() || '探索课';

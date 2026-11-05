@@ -9,8 +9,11 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 from check_package import check
+from family_flow import all_lines, line_file
 
 BRIDGE = (ROOT / 'assets/web/adw-host.mjs').read_text(encoding='utf-8')
+FAMILY = "const FORMAT='adw-family/1';"
+FLOW = json.loads((ROOT / 'examples/lesson-flow.example.json').read_text(encoding='utf-8'))
 MANIFEST = {'format': 'adw-explore/1', 'id': 'X-BRIDGE', 'version': '1.0', 'title': '大桥', 'grade': 4,
             'entry': 'web/dist/index.html'}
 
@@ -21,8 +24,12 @@ class PackageTests(unittest.TestCase):
         self.root = Path(self.temp.name) / '大桥_四年级探索课'
         self.write('exploration.json', json.dumps(MANIFEST, ensure_ascii=False))
         self.write('web/dist/index.html', '<!doctype html><title>大桥</title><script type="module" src="./assets/index.js"></script>')
-        self.write('web/dist/assets/index.js', BRIDGE + "\nfetch('./models/bridge.glb');")
+        self.write('web/dist/assets/index.js', BRIDGE + FAMILY + "\nfetch('./models/bridge.glb');")
         self.write('web/dist/models/bridge.glb', 'glTF')
+        self.write('web/dist/lesson-flow.json', json.dumps(FLOW, ensure_ascii=False))
+        for lang, text, _ in all_lines(FLOW):
+            self.write('web/dist/' + line_file(lang, text), 'm4a')
+        self.write('evidence/visual-gate.jpg', 'jpg')
         for doc in ('README.md', '课程设计.md', '验收结果.md', 'licenses/README.md'):
             self.write(doc, '# 说明')
 
@@ -61,7 +68,7 @@ class PackageTests(unittest.TestCase):
         self.assertIn('没构建的源码页面', ' '.join(check(self.root)['errors']))
 
     def test_absolute_paths_cdn_and_missing_bridge_are_warned(self):
-        self.write('web/dist/assets/index.js', "import * as T from 'https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js';\nload('/models/bridge.glb');")
+        self.write('web/dist/assets/index.js', FAMILY + "import * as T from 'https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js';\nload('/models/bridge.glb');")
         warnings = ' '.join(check(self.root)['warnings'])
         self.assertIn('绝对路径', warnings)
         self.assertIn('连外网', warnings)

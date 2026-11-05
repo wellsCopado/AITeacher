@@ -575,7 +575,7 @@ describe('ChatGPT through Codex on the home computer, all from the parent app', 
     expect(done.status, JSON.stringify(done)).toBe('done');
     const run = runs().at(-1)!;
     // what Codex is told: the topic, grade and school progress, to find out what to learn first, not to default to tape measures
-    for (const words of ['「蜜蜂」', '4 年级', '第三单元 角的度量', '讲讲蜂巢为什么是六边形', './skill/SKILL.md', '不要默认周长和面积', 'check_package.py']) expect(run.prompt).toContain(words);
+    for (const words of ['「蜜蜂」', '4 年级', '第三单元 角的度量', '讲讲蜂巢为什么是六边形', './skill/SKILL.md', '不要默认周长和面积', 'check_package.py', 'family-profile.md', 'adw-family.mjs', '一中三英', '错 3 次先演示', 'visual-gate.jpg']) expect(run.prompt).toContain(words);
     expect(run.args).toContain('workspace-write');
     const said = done.log.map((l: { msg: string }) => l.msg).join('\n');
     expect(said).toContain('查到了：蜜蜂的巢房是六边形'); // its progress shows while it works

@@ -6,7 +6,7 @@
 
 | 要做的事 | Skill（唯一来源） |
 | --- | --- |
-| 做一节整节的写实三维探索课（网页课程包，家长在「课程库 → 探索课」导入） | `skills/discovery-lesson-maker/SKILL.md` 和它的 `references/`（接 App 先读 `references/app-reference.md`） |
+| 做一节整节的写实三维探索课（网页课程包，家长在「课程库 → 探索课」导入） | `skills/discovery-lesson-maker/SKILL.md` 和它的 `references/`（给这个家庭做课先读 `references/family-profile.md`，接 App 读 `references/app-reference.md`） |
 | 做一节 LessonSpec 课、按作业重教、改家长退回的课 | `skills/discovery-learning-studio/SKILL.md` 和它的 `reference/` |
 | 看作业照片、写判断、触发重教 | `skills/homework-analysis/SKILL.md` 和它的 `reference/` |
 | 做 3D 场景和组件、给课的主角找或做写实素材、做主持人、替换不达标的画面 | `skills/photoreal-3d-production/SKILL.md` 和它的 `reference/`（先读 `reference/gaps.md`） |
