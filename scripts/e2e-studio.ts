@@ -213,19 +213,21 @@ try {
   check(await drawn.count() === 1 && await drawn.locator('.refs li').count() === 3, 'ChatGPT 画的图标着“等你确认”，列出 3 张参考照片');
   await drawn.screenshot({ path: join(shots, 'parent-chatgpt-picture.png') });
 
-  // A topic with no 3D scene where it lives: the writer says so and offers to make it an 探索课, which ChatGPT
-  // (Codex) builds from the 探索课 Skill and hands in for the parent to preview.
-  await page.selectOption('#wform [name=model]', { label: '家里的测试模型' });
-  await page.fill('#wform [name=topic]', '金鱼');
-  await page.click('#wform button.primary');
-  await page.waitForSelector('#toexplore', { timeout: 30_000 });
-  check((await page.textContent('#wlog'))?.includes('「金鱼」生活在河湖池塘'), '写一个没有场景的主题（金鱼）：不硬写，说明它住的地方还没有 3D 场景');
+  // 写啥主题就做啥图片 (2026-11-05: 妹妹's 火箭发射 came out as the robot arm): a topic no ready scene depicts goes
+  // straight to ChatGPT (Codex), which makes it an 探索课 with its own scene and pictures from the 探索课 Skill.
   const xbefore = await page.locator('.xdraft').count();
-  await page.fill('#xmake [name=topic]', '');
-  await page.click('#toexplore');
-  check(await page.inputValue('#xmake [name=topic]') === '金鱼', '点“让 AI 把「金鱼」做成探索课”，主题自动带到探索课');
+  await page.selectOption('#wform [name=child]', 'meimei');
+  await page.selectOption('#wform [name=model]', { label: '家里的测试模型' });
+  await page.fill('#wform [name=topic]', '火箭发射');
+  await page.click('#wform button.primary');
+  await page.waitForFunction(() => document.getElementById('wlog')?.textContent?.includes('做成探索课'), null, { timeout: 30_000 });
+  check((await page.textContent('#wlog'))?.includes('「火箭发射」没有现成的 3D 场景'), '妹妹写「火箭发射」：不套机器人工厂，说明现成场景画的都不是它');
+  check((await page.textContent('#xlog'))?.includes('「火箭发射」的探索课'), '直接交给 ChatGPT 做成探索课，进度显示在「探索课」里，不用家长再点一次');
   await page.waitForFunction(() => document.getElementById('toast')?.textContent?.includes('探索课做好了'), null, { timeout: 60_000 });
-  check(await page.locator('.xdraft').count() === xbefore + 1 && (await page.locator('.xdraft').last().textContent())?.includes('由 AI 做探索课'), 'ChatGPT 做好的探索课进了「探索课」等你预览');
+  const made = page.locator('.xdraft').last();
+  check(await page.locator('.xdraft').count() === xbefore + 1 && (await made.textContent())?.includes('由 AI 做探索课'), 'ChatGPT 做好的探索课进了「探索课」等你预览');
+  await made.locator('details summary').click();
+  check((await made.textContent())?.includes('主题「火箭发射」的画面') && (await made.textContent())?.includes('主角：火箭发射（三维模型）（这节课建模）'), '课程卡片列出每样画面画的是什么、为这个主题做、怎么来的');
   await page.locator('#xbox').screenshot({ path: join(shots, 'parent-explore-made.png') });
   check(!errors.length, `页面没有脚本错误${errors.length ? '：' + errors.join('；') : ''}`);
 } finally {

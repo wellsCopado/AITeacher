@@ -84,7 +84,10 @@ function wireWriter(c: Ctx) {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(form)) as Record<string, string>;
     c.guard(async () => {
-      try { const r = await c.api<{ job: string }>('/v1/studio/generate', { method: 'POST', body: JSON.stringify(f) }); follow(c, r.job, onDone); }
+      try {
+        const r = await c.api<Started>('/v1/studio/generate', { method: 'POST', body: JSON.stringify(f) });
+        if (r.kind === 'explore') madeAsExplore(c, r); else follow(c, r.job, onDone);
+      }
       catch (e) {
         // no 3D scene where this topic lives: offer to make it an 探索课 that builds its own
         const topic = /「(.+?)」[^「]*探索课/.exec((e as Error).message)?.[1];
@@ -234,6 +237,16 @@ function startMaking(c: Ctx, f: Record<string, string>) {
     c.toast(`开始做「${f.topic}」的探索课了，可以先做别的，做好会出现在「探索课」里。`);
     followMaking(c, r.job);
   })();
+}
+/** What starting a lesson says back: explore when the topic had no scene of its own and is being made as an 探索课. */
+export interface Started { job: string; kind?: 'lesson' | 'explore'; topic?: string; why?: string }
+/** 写啥主题就做啥图片: the writer handed the topic to the 探索课 maker; say so and show its progress there. */
+export function madeAsExplore(c: Ctx, r: Started) {
+  const log = document.getElementById('wlog');
+  if (log) log.innerHTML = `<li class="toast">${esc(r.why ?? `「${r.topic}」要按它自己的样子建场景、做图，交给 ChatGPT（Codex）做成探索课了`)}</li>`;
+  document.getElementById('xmake')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  c.toast(`「${r.topic}」没有现成的场景，正按它自己的样子做成探索课，做好会出现在「探索课」里等你预览。`);
+  followMaking(c, r.job);
 }
 function wireMaker(c: Ctx) {
   const form = document.getElementById('xmake') as HTMLFormElement | null;

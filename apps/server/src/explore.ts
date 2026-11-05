@@ -9,11 +9,12 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, s
 import { dirname, join, posix } from 'node:path';
 import type { ExploreStatus, Store } from './db.js';
 import { fail, sha } from './http.js';
+import { VISUAL as VISUAL_FILE, checkAssets, visualHashes, type AssetLine } from './topic-assets.js';
 
 export const BRIDGE = 'adw-explore/1';
 const MAX_ZIP = 600 * 1024 * 1024, MAX_SITE = 800 * 1024 * 1024, MAX_FILES = 5000;
 /** Files kept beside the page for the parent: the package's own notes, licences and sources. */
-const DOC = /^(?:[^/]+\.md|licenses\/.+|research\/sources\.json|exploration\.json)$/;
+const DOC = /^(?:[^/]+\.md|licenses\/.+|research\/(?:sources|assets)\.json|exploration\.json)$/;
 
 /** What the App knows about one imported 探索课. */
 export interface Exploration {
@@ -31,10 +32,12 @@ export interface Exploration {
   /** The published version this one replaces in the automatic schedule. */
   replaces: string | null;
   imported_at: string; published_at?: string;
+  /** The parent's topic, word for word, and what each picture in it is of (research/assets.json): 写啥主题就做啥图片. */
+  topic?: string | null; assets?: AssetLine[];
 }
 
 /** exploration.json, all fields optional: a package made before the Skill knew the App still imports. */
-interface Manifest { format?: string; id?: string; version?: string; title?: string; for_child?: string; grade?: number; concept?: string; subjects?: string[]; minutes?: number; summary?: string; entry?: string }
+interface Manifest { format?: string; topic?: string; id?: string; version?: string; title?: string; for_child?: string; grade?: number; concept?: string; subjects?: string[]; minutes?: number; summary?: string; entry?: string }
 
 /** Zips made on a Mac often store UTF-8 names without saying so; read them back as UTF-8. */
 const fixName = (n: string) => {
@@ -92,9 +95,13 @@ export function readPackage(zip: Uint8Array) {
     try { pkgName = JSON.parse(Buffer.from(extract(zip, [names.find(n => n.name === p)!.raw])[names.find(n => n.name === p)!.raw]).toString('utf8')).name ?? ''; } catch { /* no name */ }
     if (pkgName) break;
   }
+  // what each picture is of and what it was made for (research/assets.json); null when it isn't JSON
+  const listed = byName.get(base + 'research/assets.json');
+  let assetList: unknown;
+  if (listed) try { assetList = JSON.parse(Buffer.from(listed).toString('utf8')); } catch { assetList = null; }
   const digest = sha(Buffer.concat([...site, ...docs].sort((a, b) => a.name.localeCompare(b.name)).flatMap(f => [Buffer.from(f.name.slice(base.length) + '\0'), Buffer.from(byName.get(f.name)!)])));
   return {
-    manifest, title: title.slice(0, 80), pkgName, folder: base.replace(/\/$/, '').split('/').pop() ?? '', digest, bytes, warnings, bridge,
+    manifest, assetList, title: title.slice(0, 80), pkgName, folder: base.replace(/\/$/, '').split('/').pop() ?? '', digest, bytes, warnings, bridge,
     site: site.map(f => ({ path: f.name.slice(prefix.length), data: byName.get(f.name)! })),
     docs: docs.map(f => ({ path: f.name.slice(base.length), data: byName.get(f.name)! })),
   };
@@ -120,9 +127,34 @@ export async function exploreRoutes(app: FastifyInstance, d: Deps) {
 
   app.addContentTypeParser(['application/zip', 'application/x-zip-compressed'], { parseAs: 'buffer', bodyLimit: MAX_ZIP }, (_req, body, done) => done(null, body));
   /** A package into the review queue: from the parent's upload, an AI assistant, or an 探索课 Codex made here. */
-  const importPackage = (zip: Uint8Array, q: { child?: string; name?: string }, who: string) => {
+  /** A lesson's picture files by sha256 (kept beside it as media.json), to tell one copied from it. */
+  const mediaOf = (key: string): Map<string, string> => {
+    const f = join(folder(key), 'media.json');
+    if (existsSync(f)) try { return new Map(Object.entries(JSON.parse(readFileSync(f, 'utf8')) as Record<string, string>)); } catch { /* made again below */ }
+    const site: { path: string; data: Uint8Array }[] = [];
+    const walk = (at: string, rel: string) => { if (existsSync(at)) for (const n of readdirSync(at)) {
+      const p = join(at, n), r = rel ? `${rel}/${n}` : n;
+      if (statSync(p).isDirectory()) walk(p, r); else if (VISUAL_FILE.test(n)) site.push({ path: r, data: readFileSync(p) });
+    } };
+    walk(join(folder(key), 'site'), '');
+    const m = visualHashes(site);
+    if (existsSync(folder(key))) writeFileSync(f, JSON.stringify(Object.fromEntries(m)));
+    return m;
+  };
+  /**
+   * A package into the review queue: from the parent's upload, an AI assistant, or an 探索课 Codex made here.
+   * topic: the topic it was made for here; then its pictures must be listed as made for it, or it isn't taken.
+   */
+  const importPackage = (zip: Uint8Array, q: { child?: string; name?: string; topic?: string }, who: string) => {
     const pkg = readPackage(new Uint8Array(zip));
     const m = pkg.manifest;
+    // 写啥主题就做啥图片 (topic-assets.ts): made here for a topic, the package is held to it; an older one is told
+    const topic = String(m.topic ?? '').trim().slice(0, 40);
+    const assets = checkAssets(topic, pkg.assetList, pkg.site);
+    if (q.topic) {
+      const problems = [...(topic && topic !== q.topic ? [`课程包的主题是「${topic}」，要做的是「${q.topic}」`] : []), ...assets.errors];
+      if (problems.length) fail(422, `画面没有按「${q.topic}」做，没放进课程库：${problems.slice(0, 4).join('；')}`);
+    }
     const kids = store.children();
     // who it's for: the parent's pick, else the package's, else the grade its name says (四年级 → the grade-4 child)
     const named = /([一二三四五六])年级/.exec(`${pkg.title} ${pkg.folder} ${q.name ?? ''}`)?.[1];
@@ -132,6 +164,15 @@ export async function exploreRoutes(app: FastifyInstance, d: Deps) {
     const published = store.lessons().filter(l => l.lesson_id === lessonId);
     const same = published.find(l => l.content_hash === pkg.digest);
     if (same) fail(409, `这个课程包和已发布的「${same.title}」（${same.key}）完全一样，不用再导入`);
+    // 不要总是复用原来的素材: a picture or model that is exactly another lesson's is never taken (one topic may share)
+    const mine = visualHashes(pkg.site);
+    const others = [...drafts().map(x => ({ key: x.key, meta: x.meta as Partial<Exploration> })),
+      ...store.lessons().filter(l => l.kind === 'explore').map(l => ({ key: l.key, meta: store.exploration<Exploration>(l.key) ?? {} as Partial<Exploration> }))]
+      .filter(o => !o.key.startsWith(lessonId + '@') && !(topic && o.meta.topic === topic));
+    for (const o of mine.size ? others : []) {
+      const same = [...mediaOf(o.key).keys()].filter(h => mine.has(h)).map(h => mine.get(h)!);
+      if (same.length) fail(409, `这个课程包里有 ${same.length} 个画面文件和「${o.meta.title ?? o.key}」那节课的一模一样（${same.slice(0, 3).join('、')}）：每节课的图和模型要按自己的主题做，不能拿别的课的`);
+    }
     const rows = drafts().filter(x => x.key.startsWith(lessonId + '@'));
     // a newer package of a lesson still waiting replaces it; versions published or declined stay taken
     const taken = [...published.map(l => l.version), ...rows.filter(x => x.status === '不采用').map(x => x.meta.version)];
@@ -144,7 +185,8 @@ export async function exploreRoutes(app: FastifyInstance, d: Deps) {
       concept: String(m.concept ?? '').slice(0, 80), subjects: Array.isArray(m.subjects) ? m.subjects.map(String).slice(0, 8) : [],
       minutes: Number(m.minutes) > 0 ? Math.round(Number(m.minutes)) : null, summary: String(m.summary ?? '').slice(0, 600),
       bridge: pkg.bridge, docs: pkg.docs.filter(f => f.path.endsWith('.md')).map(f => f.path), sha256: pkg.digest, bytes: pkg.bytes, files: pkg.site.length,
-      source_name: String(q.name ?? '').slice(0, 120), warnings: pkg.warnings,
+      source_name: String(q.name ?? '').slice(0, 120), warnings: [...pkg.warnings, ...assets.errors.map(e => `画面没按主题登记：${e}`), ...assets.warnings],
+      topic: topic || null, assets: assets.lines,
       replaces: published.sort((a, b) => (newer(a.version, b.version) ? -1 : 1))[0]?.key ?? null, imported_at: iso(),
     };
     // written next to the final place first, so a half-written package never shows
@@ -152,6 +194,7 @@ export async function exploreRoutes(app: FastifyInstance, d: Deps) {
     rmSync(tmp, { recursive: true, force: true });
     for (const f of pkg.site) { const p = join(tmp, 'site', f.path); mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, f.data); }
     for (const f of pkg.docs) { const p = join(tmp, 'docs', f.path); mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, f.data); }
+    writeFileSync(join(tmp, 'media.json'), JSON.stringify(Object.fromEntries(mine)));
     rmSync(folder(key), { recursive: true, force: true });
     renameSync(tmp, folder(key));
     store.upsertExploreDraft(x, who, iso());

@@ -2,6 +2,7 @@
 // (skills/discovery-lesson-maker) in a scratch folder. It finds out what is worth learning about the topic
 // for this child, builds the topic's own scene and lesson, and packs it the way the App imports it.
 // What goes out is what every lesson writer gets: grade, 哥哥/妹妹, the topic, school progress and lesson titles.
+// 写啥主题就做啥图片: every picture is listed as made for the topic (research/assets.json); the App checks it on import.
 import { cpSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { StudioContext } from './context.js';
@@ -37,12 +38,12 @@ ${declined ? `- 家长没采用过的课和原因：${declined}。不要重犯�
 ## 先定学什么，再动手做
 1. 查「${a.topic}」的真实资料：机构、博物馆、论文、百科的原始来源，记下来源。
 2. 对照课内进度，找这个主题里真实存在、这个年级该学或刚学过的数学和科学，定一个主问题和 2–4 个学习目标。比如蜜蜂可以是巢房的六边形、采蜜的次数和距离。不要默认周长和面积。
-3. 场景按「${a.topic}」真实生活或存在的地方自己做，不套别的课的场景。
+3. 孩子看到的每一样画面都为「${a.topic}」现做现找（步骤和验收照 ./skill/references/topic-assets.md）：动手前先列素材清单 research/assets.json——主角、部件、环境、题目和讲解的配图，每一项写画的是什么（depicts）、made_for "${a.topic}"、怎么来的（origin、how）、许可和 sha256。场景是「${a.topic}」真实所在的地方；配图从本课自己的三维场景渲染。不用 App 里、别的课的场景和素材（机械臂、齿轮、积木、珊瑚礁、花园的栅栏和地砖都不行，除非主题就是它），不用卡通或别的东西顶替；做不出来的写进 课程设计.md 的缺口。
 4. 把调研结果、学习目标和你的取舍写在 课程设计.md 的开头。
 
 ## 交付
 - 在当前目录做出课程包文件夹 package/，里面要有：
-  - exploration.json：format "adw-explore/1"，id "${a.id}"，version "1.0"，for_child "${c.id}"，grade ${c.grade}，title、concept、subjects、minutes、summary 都要写；
+  - exploration.json：format "adw-explore/1"，topic "${a.topic}"（家长的原词，一字不改），id "${a.id}"，version "1.0"，for_child "${c.id}"，grade ${c.grade}，title、concept、subjects、minutes、summary 都要写；
   - 构建好的 web/dist/ 和 web 源码；
   - README.md、课程设计.md、验收结果.md；
   - licenses/ 和 research/sources.json。

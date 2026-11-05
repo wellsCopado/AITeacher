@@ -80,7 +80,7 @@ export function studioContext(root: string, child: string, src: ContextSources =
         /** Params the child can set by hand in a hands-on question (challenges[].task), per task type. */
         hands_on: c.handsOn ?? {},
         /** Ready scenes, where each one is and what is on screen in it: the lesson only talks about what the child can see. */
-        themes_ready: Object.entries(themes.skins).filter(([, k]) => k.component === name && k.status === '已有').map(([id, k]) => ({ id, name: k.name, habitat: themes.habitats[k.habitat]?.name ?? '任何地方', shows: k.shows ?? '' })),
+        themes_ready: Object.entries(themes.skins).filter(([, k]) => k.component === name && k.status === '已有').map(([id, k]) => ({ id, name: k.name, habitat: themes.habitats[k.habitat]?.name ?? '任何地方', shows: k.shows ?? '', depicts: k.depicts ?? [] })),
         suggested_theme: s.theme, theme_notes: s.notes,
         /** Use exactly this as the next_lesson_wish question in end_chat (V14). */
         wish_question: s.wish,

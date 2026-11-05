@@ -2,8 +2,10 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { AssetEntry, ChildProfile, InterestObservation, LessonSpec, ThemeTable } from '../../schema/src/index.js';
-import { habitatName, habitatOf, sceneFor } from '../../validator/src/themes.js';
-export { fitsHabitat, habitatName, habitatOf, sceneFor } from '../../validator/src/themes.js';
+import { habitatName, habitatOf, scenesShowing } from '../../validator/src/themes.js';
+export { fitsHabitat, habitatName, habitatOf, sceneFor, scenesShowing, shows, subjectsIn } from '../../validator/src/themes.js';
+/** The ready 3D scenes, for telling the parent why a topic gets its own: 珊瑚礁样方调查、花园围栏与铺砖…. */
+export const readyDepicts = (themes: ThemeTable) => Object.values(themes.skins).filter(s => s.status === '已有' && s.depicts?.length).map(s => s.name.split('：')[0]).join('、');
 
 export const readJson = <T = any>(p: string): T => JSON.parse(readFileSync(p, 'utf8'));
 export function writeJson(p: string, v: unknown) { mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, JSON.stringify(v, null, 2) + '\n'); }
@@ -71,8 +73,9 @@ export function wishTopic(said: string, known: string[]): string | null {
 
 /** What a topic needs before its lesson: a ready 3D scene, or the subject itself made as an asset. */
 export function topicPlan(topic: string, themes: ThemeTable) {
-  const skins = skinsOf(themes, topic).map(id => ({ id, ...themes.skins[id] })).filter(s => s.name);
-  const ready = skins.filter(s => s.status === '已有');
+  const ready = scenesShowing(themes, topic).map(id => ({ id, ...themes.skins[id] }));
+  const planned = skinsOf(themes, topic).map(id => ({ id, ...themes.skins[id] })).filter(s => s.name && s.status !== '已有');
+  const skins = [...ready, ...planned];
   return {
     skins: skins.map(s => ({ id: s.id, name: s.name, component: s.component, status: s.status, ...(s.realism ? { realism: s.realism } : {}) })),
     subject: ready.length ? null : { name: topic, asset_id: subjectId(topic), kind: subjectKind(topic) },
@@ -103,24 +106,18 @@ export function suggestTheme(opts: {
   const notes: string[] = [];
   let theme: LessonSpec['theme'] | null = null;
   for (const rec of mine) {
-    const skins = skinsOf(themes, rec.topic);
-    const fit = skins.map(s => ({ id: s, ...themes.skins[s] })).filter(s => s.component === component);
-    const ready = fit.find(s => s.status === '已有');
+    // a scene only carries a topic it depicts (V27): 机器人 is not the robot arm, 蟋蟀 not the garden's fence and tiles
+    const ready = scenesShowing(themes, rec.topic, component).map(id => ({ id, ...themes.skins[id] }))[0];
     const why = `${rec.source}：${rec.topic}（${rec.state}）`;
     if (ready) { theme = { id: ready.id, name: ready.name, skin: ready.id, interest_refs: [rec.id], why, no_husbandry: true }; break; }
     if (rec.state === '家长指定' || rec.state === '下一课心愿') {
-      // the scene is where the subject really lives, picked here and not by the model: a cricket on grass, never on the sea floor
-      const kind = subjectKind(rec.topic), habitat = habitatOf(themes, rec.topic, kind), skin = sceneFor(themes, component, habitat);
-      theme = { id: `topic-${subjectId(rec.topic).slice(2)}`, name: rec.topic, ...(skin ? { skin } : {}), interest_refs: [rec.id], why, no_husbandry: true,
-        subject: { name: rec.topic, asset_id: subjectId(rec.topic), kind } };
-      notes.push(skin
-        ? `「${rec.topic}」生活在${habitatName(themes, habitat)}，还没有专门的 3D 场景，这节课用「${themes.skins[skin].name}」（已经定好，不要换）；「${rec.topic}」本身是这节课的主角（theme.subject），要做成写实画面或 3D，做好并经家长确认前这节课不能发布`
-        : `「${rec.topic}」生活在${habitatName(themes, habitat)}，${component} 还没有这样的 3D 场景，这个组件不能用来写「${rec.topic}」的课`);
-      for (const s of fit) notes.push(`专门场景「${s.name}」待开发`);
+      // honoured, never swapped for an easier scene: with no scene of its own it is made as an 探索课 (the server does)
+      theme = { id: `topic-${subjectId(rec.topic).slice(2)}`, name: rec.topic, interest_refs: [rec.id], why, no_husbandry: true,
+        subject: { name: rec.topic, asset_id: subjectId(rec.topic), kind: subjectKind(rec.topic) } };
+      notes.push(`「${rec.topic}」没有现成的 3D 场景（现成的只有${readyDepicts(themes)}，画的都不是它）：要按它自己的样子建场景、做图，做成探索课，不用 ${component} 写`);
       break;
     }
-    for (const s of fit) notes.push(`「${rec.topic}」对应的主题「${s.name}」待开发，需要开素材工单`);
-    if (!skins.length) notes.push(`「${rec.topic}」还没有对应主题，需要开素材工单`);
+    notes.push(`「${rec.topic}」没有现成的 3D 场景，这节课不用它；要讲它就做成探索课`);
   }
   if (!theme) {
     const skin = themes.neutral[component];

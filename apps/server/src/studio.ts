@@ -21,7 +21,7 @@ import { fail, HttpError } from './http.js';
 import { reteachHistory } from './homework.js';
 import { dateText, type WishBook } from './wishes.js';
 import type { PrepRow } from './db.js';
-import { habitatName, habitatOf, loadThemes, sceneFor, skinsOf, subjectKind, topicPlan } from '../../../packages/cli/src/lib.js';
+import { habitatName, habitatOf, loadThemes, readyDepicts, scenesShowing, shows, topicPlan } from '../../../packages/cli/src/lib.js';
 
 interface Deps {
   store: Store; root: string; tenant: string; iso: () => string;
@@ -40,7 +40,7 @@ interface Deps {
   /** The children's next-lesson wishes and their prep lists. */
   wishes: WishBook;
   /** 探索课 packages into the review queue (an 探索课 Codex made here goes the same way as an uploaded one). */
-  explore: { importPackage: (zip: Uint8Array, q: { child?: string; name?: string }, who: string) => { key: string; title: string; for_child: string; warnings: string[] } };
+  explore: { importPackage: (zip: Uint8Array, q: { child?: string; name?: string; topic?: string }, who: string) => { key: string; title: string; for_child: string; warnings: string[] } };
   /** Tests swap the network and the codex command out. */
   fetchImpl?: typeof fetch;
   codex?: CodexOpts;
@@ -181,42 +181,48 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
   // ---- the built-in lesson writer (a job): 课程库 → AI 出一节课, or an assistant handing over an agreed plan ----
   const jobs = new Map<string, Job>();
   const startJob = (b: { child?: string; wish?: string; component?: string; model?: string; revise?: string; topic?: string; prep?: string }, planner?: string): Job => {
-    const m = pick(b.model);
     // an agreed plan says for whom and about what; the parent's own 主题 box says what it is about, and so does a
     // one-line request that names one (“写一个蟋蟀的课程”): before, that topic never became the lesson's subject or scene
     const plan = b.wish ? briefFields(String(b.wish)) : {};
     if (!b.revise && plan.child && childId(plan.child)) b.child = childId(plan.child);
     const boxed = String(b.topic ?? '').trim().slice(0, 20) || plan.topic;
     const topic = boxed || (b.wish && !b.revise ? topicFromWish(String(b.wish)) ?? undefined : undefined);
-    if ([...jobs.values()].some(j => j.status === 'running' && j.kind !== 'explore')) fail(409, '上一节课还在写，写完再开始下一节');
     const request: LessonRequest = { wish: b.wish ? String(b.wish).slice(0, 8000) : undefined, component: b.component || undefined };
     let child = childId(String(b.child ?? '')) ?? String(b.child ?? '');
+    // 写啥主题就做啥图片: the fixed 3D scenes only take lessons about what they depict (V27). Any other topic gets its
+    // own scene and pictures: Codex makes it as an 探索课 from the 探索课 Skill, never the old scene with new words.
+    const th = loadThemes(root);
+    const comps = request.component ? [request.component.split('@')[0]] : [...new Set(Object.values(th.skins).map(s => s.component))];
+    const ownScene = (t: string) => comps.some(c => scenesShowing(th, t, c).length > 0);
+    const notShown = (t: string, where?: string) => `「${t}」${where ? `不在「${where}」的画面里` : '没有现成的 3D 场景'}（现成的只有${readyDepicts(th)}，画的都不是它），套旧场景只能改字、图还是原来的`;
     if (b.revise) {
       const draft = store.draft(b.revise) ?? fail(404, '没有这节待审核的课');
       const row = store.drafts().find(x => x.key === b.revise)!;
       if (row.status !== '已退回' || !row.note) fail(400, '这节课没有被退回，没有修改意见');
+      // the parent's note asks for another topic (“改成火箭发射”): that is a new lesson with its own pictures
+      const asked = topicFromWish(row.note!), skin = draft.theme.skin ?? '';
+      if (asked && !draft.title.includes(asked) && !shows(th, skin, asked)) return startExplore({ child: draft.for_child, topic: asked, wish: row.note!,
+        why: `${notShown(asked, th.skins[skin]?.name ?? skin)}：按「${asked}」自己的样子做成一节探索课。原来那节课还在“等你审核”里，不要了点“不采用”` });
       request.revise = { stages: disassemble(draft), note: row.note! };
       child = draft.for_child;
     }
+    let prep: PrepRow | undefined;
     if (b.prep) {
-      const p = store.prep(String(b.prep));
-      if (!p || p.status !== '准备中') fail(400, '这张准备单不在排队里（已经安排、跳过了，或者还要你先确认主题）');
-      child = p!.child;
+      prep = store.prep(String(b.prep));
+      if (!prep || prep.status !== '准备中') fail(400, '这张准备单不在排队里（已经安排、跳过了，或者还要你先确认主题）');
+      child = prep!.child;
+      if (!ownScene(prep!.topic)) return startExplore({ child, topic: prep!.topic, prep: prep!.id, why: `按${d.wishes.label(child)}${dateText(prep!.wished_on)}的心愿准备。${notShown(prep!.topic)}：按它自己的样子做成探索课` });
     }
-    // a subject goes only into a scene of where it lives: when no component has one, say so now instead of writing it wrong
-    if (topic && !b.revise) {
-      const th = loadThemes(root), habitat = habitatOf(th, topic, subjectKind(topic));
-      const comps = request.component ? [request.component.split('@')[0]] : [...new Set(Object.values(th.skins).map(s => s.component))];
-      const fits = (comp: string) => skinsOf(th, topic).some(id => th.skins[id]?.component === comp && th.skins[id].status === '已有') || !!sceneFor(th, comp, habitat);
-      if (!comps.some(fits)) fail(400, `「${topic}」生活在${habitatName(th, habitat)}，课里还没有这样的 3D 场景，写出来只能放错地方，所以先不写。可以把它做成一节探索课（课程库 → 探索课），或者换一个主题。`);
-    }
+    if (topic && !b.revise && !ownScene(topic)) return startExplore({ child, topic, wish: b.wish, why: `${notShown(topic)}：按「${topic}」自己的样子做成探索课` });
+    if ([...jobs.values()].some(j => j.status === 'running' && j.kind !== 'explore')) fail(409, '上一节课还在写，写完再开始下一节');
+    const m = pick(b.model);
     const directed = topic && !b.revise && store.hasChild(child) ? store.directTopic(child, topic, iso().slice(0, 7), iso()) : null;
     const ctx = context(child, b.prep);
-    // the same for a child's queued wish: an animal no scene can hold (大象, 金鱼) is not written in the wrong place
-    const stuck = !b.revise && ctx.components.every(c => c.suggested_theme.subject && !c.suggested_theme.skin) ? ctx.components[0]?.suggested_theme.subject : undefined;
-    if (stuck) {
-      const th = loadThemes(root);
-      fail(400, `「${stuck.name}」生活在${habitatName(th, habitatOf(th, stuck.name, stuck.kind === 'object' ? 'object' : 'organism'))}，课里还没有这样的 3D 场景，写出来只能放错地方，所以先不写。可以把它做成一节探索课（课程库 → 探索课），或者在「兴趣与心愿」里跳过这张准备单。`);
+    // the same for what the child wished for or the parent named earlier (大象, 金鱼, 火箭): its own 探索课
+    const stuck = !b.revise && ctx.components.every(c => c.suggested_theme.subject && !c.suggested_theme.skin) ? ctx.components[0]?.suggested_theme : undefined;
+    if (stuck?.subject) {
+      const ref = stuck.interest_refs[0], queued = d.wishes.queue(child).find(p => p.interest_id === ref);
+      return startExplore({ child, topic: stuck.subject.name, prep: queued?.id, interest: ref, why: `${stuck.why}。${notShown(stuck.subject.name)}：按它自己的样子做成探索课` });
     }
     const job: Job = { id: randomBytes(6).toString('hex'), child, model: m.label, status: 'running', started_at: iso(), log: [], ...(planner ? { planner } : {}) };
     jobs.set(job.id, job);
@@ -251,7 +257,11 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
     })();
     return job;
   };
-  app.post('/v1/studio/generate', d.parent, async (req, reply) => reply.code(202).send({ job: startJob((req.body ?? {}) as Record<string, string>).id }));
+  /** kind explore: the topic had no scene of its own, so it is being made as an 探索课 (the reply's topic says which). */
+  app.post('/v1/studio/generate', d.parent, async (req, reply) => {
+    const j = startJob((req.body ?? {}) as Record<string, string>);
+    return reply.code(202).send({ job: j.id, kind: j.kind ?? 'lesson', ...(j.kind === 'explore' ? { topic: j.topic, why: j.log[0]?.msg } : {}) });
+  });
   /** What to paste into ChatGPT (or any chat) to plan the next lesson with it; the plan comes back to 课程方案. */
   app.get('/v1/studio/design-prompt', d.parent, async (req) => {
     const child = childId(String((req.query as { child?: string }).child ?? '')) ?? fail(400, '选一个孩子');
@@ -358,26 +368,19 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
   app.get('/v1/studio/tasks/:id', d.parent, async (req) => tasks.get((req.params as { id: string }).id) ?? fail(404, '没有这个任务'));
 
   // ---- next-lesson prep lists (pipeline P0): get the wished-for topic ready before its lesson ----
-  /** How far a prep list's topic is: the scene it will use, or its subject's pictures. */
+  /** How far a prep list's topic is: the ready scene that depicts it, or the 探索课 that will be made for it. */
   const readiness = (p: PrepRow) => {
     const th = loadThemes(root), plan = topicPlan(p.topic, th);
     const ready = plan.skins.filter(s => s.status === '已有');
-    const subj = p.subject ?? plan.subject;
-    // a subject without its own scene goes into the scene of where it lives, or into none
-    const habitat = subj && !ready.length ? habitatOf(th, subj.name, subj.kind === 'object' ? 'object' : 'organism') : null;
-    const home = habitat ? [...new Set(Object.values(th.skins).map(s => s.component))].map(c => sceneFor(th, c, habitat)).find(Boolean) : null;
-    const media = subj ? store.mediaFor(subj.asset_id) : [];
-    const running = subj ? subjectTask(subj.asset_id) : undefined;
-    const subject = subj && {
-      ...subj,
-      state: media.some(m => m.confirmed) ? '画面已确认' : running ? `正在做：${running.step ?? ''}` : media.length ? '做好了，等你在“生物素材”里确认' : subj.kind === 'object' ? '要按“写实 3D 制作”Skill 做（交给 AI 助手）' : '还没有画面',
-    };
+    const making = [...jobs.values()].find(j => j.kind === 'explore' && j.status === 'running' && j.topic === p.topic && j.child === p.child);
+    // no scene depicts it: its lesson is an 探索课 with its own scene and pictures (写啥主题就做啥图片)
+    const subject = ready.length ? null : { name: p.topic, asset_id: plan.subject!.asset_id, kind: plan.subject!.kind,
+      state: making ? '正在做成探索课' : `没有现成的场景：按「${p.topic}」自己的样子做成探索课` };
     return {
       scenes: ready.map(s => ({ name: s.name, component: s.component, ...(s.realism ? { realism: s.realism } : {}) })),
       planned: plan.skins.filter(s => s.status !== '已有').map(s => s.name),
-      subject,
-      ...(habitat ? { lives: habitatName(th, habitat), home_scene: home ? th.skins[home].name : null } : {}),
-      ready: !!ready.length && ready.every(s => !s.realism) || (subject?.state === '画面已确认' && !!home),
+      subject, explore: !ready.length,
+      ready: !!ready.length && ready.every(s => !s.realism),
     };
   };
   const prepView = (p: PrepRow, withWords: boolean) => {
@@ -394,18 +397,7 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
       say(`用现成的 3D 场景「${r.scenes.map(s => s.name).join('、')}」${r.scenes.some(s => s.realism) ? `（${r.scenes.find(s => s.realism)!.realism}）` : ''}`);
       return;
     }
-    const s = r.subject!;
-    if (!r.home_scene) { say(`「${s.name}」生活在${r.lives}，课里还没有这样的 3D 场景，写出来只能放错地方：可以做成探索课（课程库 → 探索课），或者跳过这张准备单`); return; }
-    say(`下一课用「${r.home_scene}」场景：${s.name}生活在${r.lives}`);
-    if (s.state === '画面已确认') { say(`「${s.name}」的画面已经确认过，下一课直接用`); return; }
-    if (s.kind === 'object') { say(`「${s.name}」是机器或建筑：要按“写实 3D 制作”Skill 做写实素材，交给 AI 助手（它们在 adw_next_lessons 里看得到这张准备单）`); return; }
-    const cm = codexModel();
-    if (!cm) { say('自动找实拍照片要用 ChatGPT 账号：在“设备与数据 → 大模型”里添加，或者在“课程库 → 生物素材”里自己加照片'); return; }
-    if (!consent()) { say('自动找实拍照片前，先在“设备与数据 → 大模型”里勾选同意（只发主题名称）'); return; }
-    if (subjectTask(s.asset_id)) { say(`「${s.name}」已经在做了`); return; }
-    if (store.mediaFor(s.asset_id).length) { say(`「${s.name}」的画面做好了，等你在“生物素材”里确认`); return; }
-    makeSubject(s.asset_id, cm);
-    say(`已让 ChatGPT 去找「${s.name}」的实拍照片、画成写实图：做好后在“课程库 → 生物素材”里确认`);
+    say(`「${p.topic}」没有现成的 3D 场景（现成的只有${readyDepicts(loadThemes(root))}，画的都不是它），旧场景改字换不了图：点“现在按它出课”，家里 Mac 上的 ChatGPT（Codex）会按「${p.topic}」自己的样子建场景、做每一张图，做成探索课`);
   };
   app.get('/v1/preps', d.parent, async () => store.preps().map(p => prepView(p, true)));
   app.post('/v1/preps/:id/topic', d.parent, async (req) => {
@@ -498,36 +490,49 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
     const zip = top.find(n => n.endsWith('.zip'));
     return zip ? new Uint8Array(readFileSync(join(dir, zip))) : null;
   };
-  app.post('/v1/explore/make', d.parent, async (req, reply) => {
-    const b = (req.body ?? {}) as { child?: string; topic?: string; wish?: string };
-    const topic = String(b.topic ?? '').trim().slice(0, 20) || fail(400, '写一下这节探索课的主题，例如：蜜蜂');
-    const child = childId(String(b.child ?? '')) ?? fail(400, '选一下给谁做');
-    const m = codexModel() ?? fail(400, '做探索课要用 ChatGPT 账号：先在「设备与数据 → 大模型」添加“ChatGPT 账号（Codex）”');
-    if (!consent()) fail(403, '先在「设备与数据 → 大模型」勾选同意（只发年级、主题和课内进度）');
-    if ([...jobs.values()].some(j => j.status === 'running' && j.kind === 'explore')) fail(409, '上一节探索课还在做，做好再开始下一节');
+  /**
+   * An 探索课 Codex makes from a topic: the parent's own request in 探索课, or a lesson request whose topic no fixed
+   * scene depicts (写啥主题就做啥图片). why: the first log line, saying why it became an 探索课. prep / interest: the
+   * child's wish or the parent's earlier topic it follows, marked done once the lesson is in.
+   */
+  function startExplore(o: { child: string; topic: string; wish?: string; why?: string; prep?: string; interest?: string }): Job {
+    const topic = o.topic.trim().slice(0, 20) || fail(400, '写一下这节探索课的主题，例如：蜜蜂');
+    const child = childId(o.child) ?? fail(400, '选一下给谁做');
+    const routed = o.why ? `${o.why}。` : '';
+    const m = codexModel() ?? fail(400, `${routed}做探索课要用 ChatGPT 账号：先在「设备与数据 → 大模型」添加“ChatGPT 账号（Codex）”`);
+    if (!consent()) fail(403, `${routed}先在「设备与数据 → 大模型」勾选同意（只发年级、主题和课内进度）`);
+    if ([...jobs.values()].some(j => j.status === 'running' && j.kind === 'explore')) fail(409, `${routed}上一节探索课还在做，做好再开始下一节`);
     const ctx = context(child);
     const job: Job = { id: randomBytes(6).toString('hex'), child, model: m.label, status: 'running', started_at: iso(), log: [], kind: 'explore', topic };
     jobs.set(job.id, job);
     for (const old of [...jobs.keys()].slice(0, -10)) jobs.delete(old);
     const log = (msg: string) => { job.log.push({ at: iso(), msg }); if (job.log.length > 300) job.log.splice(1, job.log.length - 300); };
     const id = exploreId(child, iso().slice(0, 10), randomBytes(2).toString('hex'));
-    log(`让 ChatGPT（Codex）给${ctx.child.label}做一节「${topic}」的探索课：先查该学什么，再建场景、做课、打包。一般要几十分钟到几小时，可以先做别的`);
+    log(`${routed}让 ChatGPT（Codex）给${ctx.child.label}做一节「${topic}」的探索课：先查该学什么，再按「${topic}」自己的样子建场景、做每一张图，最后打包验收。一般要几十分钟到几小时，可以先做别的`);
     void (async () => {
       let dir = '';
       try {
-        const r = await codexExec({ prompt: explorePrompt(ctx, { topic, wish: b.wish ? String(b.wish).slice(0, 2000) : undefined, id }), model: m.model || undefined, write: true, web: true,
+        const r = await codexExec({ prompt: explorePrompt(ctx, { topic, wish: o.wish ? String(o.wish).slice(0, 2000) : undefined, id }), model: m.model || undefined, write: true, web: true,
           seed: at => seedExploreSkill(root, at), onProgress: log }, { ...d.codex, timeoutMs: EXPLORE_MIN * 60_000 });
         dir = r.dir;
         const zip = packed(dir);
         if (!zip) throw new Error(`ChatGPT 没有交出课程包${r.text ? `：${r.text.slice(0, 200)}` : ''}`);
-        const x = d.explore.importPackage(zip, { child, name: `AI 做的「${topic}」` }, `AI 做探索课 · ${m.label}`);
+        // made for this topic: the App checks its pictures were made for it and are no other lesson's (topic-assets.md)
+        const x = d.explore.importPackage(zip, { child, name: `AI 做的「${topic}」`, topic }, `AI 做探索课 · ${m.label}`);
         if (r.text) log(r.text.slice(0, 400));
+        if (o.prep) d.wishes.arranged(o.prep, x.key);
+        if (o.interest) store.topicUsed(o.interest, x.key);
         Object.assign(job, { status: 'done', key: x.key, title: x.title });
         log(`已放进“课程库 → 探索课”：${x.title}。先点“预览这节课”走一遍，再决定${x.warnings.length ? `（有 ${x.warnings.length} 条提示，看卡片上的红字）` : ''}`);
       } catch (e) { job.status = 'failed'; job.error = (e as Error).message; log(`没做成：${(e as Error).message}`); }
       finally { if (dir) rmSync(dir, { recursive: true, force: true }); }
     })();
-    return reply.code(202).send({ job: job.id });
+    return job;
+  }
+  app.post('/v1/explore/make', d.parent, async (req, reply) => {
+    const b = (req.body ?? {}) as { child?: string; topic?: string; wish?: string };
+    const j = startExplore({ child: String(b.child ?? ''), topic: String(b.topic ?? ''), wish: b.wish ? String(b.wish) : undefined });
+    return reply.code(202).send({ job: j.id, kind: 'explore', topic: j.topic });
   });
 
   app.get('/v1/studio/jobs', d.parent, async () => [...jobs.values()].reverse().map(({ log: _l, ...j }) => j));
