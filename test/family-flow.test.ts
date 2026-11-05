@@ -27,7 +27,7 @@ describe('adw-family 上课流程', () => {
 
   it('一进第一步就读讲解；一中三英按次数循环', async () => {
     const { e, said } = await load().then(() => engine());
-    expect(said()).toEqual([FLOW.narration.intro.zh]);
+    expect(said()).toEqual([FLOW.narration.intro.zh, FLOW.tasks.which.ask]);
     expect(e.say('intro')[0]).toEqual({ lang: 'en', text: FLOW.narration.intro.en[0] });
     e.say('intro'); e.say('intro');
     expect(e.say('intro')[0]).toEqual({ lang: 'zh', text: FLOW.narration.intro.zh });

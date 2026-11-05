@@ -38,6 +38,8 @@ export function createFamilyEngine(flow, { saved, emit = () => {} } = {}) {
     s.step = i; s.left = steps[i].seconds; s.warned = false;
     emit('step', { index: i, step: steps[i] });
     for (const id of steps[i].say ?? []) emit('say', { id, lines: [utter(id)] });
+    // 题目也出字幕并朗读（家长定的规则），讲解读完接着读
+    for (const id of steps[i].tasks ?? []) if (!s.tasks[id].done && tasks[id].ask) emit('say', { id, lines: [zh(tasks[id].ask)] });
   }
   function end() { s.ended = true; emit('say', { lines: [zh(PHRASES.end)] }); emit('end', {}); }
   function next(force = false) {
@@ -148,8 +150,11 @@ export function mountFamilyLesson({ flow, root, host, key, hooks = {}, base = '.
     playing = queue.shift(); show(playing.line);
     audio.src = base + lineFile(playing.line.lang, playing.line.text);
     const done = () => { const p = playing; playing = null; p.resolve(); if (!queue.length) setTimeout(() => !playing && show(null), 1500); pump(); };
-    audio.onended = done; audio.onerror = done;
-    audio.play().catch(done);
+    // 录音放不出来（文件缺了、平板禁了声音）时字幕也要留够孩子读完的时间，不能一闪而过
+    let failed = false;
+    const fallback = () => { if (failed) return; failed = true; setTimeout(done, Math.max(1500, playing.line.text.length * 250)); };
+    audio.onended = done; audio.onerror = fallback;
+    audio.play().catch(fallback);
   }
   const speak = (lines) => Promise.all(lines.map((line) => new Promise((resolve) => { queue.push({ line, resolve }); pump(); })));
   let engine;
