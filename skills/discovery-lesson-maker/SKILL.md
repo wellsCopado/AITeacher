@@ -2,7 +2,7 @@
 name: discovery-lesson-maker
 description: 用户给一个命题，自动研究、收集组装素材、制作可操作的写实三维和动画，并从儿童兴趣切入设计融合语文、英文、数学、科学与自信情绪支持的探索课。包含自然语音与现有App接入；用于制课或改进粗糙课程，非静态图册或固定话术模板。
 metadata:
-  version: '2.6.0'
+  version: '2.7.0'
 ---
 
 # 写实三维探索课制作
@@ -62,6 +62,7 @@ metadata:
 - `scripts/check_challenges.py <课程JSON> --capabilities <能力JSON> [--audit <判题审计JSON>]`：检查补充材料的 `task / answers` 风格内容；宿主原生校验仍是最终兼容依据。
 - `examples/`：题目/能力和跨主题评估案例，只作明确标注的结构与决策回归。没有制作这些主题的三维课程，不得宣称示例已成课。
 - [家庭档案](references/family-profile.md)、`assets/web/adw-family.mjs`（上课流程，复制进源码原样用）、`examples/lesson-flow.example.json`（`lesson-flow.json` 的完整示例）、`scripts/make_family_audio.py <web/public>`（在 Mac 上给每句话录音）：给 AI 探索世界这个家庭做课时都要用。
+- [写实画面的通用做法](references/photoreal-pipeline.md)：任何主题都适用。“看”用光线追踪预渲染、“动手”用实时三维；按真实尺寸建模和放尺度参照；扫描素材从哪拿（含网络受限时的办法）；假感毛病表。配套 `scripts/pbr_from_color.py`（只有颜色图时补法线和粗糙度、出无缝水面法线）、`scripts/render_stills.py`（按共用机位表 `views.json` 用 Blender Cycles 出图）、`scripts/shoot_views.mjs`（同一机位表截实时网页）。
 - `assets/web/adw-host.mjs`：AI 探索世界 App 的进度接口（adw-explore/1）。课要放进这个App时复制进源码原样使用：页面载入、任务进度、暂停都告诉App，每个孩子一份本机记录。用法和课程包格式见 [AI 探索世界 App 参考](references/app-reference.md)。
 - `scripts/check_package.py <课程包目录或.zip>`：交给 AI 探索世界 App 之前的预检，规则和App导入时相同（结构、`exploration.json`、构建、相对路径、外网依赖、进度接口、大小、密钥文件）。只做静态检查，不运行网页；过了仍要在App里预览。
 - `assets/web/physical-viewer.mjs`：可选的渐进光照观察适配器，已在台北101独立Web中运行；交互/动作保留快速预览，报告真实渲染状态与回退原因。仅在几何、材质与参考已核对、目标设备支持时选用。依赖、调用和限制见[网页物理光照](references/web-lighting.md)，不强制所有主题使用光追。

@@ -2,9 +2,9 @@
   "format": "adw-family/1",
   "lesson": "X-EXAMPLE-BRIDGE",
   "steps": [
-    { "id": "look", "title": "看大桥", "seconds": 240, "say": ["intro"], "tasks": ["which"] },
-    { "id": "try", "title": "动手试", "seconds": 420, "say": ["load"], "tasks": ["span"] },
-    { "id": "tell", "title": "说一说", "seconds": 180, "say": ["wrap"], "tasks": ["why"] }
+    { "id": "look", "title": "看大桥", "seconds": 240, "media": "realtime", "say": ["intro"], "tasks": ["which"] },
+    { "id": "try", "title": "动手试", "seconds": 420, "media": "realtime", "say": ["load"], "tasks": ["span"] },
+    { "id": "tell", "title": "说一说", "seconds": 180, "media": "render", "say": ["wrap"], "tasks": ["why"] }
   ],
   "narration": {
     "intro": { "zh": "这座斜拉桥横跨大江。它是怎么拉住桥面的？", "en": ["This is a cable-stayed bridge.", "The cables hold the deck.", "Look at the tall towers."] },
@@ -44,5 +44,9 @@
   "parent_notes": ["拉索受力是教学重建，按桥面挠度近似显示，不是真实桥梁的计算。"],
   "visual_gate": { "sheet": "evidence/visual-gate.jpg",
     "references": [ { "file": "research/ref-bridge-overview.jpg", "source": "https://example.org/photo" } ],
+    "views": [ { "name": "overview", "media": "render", "file": "evidence/render-overview.png" },
+               { "name": "deck", "media": "realtime", "file": "evidence/realtime-deck.png" } ],
+    "dimensions": [ { "what": "主跨", "meters": 602, "source": "https://example.org/bridge-facts" },
+                    { "what": "主塔高", "meters": 208, "source": "https://example.org/bridge-facts" } ],
     "self_review": "主塔和拉索的比例和照片一致；桥面沥青偏新，已加脏污贴图；远处楼群是简化体块，已压暗并加雾。" }
 }

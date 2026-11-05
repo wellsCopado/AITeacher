@@ -80,6 +80,28 @@ class FamilyFlowTests(unittest.TestCase):
         self.assertIn('至少 1 张真实照片', e)
         self.assertIn('挑出的不像的地方', e)
 
+    def test_hands_on_steps_are_realtime_and_gate_has_both_kinds_of_picture(self):
+        f = self.flow()
+        f['steps'][1]['media'] = 'render'      # 动手的步不能只给看预渲染图
+        f['steps'][0]['media'] = 'video'
+        f['visual_gate']['views'] = [v for v in f['visual_gate']['views'] if v['media'] == 'render']
+        e = errors(f)
+        self.assertIn('必须是实时三维', e)
+        self.assertIn('动手题 span', e)
+        self.assertIn('media 只能是 render', e)
+        self.assertIn('至少一张实时网页截图', e)
+        f = self.flow()
+        f['visual_gate']['views'] = [v for v in f['visual_gate']['views'] if v['media'] == 'realtime']
+        self.assertIn('对应的预渲染图', errors(f))
+        for s in f['steps']:
+            s.pop('media', None)          # 不写 media 就是实时三维，不要求预渲染图
+        self.assertEqual(errors(f), '')
+
+    def test_real_dimensions_with_sources(self):
+        f = self.flow()
+        f['visual_gate']['dimensions'] = [{'what': '主跨', 'meters': 602}]
+        self.assertIn('至少 1 条真实尺寸', errors(f))
+
     def test_stray_chinese_counts_only_unrecorded_text(self):
         page = 'h("' + '","'.join(t for _, t, _ in child_lines(FLOW)) + '");/* 注释里的中文不算 */'
         self.assertEqual(stray_chinese(page, FLOW), 0)

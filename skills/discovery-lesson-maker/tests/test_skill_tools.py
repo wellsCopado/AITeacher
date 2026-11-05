@@ -22,6 +22,8 @@ def module(name):
 
 
 production = module('check_production')
+pbr = module('pbr_from_color')
+stills = module('render_stills')
 challenges = module('check_challenges')
 
 
@@ -284,3 +286,48 @@ class ChallengeTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class PhotorealToolTests(unittest.TestCase):
+    """通用写实工具：不看画面好坏，只看坐标、机位表和贴图的不变量。"""
+
+    def test_water_normal_tiles_without_a_seam(self):
+        h = pbr.water_height(size=128, waves=24)
+        import numpy as np
+        inner = np.abs(np.diff(h, axis=1)).max()
+        seam = np.abs(h[:, 0] - h[:, -1]).max()
+        self.assertLessEqual(seam, inner * 1.01)
+
+    def test_color_map_becomes_three_maps(self):
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as d:
+            src = Path(d) / 'Rock012_2K-PNG_Color.jpg'
+            Image.new('RGB', (64, 64), (120, 110, 100)).save(src)
+            self.assertEqual(pbr.main([str(src), '--out', d, '--size', '32']), 0)
+            for tail in ('color', 'normal', 'rough'):
+                self.assertEqual(Image.open(Path(d) / f'Rock012_{tail}.jpg').size, (32, 32))
+            flat = Image.open(Path(d) / 'Rock012_normal.jpg').getpixel((5, 5))
+            self.assertGreater(flat[2], 240)  # 平的颜色图 → 法线朝外
+
+    def test_views_are_shared_and_default_to_render_only(self):
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / 'views.json'
+            f.write_text(json.dumps({'views': [
+                {'name': 'far', 'position': [0, 10, 100], 'target': [0, 0, 0], 'media': 'render'},
+                {'name': 'hands', 'position': [0, 2, 5], 'target': [0, 0, 0]}]}))
+            self.assertEqual([v['name'] for v in stills.load_views(f)], ['far'])
+            self.assertEqual(len(stills.load_views(f, include_all=True)), 2)
+            self.assertEqual([v['name'] for v in stills.load_views(f, 'hands')], ['hands'])
+            with self.assertRaises(ValueError):
+                stills.load_views(f, 'nope')
+            f.write_text(json.dumps({'views': [{'name': 'x', 'position': [0, 0, 1], 'media': 'video'}]}))
+            with self.assertRaisesRegex(ValueError, 'target'):
+                stills.load_views(f, include_all=True)
+
+    def test_coordinates_match_gltf_import_and_threejs_sun(self):
+        self.assertEqual(stills.gltf_to_blender((1, 2, 3)), (1, -3, 2))
+        x, y, z = stills.sun_direction(90, 0)
+        self.assertAlmostEqual(y, 1)
+        x, y, z = stills.sun_direction(0, 90)   # 方位 90°：朝 +x
+        self.assertAlmostEqual(x, 1)
+        self.assertAlmostEqual(z, 0, places=6)

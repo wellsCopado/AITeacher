@@ -45,6 +45,8 @@ description: 为 AI Discovery World 找、做、接入和验收写实 3D 素材�
 
 课末主持人（机器人或真人）的规格单独写在 [reference/host.md](reference/host.md)。现在仓库里哪些东西不达标、要换成什么，见 [reference/gaps.md](reference/gaps.md)，**动手前先读它**。
 
+整节探索课的画面怎么分（“看”用光线追踪预渲染、“动手”用实时三维）、按真实尺寸建模、网络受限时去哪拿扫描素材、常见假感毛病怎么修，见 [discovery-lesson-maker 的写实画面通用做法](../discovery-lesson-maker/references/photoreal-pipeline.md)，配套脚本在那里的 `scripts/`。
+
 ## 交付时必须给出
 
 - 新增或替换的素材清单：资产 id、来源网址、许可、真实尺寸、面数、贴图尺寸、文件大小。

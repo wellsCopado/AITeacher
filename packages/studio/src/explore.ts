@@ -46,7 +46,8 @@ ${declined ? `- 家长没采用过的课和原因：${declined}。不要重犯�
 - 孩子看到、听到的每句话写进 web/public/lesson-flow.json（照 ./skill/examples/lesson-flow.example.json），用 \`python3 ./skill/scripts/make_family_audio.py web/public\` 录音。给孩子的话短、像老师在旁边说，不写“示意、近似、不能推成”这类给大人的话，那些放进 parent_notes。
 - 至少 3 个孩子用手指亲手改变三维场景的实验（拖、转、推、组装、放、描），切镜头、下拉框、滑条不算。
 - 主角是真三维、环境像那个真实的地方；只用免费素材和本机工具，要花钱的写进 课程设计.md 等家长决定。
-- 写题目之前先做画面对照图 evidence/visual-gate.jpg（真实照片和课里截图并排），对着照片挑毛病、返工，写进 lesson-flow.json 的 visual_gate，并放在 验收结果.md 第一段。
+- 画面按 references/photoreal-pipeline.md：先查真实尺寸（单位米，带来源）再建模，画面里放孩子熟悉的尺度参照；“看”的步骤写 media: render，给同一模型的光线追踪图（scripts/render_stills.py）；有实验或动手题的步骤写 media: realtime，用实时三维。
+- 写题目之前先做画面对照图 evidence/visual-gate.jpg（同机位的真实照片、实时网页截图、有“看”的步骤时再加预渲染图），按假感毛病表挑毛病、返工，写进 lesson-flow.json 的 visual_gate（views、dimensions、self_review），并放在 验收结果.md 第一段。
 
 ## 交付
 - 在当前目录做出课程包文件夹 package/，里面要有：

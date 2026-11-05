@@ -44,7 +44,7 @@ lesson.answer('span', { ok: world.state.span === 30, good: '桥墩位置放对�
   "steps": [
     { "id": "look", "title": "看大桥", "seconds": 240, "say": ["intro"], "tasks": ["which"] },
     { "id": "try", "title": "动手试", "seconds": 420, "say": ["load"], "tasks": ["span", "trip"] },
-    { "id": "say", "title": "说一说", "seconds": 180, "say": ["wrap"], "tasks": ["why"] }
+    { "id": "say", "title": "说一说", "seconds": 180, "media": "render", "say": ["wrap"], "tasks": ["why"] }
   ],
   "narration": {
     "intro": { "zh": "这座桥有两千多米长。它是怎么站稳的？", "en": ["This is a bridge.", "The bridge is long.", "How does it stand?"] }
@@ -68,6 +68,8 @@ lesson.answer('span', { ok: world.state.span === 30, good: '桥墩位置放对�
   "encouragement": { "persist": ["造桥的工程师也是一遍遍试出来的。", "你已经找对一半了，再看一眼就能找到另一半。"] },
   "parent_notes": ["数值来源和简化写在这里，给家长看，不给孩子读。"],
   "visual_gate": { "sheet": "evidence/visual-gate.jpg", "references": [ { "file": "research/ref-bridge-1.jpg", "source": "https://…" } ],
+    "views": [ { "name": "overview", "media": "render", "file": "evidence/render-overview.png" }, { "name": "deck", "media": "realtime", "file": "evidence/realtime-deck.png" } ],
+    "dimensions": [ { "what": "主跨", "meters": 602, "source": "https://…" } ],
     "self_review": "主桥、拉索比例和照片一致；桥面沥青贴图偏新；远景楼群是简化体块，已压暗并虚化。" }
 }
 ```
@@ -116,10 +118,11 @@ lesson.answer('span', { ok: world.state.span === 30, good: '桥墩位置放对�
 - 环境要“像那个地方”：地面、植物、岩石、水面用扫描贴图或扫描模型（Poly Haven、ambientCG 等 CC0）。周围建筑可以简化，但不能是没贴图的方盒挤满画面；远处压暗、虚化或用实拍天空球。
 - 默认只用免费素材和本机工具（Blender、three.js、CC0 / CC-BY 素材）。要买模型或用收费的图生 3D 时，写进 `课程设计.md` 的“需要家长决定”，不要自己付费。
 - 渐进光追只在静止时细化；孩子操作时画面不能满屏噪点。
+- 做法按 [写实画面的通用做法](photoreal-pipeline.md)：“看”的步骤（`media: render`）给孩子看同一模型的光线追踪图或短片，动手的步骤（`media: realtime`，有实验或动手题的步必须是它）用实时三维；按查到的真实尺寸建模，画面里放人、车、手等孩子熟悉的尺度参照；对着同角度照片过一遍假感毛病表。
 
 ## 6. 画面对照门（先过这关再做整课）
 
-做完主角和场景、还没写题目之前，先做一张对照图 `evidence/visual-gate.jpg`：左边是同角度的真实照片（至少 1 张，最好 3 张：全景、关键部位近景、有尺度参照的视角），右边是课里实际网页的截图。
+做完主角和场景、还没写题目之前，先做一张对照图 `evidence/visual-gate.jpg`：同一机位并排放真实照片（至少 1 张，最好 3 张：全景、关键部位近景、有尺度参照的视角）、课里实际网页的截图（`scripts/shoot_views.mjs`），有“看”的步骤时再放预渲染图（`scripts/render_stills.py`）。三种图写进 `visual_gate.views`（`media: render | realtime`），真实尺寸和来源写进 `visual_gate.dimensions`。实时截图必须有，预渲染图不能代替它。
 
 - 自己先对着照片挑毛病，写进 `visual_gate.self_review`：哪里像、哪里不像、不像的是怎么处理的。挑不出毛病就是没认真看。
 - 有家长在场时（对话里做课），把对照图给家长看，家长说“画面可以”再继续做整课；不行只返工画面，不扩写课程。
@@ -131,5 +134,5 @@ lesson.answer('span', { ok: world.state.span === 30, good: '桥墩位置放对�
 - [ ] `lesson-flow.json` 通过 `check_package.py`，没有 errors。
 - [ ] `python3 scripts/make_family_audio.py <web/public>` 录好了全部声音，并亲耳听过几句。
 - [ ] 3 个以上实验，孩子真能用手指在平板上做。
-- [ ] 对照图和自评写好了。
+- [ ] 对照图里有实时截图（有“看”的步骤时还有预渲染图），真实尺寸带来源，自评按假感毛病表逐条看过。
 - [ ] 从头到尾走一遍：故意答错 3 次，看演示和同类题；等一步超时，看是否自动进下一步；点休息再继续。

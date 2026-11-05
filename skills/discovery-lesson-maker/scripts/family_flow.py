@@ -8,6 +8,7 @@ from pathlib import Path
 FORMAT = 'adw-family/1'
 PHRASES_FILE = Path(__file__).resolve().parents[1] / 'assets' / 'web' / 'adw-family-phrases.json'
 KINDS = {'choice', 'application', 'hands_on', 'explain'}
+MEDIA = {'render', 'realtime'}
 INPUTS = {'drag', 'rotate', 'push', 'assemble', 'place', 'draw', 'pinch'}
 LINE_MAX, CLAUSE_MAX = 40, 24
 # 写给家长的知识边界和免责话，不放进孩子听的句子
@@ -101,6 +102,8 @@ def check_flow(flow, has_file=lambda rel: True):
             e.append(f'步骤 {sid} 没写 title')
         if not s.get('say'):
             e.append(f'步骤 {sid} 没有讲解点（say），孩子进这一步听不到引导')
+        if s.get('media', 'realtime') not in MEDIA:
+            e.append(f'步骤 {sid} 的 media 只能是 render（看预渲染图/短片）或 realtime（实时三维）：{s.get("media")!r}')
         for nid in s.get('say') or []:
             if nid not in narration:
                 e.append(f'步骤 {sid} 的讲解点 {nid} 没写在 narration 里')
@@ -129,6 +132,14 @@ def check_flow(flow, has_file=lambda rel: True):
         for key in ('child_does', 'scene_state', 'see'):
             if not str(x.get(key, '')).strip():
                 e.append(f'实验 {xid} 没写 {key}')
+    media = {s.get('id'): s.get('media', 'realtime') for s in steps}
+    for x in experiments:
+        if media.get(x.get('step')) == 'render':
+            e.append(f'实验 {x.get("id")} 所在的步骤 {x.get("step")} 是 media: render；孩子动手的步必须是实时三维（realtime）')
+    for tid, sid in owner.items():
+        t = tasks.get(tid)
+        if isinstance(t, dict) and t.get('kind') == 'hands_on' and media.get(sid) == 'render':
+            e.append(f'动手题 {tid} 所在的步骤 {sid} 是 media: render；改成 realtime')
     if len(experiments) < 3:
         e.append(f'至少 3 个孩子亲手改变三维场景的实验（experiments），现在 {len(experiments)} 个')
 
@@ -203,6 +214,21 @@ def check_flow(flow, has_file=lambda rel: True):
         e.append('visual_gate.references 至少 1 张真实照片和它的来源')
     if len(str(gate.get('self_review', '')).strip()) < 20:
         e.append('visual_gate.self_review 要写清对着照片挑出的不像的地方和处理办法')
+    views = [v for v in gate.get('views') or [] if isinstance(v, dict)]
+    for v in views:
+        if v.get('media') not in MEDIA or not v.get('file'):
+            e.append(f'visual_gate.views 每项要有 media（render 或 realtime）和 file：{v}')
+    shown = {v.get('media') for v in views}
+    if 'realtime' not in shown:
+        e.append('visual_gate.views 至少一张实时网页截图（media: realtime），孩子动手时看到的就是它；预渲染图不能代替')
+    if 'render' in media.values() and 'render' not in shown:
+        e.append('有步骤用预渲染画面（media: render），visual_gate.views 要放一张对应的预渲染图')
+    dims = [d for d in gate.get('dimensions') or [] if isinstance(d, dict)]
+    good = [d for d in dims if d.get('what') and isinstance(d.get('meters'), (int, float)) and d['meters'] > 0 and str(d.get('source', '')).strip()]
+    if not good:
+        e.append('visual_gate.dimensions 至少 1 条真实尺寸 {what, meters, source}：先按真实尺寸建模（见 photoreal-pipeline.md）')
+    elif len(good) < len(dims):
+        w.append('visual_gate.dimensions 有几条缺 what、meters 或 source')
     return e, w
 
 
