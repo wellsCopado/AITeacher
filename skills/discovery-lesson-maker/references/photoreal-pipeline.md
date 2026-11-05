@@ -39,6 +39,7 @@
 - HDRI：three.js 仓库 `examples/textures/equirectangular/` 里有 Poly Haven 的 1k HDR；npm 包 `@pmndrs/assets` 里有小尺寸 HDRI。
 - 在家里的 Mac 上做课时直接从官网下全套贴图（颜色、法线、粗糙度、AO），比补出来的好，优先用。
 - 打不开就写“未获取”，不拿别的主题的旧素材凑（这家人明确禁止复用别的课的素材）。
+- 进课程包的每个画面文件（模型、贴图、补出的法线/粗糙度图、预渲染图、短片）都登记进 `research/assets.json`，写清是给哪个主题做的、怎么做的、许可，规则见 [主题素材登记](topic-assets.md)。
 
 ## 4. 假感毛病表
 
