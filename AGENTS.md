@@ -6,7 +6,7 @@
 
 | 要做的事 | Skill（唯一来源） |
 | --- | --- |
-| 做一节整节的写实三维探索课（网页课程包，家长在「课程库 → 探索课」导入） | `skills/discovery-lesson-maker/SKILL.md` 和它的 `references/`（接 App 先读 `references/app-reference.md`） |
+| 做一节整节的写实三维探索课（网页课程包，家长在「课程库 → 探索课」导入） | `skills/discovery-lesson-maker/SKILL.md` 和它的 `references/`（给这个家庭做课先读 `references/family-profile.md`，接 App 读 `references/app-reference.md`） |
 | 做一节 LessonSpec 课、按作业重教、改家长退回的课 | `skills/discovery-learning-studio/SKILL.md` 和它的 `reference/` |
 | 看作业照片、写判断、触发重教 | `skills/homework-analysis/SKILL.md` 和它的 `reference/` |
 | 做 3D 场景和组件、给课的主角找或做写实素材、做主持人、替换不达标的画面 | `skills/photoreal-3d-production/SKILL.md` 和它的 `reference/`（先读 `reference/gaps.md`） |
@@ -37,6 +37,7 @@ pnpm -s dls asset-check [<素材id>] [--save]  # 3D 素材自动检查 A1–A9�
 pnpm -s dls asset-sheet <素材id>      # 渲染四个角度的对照图，和同角度实拍照片并排，给家长判断像不像
 pnpm -s dls mcp                      # 以 MCP（stdio）提供做课工具
 pnpm test && pnpm typecheck          # 改代码后
+pnpm e2e:family [截图目录] [--package 课程包目录]  # 探索课按家庭上课规则在真服务器、真浏览器里走一遍（改了 adw-family.mjs 或想验一个课程包时）
 ```
 
 连家里的服务器：环境变量 `ADW_SERVER=http://<服务器地址>:8787`，加上家长端「设备与数据 → AI 助手接入」生成的 `ADW_TOKEN`（只能交课给家长审核）。接入方式见 `docs/agents.md`。

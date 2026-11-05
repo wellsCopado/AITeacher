@@ -41,13 +41,22 @@ ${declined ? `- 家长没采用过的课和原因：${declined}。不要重犯�
 3. 孩子看到的每一样画面都为「${a.topic}」现做现找（步骤和验收照 ./skill/references/topic-assets.md）：动手前先列素材清单 research/assets.json——主角、部件、环境、题目和讲解的配图，每一项写画的是什么（depicts）、made_for "${a.topic}"、怎么来的（origin、how）、许可和 sha256。场景是「${a.topic}」真实所在的地方；配图从本课自己的三维场景渲染。不用 App 里、别的课的场景和素材（机械臂、齿轮、积木、珊瑚礁、花园的栅栏和地砖都不行，除非主题就是它），不用卡通或别的东西顶替；做不出来的写进 课程设计.md 的缺口。
 4. 把调研结果、学习目标和你的取舍写在 课程设计.md 的开头。
 
+## 这个家庭的上课规则（硬要求，家长定的）
+先读 ./skill/references/family-profile.md，每一条都是验收条件，优先于 Skill 里给别的用户的默认值（不计时、英语可选那些不适用）：
+- 用 ./skill/assets/web/adw-family.mjs 跑上课流程：步骤按顺序解锁、每步倒计时、到时间自动下一步、字幕加朗读、讲解一中三英、答错先夸做对的地方再说看哪里、错 3 次先演示再做同类题。不要自己另写。
+- 孩子看到、听到的每句话写进 web/public/lesson-flow.json（照 ./skill/examples/lesson-flow.example.json），用 \`python3 ./skill/scripts/make_family_audio.py web/public\` 录音。给孩子的话短、像老师在旁边说，不写“示意、近似、不能推成”这类给大人的话，那些放进 parent_notes。
+- 至少 3 个孩子用手指亲手改变三维场景的实验（拖、转、推、组装、放、描），切镜头、下拉框、滑条不算。
+- 主角是真三维、环境像那个真实的地方；只用免费素材和本机工具，要花钱的写进 课程设计.md 等家长决定。
+- 画面按 references/photoreal-pipeline.md：先查真实尺寸（单位米，带来源）再建模，画面里放孩子熟悉的尺度参照；“看”的步骤写 media: render，给同一模型的光线追踪图（scripts/render_stills.py）；有实验或动手题的步骤写 media: realtime，用实时三维。
+- 写题目之前先做画面对照图 evidence/visual-gate.jpg（同机位的真实照片、实时网页截图、有“看”的步骤时再加预渲染图），按假感毛病表挑毛病、返工，写进 lesson-flow.json 的 visual_gate（views、dimensions、self_review），并放在 验收结果.md 第一段。
+
 ## 交付
 - 在当前目录做出课程包文件夹 package/，里面要有：
   - exploration.json：format "adw-explore/1"，topic "${a.topic}"（家长的原词，一字不改），id "${a.id}"，version "1.0"，for_child "${c.id}"，grade ${c.grade}，title、concept、subjects、minutes、summary 都要写；
   - 构建好的 web/dist/ 和 web 源码；
   - README.md、课程设计.md、验收结果.md；
   - licenses/ 和 research/sources.json。
-- 运行 \`python3 ./skill/scripts/check_package.py package\`，errors 为空才算做完；warnings 写进 验收结果.md。
+- 运行 \`python3 ./skill/scripts/check_package.py package\`，errors 为空才算做完（它也按家庭规则检查）；warnings 写进 验收结果.md。
 - 不要读写当前目录以外的文件：沙盒只让写当前目录，装依赖时把缓存也放在这里（\`npm install --cache ./.npm-cache\`，或 pnpm 加 \`--store-dir ./.pnpm-store\`）。不要把孩子的任何信息发到网上。
-- 最后用两三句话说明：这节课学什么、孩子动手做什么、还有什么没做到。`;
+- 最后用两三句话说明：这节课学什么、孩子亲手做哪几个实验、画面对照图里还有哪些不像、还有什么没做到。`;
 }

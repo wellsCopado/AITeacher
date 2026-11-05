@@ -1,0 +1,52 @@
+{
+  "format": "adw-family/1",
+  "lesson": "X-EXAMPLE-BRIDGE",
+  "steps": [
+    { "id": "look", "title": "看大桥", "seconds": 240, "media": "realtime", "say": ["intro"], "tasks": ["which"] },
+    { "id": "try", "title": "动手试", "seconds": 420, "media": "realtime", "say": ["load"], "tasks": ["span"] },
+    { "id": "tell", "title": "说一说", "seconds": 180, "media": "render", "say": ["wrap"], "tasks": ["why"] }
+  ],
+  "narration": {
+    "intro": { "zh": "这座斜拉桥横跨大江。它是怎么拉住桥面的？", "en": ["This is a cable-stayed bridge.", "The cables hold the deck.", "Look at the tall towers."] },
+    "load": { "zh": "把卡车拖上桥，看看哪里在用力。", "en": ["Drag the truck onto the bridge.", "Watch the cables.", "They pull tight."] },
+    "wrap": { "zh": "用你看到的说一说：桥为什么不会掉下去？", "en": ["The towers stand tall.", "The cables pull up.", "The deck stays up."] }
+  },
+  "experiments": [
+    { "id": "drag-truck", "step": "try", "input": "drag", "child_does": "把卡车拖上桥面", "scene_state": "truck.x, deck.sag, cables[].tension", "see": "桥面往下弯一点，靠近卡车的拉索绷紧" },
+    { "id": "place-pier", "step": "try", "input": "place", "child_does": "在河里放两个桥墩", "scene_state": "piers[].x", "see": "每段桥的长度跟着变" },
+    { "id": "cut-cable", "step": "look", "input": "drag", "child_does": "把一根拉索从塔上拖开", "scene_state": "cables[].attached, deck.sag", "see": "这根拉索下面的桥面垂下来" }
+  ],
+  "tasks": {
+    "which": { "kind": "choice", "label": "找出拉住桥面的部分", "ask": "哪一样在拉住桥面？",
+      "options": [
+        { "id": "a", "text": "拉索", "right": true },
+        { "id": "b", "text": "栏杆", "good": "你在找连着桥面的东西，方向对了。", "look": "拖开一根线，看桥面哪里垂下来。" },
+        { "id": "c", "text": "路灯", "good": "你注意到了桥上的东西，观察很细。", "look": "路灯拖开后桥面会动吗？" }
+      ],
+      "hints": ["卡车开上去时，看哪根线变直了。"],
+      "worked_example": ["先把一根拉索从塔上拖开。", "看，它下面的桥面垂下来了。", "所以拉住桥面的是拉索。"],
+      "twin": { "ask": "卡车停在左边时，哪边的拉索绷得更紧？",
+        "options": [
+          { "id": "l", "text": "左边", "right": true },
+          { "id": "r", "text": "右边", "good": "你在比两边，这个办法对。", "look": "看卡车停在哪一边。" }
+        ] } },
+    "span": { "kind": "hands_on", "experiment": "place-pier", "label": "摆桥墩", "ask": "放两个桥墩，把 12 格长的桥分成一样长的 3 段。",
+      "good": "桥墩已经立在河里了。", "look": "数一数每段各有几格。",
+      "hints": ["12 格平均分成 3 段，每段几格？"],
+      "worked_example": ["一共 12 格，要分成 3 段。", "12 除以 3 等于 4，每段 4 格。", "所以桥墩放在第 4 格和第 8 格。"],
+      "twin": { "ask": "一共 18 格，分成一样长的 3 段，桥墩放在哪两格？" } },
+    "why": { "kind": "explain", "label": "说清桥为什么不掉", "ask": "桥为什么不会掉下去？说出你看到的证据。",
+      "good": "你说出了桥上的部件。", "look": "想想刚才拖开拉索时发生了什么。",
+      "worked_example": ["刚才拖开拉索，桥面垂下来了。", "说明拉索把桥面往塔上拉。", "所以塔和拉索一起托住了桥面。"],
+      "twin": { "ask": "如果塔变矮了，拉索还能把桥面拉得那么稳吗？" } }
+  },
+  "encouragement": { "persist": ["造桥的工程师也是一遍遍试出来的。", "你已经找对一半了，再看一眼就能找到另一半。"] },
+  "parent_notes": ["拉索受力是教学重建，按桥面挠度近似显示，不是真实桥梁的计算。"],
+  "visual_gate": { "sheet": "evidence/visual-gate.jpg",
+    "references": [ { "file": "research/ref-bridge-overview.jpg", "source": "https://example.org/photo" } ],
+    "views": [ { "name": "overview", "media": "render", "file": "evidence/render-overview.png" },
+               { "name": "deck", "media": "realtime", "file": "evidence/realtime-deck.png" } ],
+    "dimensions": [ { "what": "主跨", "meters": 602, "source": "https://example.org/bridge-facts" },
+                    { "what": "主塔高", "meters": 208, "source": "https://example.org/bridge-facts" } ],
+    "self_review": "主塔和拉索的比例和照片一致；桥面沥青偏新，已加脏污贴图；远处楼群是简化体块，已压暗并加雾。" }
+}

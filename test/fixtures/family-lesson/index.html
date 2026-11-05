@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>斜拉桥</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;font-family:system-ui,sans-serif;background:#9fb3c4}
+#stage canvas{display:block}
+#still{position:fixed;inset:0;background:#000 center/cover no-repeat url(./img/render-overview.png)}
+.adw-family{position:fixed;left:0;right:0;top:0}
+.adw-family-bar{display:flex;gap:12px;align-items:center;padding:8px 12px;background:rgba(255,255,255,.85)}
+.adw-family-steps{display:flex;gap:10px;list-style:none;margin:0;padding:0;flex:1}
+.adw-family-steps .now{font-weight:700}.adw-family-steps .locked{opacity:.45}
+.adw-family-sub{margin:8px auto;max-width:720px;text-align:center;font-size:22px;color:#fff;text-shadow:0 1px 3px #000;min-height:30px}
+#task{position:fixed;left:16px;right:16px;bottom:16px;background:rgba(255,255,255,.92);border-radius:14px;padding:12px}
+#task button{font-size:18px;margin:4px;padding:8px 14px;border-radius:10px;border:1px solid #889}
+.cells button.pier{background:#345;color:#fff}
+</style></head>
+<body><div id="stage"></div><div id="still" hidden></div><div id="flow"></div><div id="task" hidden></div>
+<script type="module" src="./assets/index.js"></script></body></html>
