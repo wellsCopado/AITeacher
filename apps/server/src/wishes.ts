@@ -94,6 +94,11 @@ export function wishBook(d: { store: Store; root: string; iso: () => string }) {
     return used;
   }
 
+  /** A wish made into an 探索课 (its topic had no scene of its own): 已安排, like a lesson that follows it. */
+  function arranged(id: string, key: string) {
+    const p = store.prep(id);
+    if (p && isOpen(p)) store.updatePrep(id, { status: '已安排', lesson_ref: key }, iso());
+  }
   /** The parent didn't take the lesson written for these wishes: they go back in the queue, in their old place. */
   function unfollow(key: string, title: string): PrepRow[] {
     const back = store.preps().filter(p => p.status === '已安排' && p.lesson_ref === key);
@@ -116,6 +121,6 @@ export function wishBook(d: { store: Store; root: string; iso: () => string }) {
     });
   }
 
-  return { record, setTopic, skip, queue, head, interestsFor, follow, unfollow, migrate, label: (child: string) => profiles()[child]?.name ?? child };
+  return { record, setTopic, skip, queue, head, interestsFor, follow, arranged, unfollow, migrate, label: (child: string) => profiles()[child]?.name ?? child };
 }
 export type WishBook = ReturnType<typeof wishBook>;

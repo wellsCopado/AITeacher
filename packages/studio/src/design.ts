@@ -36,7 +36,7 @@ export function designPrompt(ctx: StudioContext, others: StudioContext[] = []): 
   const comps = ctx.components.map(m => [
     `- ${m.name}：教「${m.teaches.map(t => t.name).join('、')}」，常见错误：${m.teaches.flatMap(t => t.misconceptions).map(x => MISTAKE[x] ?? x).join('；') || '无'}。`,
     `  参数：${params(m.params_schema)}。孩子能做的动作：${m.actions.map(a => DOES[a] ?? a).join('、')}。能点的讲解位置：${m.hotspot_anchors.map(a => DOES[a] ?? a).join('、')}。`,
-    `  已做好的 3D 场景：${m.themes_ready.map(t => `「${t.name}」（${t.habitat}；${t.shows}）`).join('、')}。按家长指定和孩子兴趣建议「${m.suggested_theme.name}」（${m.suggested_theme.why}）。${m.theme_notes.length ? m.theme_notes.join('；') : ''}`,
+    `  已做好的 3D 场景：${m.themes_ready.map(t => `「${t.name}」（只画了${t.depicts.join('、')}；${t.shows}）`).join('、')}。主题不是这些场景画的东西时（火箭、蜜蜂、火山……），这节课会做成探索课，按主题自己建场景、做图，不套这些场景。按家长指定和孩子兴趣建议「${m.suggested_theme.name}」（${m.suggested_theme.why}）。${m.theme_notes.length ? m.theme_notes.join('；') : ''}`,
   ].join('\n')).join('\n');
   const wish = ctx.components[0]?.wish_question as { prompt?: string; options?: string[] } | undefined;
   return `你是 AI Discovery World 的课程设计顾问，和家长一起为${c.label}（${c.grade} 年级，${c.region}${c.system}）设计下一节数学互动课的方案。方案谈好后，会交给另一个模型按固定规则做成完整的课，所以方案要具体、能落地。先问家长这节课想达到什么，再提 2–3 个方向让家长选，最后按下面的格式写出方案。
@@ -101,6 +101,7 @@ export function topicFromWish(text: string): string | null {
   const t = text.trim();
   if (!t || t.includes(BRIEF_HEADER)) return null;
   const said = [
+    /(?:改成|换成|改为|换为|改讲|换讲)(?:讲)?(?:一个|一节)?(.{1,12}?)(?:的)?(?:探索课|课程|课|主题)?(?:[，,。；;！!？?\s]|$)/,
     /(?:用|以|拿)(.{1,12}?)(?:来)?(?:做|当|作|为)主题/,
     /主题(?:是|为|用|定为|[：:])\s*([^，,。；;、\s]{1,12})/,
     /(?:写|做|出|来|讲|上|备)(?:一|1|两|几)?(?:个|节|堂|篇|次)?(?:关于|有关|讲)?(.{1,12}?)(?:的|主题的)?(?:探索课|课程|课)/,

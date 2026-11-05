@@ -3,7 +3,7 @@
 import { summarize, type Ev } from './summary.js';
 import { dataSection, homeworkView, masteryView, type Ctx } from './homework.js';
 import { downscale } from './image.js';
-import { agentsCard, canDraw, drawRow, follow, makeRow, makerForm, modelsCard, wireDraw, wireMake, wireStudio, writerCard } from './studio.js';
+import { agentsCard, canDraw, drawRow, follow, madeAsExplore, makeRow, makerForm, modelsCard, wireDraw, wireMake, wireStudio, writerCard, type Started } from './studio.js';
 import qrcode from 'qrcode-generator';
 
 interface Child { id: string; name: string; grade: number }
@@ -12,7 +12,11 @@ interface Lesson { key: string; kind?: 'spec' | 'explore'; for_child: string; ti
 interface Explore {
   key: string; title: string; for_child: string; status: '待审核' | '已退回' | '不采用'; note: string | null; concept: string; summary: string;
   bytes: number; files: number; docs: string[]; warnings: string[]; replaces: string | null; source_name: string; imported_by: string; bridge: boolean;
+  /** The parent's topic and what each picture is of (research/assets.json). */
+  topic?: string | null; assets?: { file: string; role: string; depicts: string; origin: string }[];
 }
+const ROLE_NAMES: Record<string, string> = { hero: '主角', part: '主角部件', scene: '环境', picture: '配图', video: '视频' };
+const ORIGIN_NAMES: Record<string, string> = { modeled: '这节课建模', procedural: '程序生成', scan: '实物扫描', cad: '工程图纸', photo: '实拍照片', 'cc0-library': '免费素材库', licensed: '有授权的素材', generated: 'AI 生成', rendered: '从这节课的三维场景渲染', drawn: '手绘' };
 interface Session { key: string; child: string; lesson_key: string; started_on: string; updated_at: string; finished: number; events: number }
 interface Draft {
   key: string; title: string; child: string; status: string; note: string | null; concept: string; theme: { name: string; why: string };
@@ -201,6 +205,7 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
       ${xopen.map(x => `<div class="card xdraft" data-k="${esc(x.key)}"><h3>${esc(x.title)} <span class="badge">探索课</span> <span class="badge">${esc(x.status)}</span></h3>
         <p class="muted small">${esc(name(x.for_child))} · ${esc(x.concept || '课程包没写知识点')} · ${esc(x.key)} · ${mb(x.bytes)}，${x.files} 个文件 · 由 ${esc(x.imported_by)} 导入${x.source_name ? `（${esc(x.source_name)}）` : ''}</p>
         ${x.summary ? `<p>${esc(x.summary)}</p>` : ''}
+        ${x.assets?.length ? `<details class="small"><summary>主题「${esc(x.topic ?? '')}」的画面：${x.assets.filter(a => a.role !== 'ui').length} 样，都登记为给这个主题做的</summary><ul>${x.assets.filter(a => a.role !== 'ui').map(a => `<li>${esc(ROLE_NAMES[a.role] ?? a.role)}：${esc(a.depicts)}（${esc(ORIGIN_NAMES[a.origin] ?? a.origin)}）</li>`).join('')}</ul></details>` : ''}
         ${x.replaces ? `<p class="small replaces">这是 ${esc(x.replaces)} 的新版本。发布后自动排课只排新版；孩子上过旧版就算上过这节课。</p>` : ''}
         ${x.note ? `<p class="toast bad">你退回时写的：${esc(x.note)}<br>把这句意见交给做课的 AI，改好后重新导入，新包会替换这一份。</p>` : ''}
         ${x.warnings.map(w => `<p class="small toast bad">${esc(w)}</p>`).join('')}
@@ -362,7 +367,8 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
       });
       const revise = card.querySelector<HTMLButtonElement>('.revise');
       if (revise) revise.onclick = guard(async () => {
-        const r = await api<{ job: string }>('/v1/studio/generate', { method: 'POST', body: JSON.stringify({ revise: key }) });
+        const r = await api<Started>('/v1/studio/generate', { method: 'POST', body: JSON.stringify({ revise: key }) });
+        if (r.kind === 'explore') { madeAsExplore(ctx(), r); return; }
         document.getElementById('writer')?.scrollIntoView({ behavior: 'smooth' });
         follow(ctx(), r.job, () => VIEWS.课程库());
       });
@@ -410,8 +416,9 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
       await api(`/v1/preps/${b.dataset.pprep}/prepare`, { method: 'POST', body: '{}' }); await VIEWS.兴趣与心愿();
     }));
     view().querySelectorAll<HTMLButtonElement>('button[data-pgen]').forEach(b => b.onclick = guard(async () => {
-      await api('/v1/studio/generate', { method: 'POST', body: JSON.stringify({ prep: b.dataset.pgen }) });
-      tab = '课程库'; await main(); toast('开始按这张准备单写课了，写好后在下面“等你审核”');
+      const r = await api<Started>('/v1/studio/generate', { method: 'POST', body: JSON.stringify({ prep: b.dataset.pgen }) });
+      tab = '课程库'; await main();
+      if (r.kind === 'explore') madeAsExplore(ctx(), r); else toast('开始按这张准备单写课了，写好后在下面“等你审核”');
     }));
     view().querySelectorAll<HTMLFormElement>('form.progress').forEach(f => f.onsubmit = e => {
       e.preventDefault();

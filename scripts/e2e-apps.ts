@@ -240,8 +240,9 @@ try {
   const meimeiCard = await parent.locator('.card:has(h3:text-is("妹妹"))').textContent();
   check(!meimeiCard?.includes('机器人'), '妹妹的兴趣里没有哥哥的心愿');
   const prep = await parent.locator('.card:has(h3:text-is("哥哥")) .prep').textContent();
-  check(!!prep && /下一课准备单[\s\S]*机器人[\s\S]*下一节课按它出[\s\S]*机器人工厂/.test(prep), '心愿马上变成哥哥的下一课准备单：排第一，用机器人工厂场景');
-  check(!!prep?.includes('不够写实'), '准备单写明机器人场景的写实版还在做');
+  check(!!prep && /下一课准备单[\s\S]*机器人[\s\S]*下一节课按它出/.test(prep), '心愿马上变成哥哥的下一课准备单：排第一');
+  // 写啥主题就做啥图片: the robot factory only depicts the arm, so a wished 机器人 is not put into it
+  check(!!prep?.includes('按「机器人」自己的样子做成探索课') && !prep.includes('场景：机器人工厂'), '准备单写明没有画着机器人的现成场景，要按机器人自己的样子做成探索课，不套机器人工厂');
   await parent.locator('.card:has(h3:text-is("哥哥")) .prep').screenshot({ path: join(shots, 'parent-prep.png') });
 
   // Count on the server: every event exactly once.

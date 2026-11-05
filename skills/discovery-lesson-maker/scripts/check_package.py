@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""交给 AI 探索世界 App 之前预检探索课包（目录或 .zip）：按 App 导入时的同一套规则查结构、路径、进度接口和大小。
+"""交给 AI 探索世界 App 之前预检探索课包（目录或 .zip）：按 App 导入时的同一套规则查结构、路径、进度接口、大小，
+以及画面是不是为这个主题做的（素材清单 research/assets.json）。
 只做静态检查，不运行网页；能否在 App 里打开、画面和教学是否合格，要导入后在「课程库 → 探索课」预览。"""
 import argparse
 import json
@@ -139,6 +140,12 @@ def check(path):
     html = pkg.read(base + entry).decode('utf-8', 'replace')
     if SOURCE_PAGE.search(html):
         errors.append('入口是没构建的源码页面（引用 /src/…）：先 vite build，把 web/dist 打进包里')
+    # 写啥主题就做啥图片：每个画面文件都登记为这个主题做的（references/topic-assets.md）
+    from topic_assets import check_assets
+    asset_errors, asset_warnings, asset_facts = check_assets(pkg.read, site, base, prefix, manifest)
+    errors.extend(asset_errors)
+    warnings.extend(asset_warnings)
+    facts.update(asset_facts)
     if len(site) > MAX_FILES or size > HARD_LIMIT:
         errors.append(f'网页部分 {size / 2**20:.0f} MB、{len(site)} 个文件，超过 App 上限（800 MB / 5000 个）')
     elif size > SOFT_LIMIT:

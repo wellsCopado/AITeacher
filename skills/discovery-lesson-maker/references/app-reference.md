@@ -20,6 +20,7 @@
   web/src/  web/package.json …       源码、锁文件、vite.config.mjs（App 不读，留给以后改）
   README.md  课程设计.md  验收结果.md   家长在 App 的课程卡片上能点开看
   licenses/  research/sources.json   许可和来源，随课一起保存
+  research/assets.json               素材清单：每张图、每个模型画的是什么、为哪个主题做、从哪来（见 topic-assets.md）
 ```
 
 模型的 .blend、研究原件、`node_modules` 可以不放；放了 App 也不读。
@@ -29,6 +30,7 @@
 ```json
 {
   "format": "adw-explore/1",
+  "topic": "台北101",
   "id": "X-TAIPEI101",
   "version": "1.0",
   "title": "台北101：风中的稳定秘密",
@@ -43,6 +45,7 @@
 
 - `id` 以 `X-` 开头，只用英文字母、数字和连字符；同一节课改版时**保持 id 不变**。没发布的那一份会被新包替换；已发布的，App 自动给新包下一个版本号（1.0 → 1.1），发布后自动排课只排新版。
 - `grade` 写年级（哥哥 4、妹妹 2），或者写 `for_child`（`gege` / `meimei`）。
+- `topic` 写家长给的主题原词。App 按它和 `research/assets.json` 核对画面是不是为这个主题做的；包里有画面文件和别的主题的课一模一样，App 不收。规则见 [主题与素材](topic-assets.md)。
 
 ## 网页要满足的
 
@@ -82,6 +85,8 @@ onHost((m) => { if (m.type === 'pause') { stopVoice(); world.setPaused(true); } 
 - 指令里写着孩子的年级、编号（`gege` / `meimei`）、主题、家长的要求、课内进度、最近上过的课和家长没采用的课；不含名字、照片、学习记录和孩子的原话。
 - 中途没有人回答问题：要问的都自己定，写进 `课程设计.md`。
 - 先查资料、对照课内进度定学什么，再做，不默认周长和面积。
+- 动手前先列素材清单，每样画面为这个主题现做现找（[主题与素材](topic-assets.md)）；`exploration.json` 的 `topic` 写指令里的主题原词。
+- 家长在「AI 出一节课」里写的主题，现成参数课场景画的不是它时，也会自动交到这里做成探索课：主题框、要求、课程方案、退回意见里要换的主题、孩子的心愿都算。
 - 做成 `package/` 文件夹，`exploration.json` 用指令里给的 `id` 和 `for_child`，`python3 ./skill/scripts/check_package.py package` 没有 errors 才算完。
 - 服务器把 `package/` 打包导入（不带 `node_modules`、不带链接到文件夹外的文件），课就进「探索课」等家长预览。发布还是只有家长能点。
 - Codex 说的话和跑的命令会一条条显示在家长端，最多做 4 个小时（`ADW_EXPLORE_MINUTES` 可改）。

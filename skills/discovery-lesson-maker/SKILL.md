@@ -19,6 +19,7 @@ metadata:
 
 - 从本次消息和已有材料提取主题、学习对象、要理解的问题、已有资产、目标设备与交付方式。已给出的不重复问。
 - **先锁定主角身份。** 写下用户原词、具体对象/子类、不能缺少的辨识结构与不确定处。已有纠正优先：本用户此处“机器人”明确指完整人形机器人，不能换成单独机械臂。其他用户的泛称需按语境判断；子类会实质改变课程且无法推断时只问一个关键问题，不擅自选最容易建模的替代品。
+- **写什么主题就做什么画面，每个主题都走同样五步**：定主题和主角 → 定学什么 → 动手前列素材清单 `research/assets.json` → 每一项为这个主题现做现找 → 验收。孩子看到的每张图、每个模型、贴图和视频都登记画的是什么、为哪个主题做、从哪来；不从别的课、App 自带场景或示例里拷画面，不用卡通或别的东西顶替，题目配图从本课场景渲染。清单不全、不是为这个主题做的、和别的课一模一样的，检查和 App 导入都不收。见 [主题与素材](references/topic-assets.md)。
 - 用户要求现实实体的真实感时，选有资料支持的真实种类、具体型号/配置或建筑作主角；自创教学机器人不能仅凭完整身体替代真实机器人。不要把一个品牌的外观、另一个产品的内部和为题目凑出的手指混成“真实设备”。过程类命题则明确观测系统和尺度，不强制套产品型号。详见 [真实对象重建](references/real-object-reconstruction.md)。
 - 用户只有主题时，先研究主题并检视素材。年龄或课程目标会明显改变教学难度时再简短询问；等待期间继续素材工作。未知年级、学情、孩子兴趣不能编成已知。
 - 围绕主题确定主问题，安排观察表达、自然英文、数量/空间推理和科学解释；兴趣、自信和情绪支持贯穿操作与反馈，不单独测试。避免为了凑学科添加无关算术题或机械翻译。
@@ -64,7 +65,7 @@ metadata:
 - [家庭档案](references/family-profile.md)、`assets/web/adw-family.mjs`（上课流程，复制进源码原样用）、`examples/lesson-flow.example.json`（`lesson-flow.json` 的完整示例）、`scripts/make_family_audio.py <web/public>`（在 Mac 上给每句话录音）：给 AI 探索世界这个家庭做课时都要用。
 - [写实画面的通用做法](references/photoreal-pipeline.md)：任何主题都适用。“看”用光线追踪预渲染、“动手”用实时三维；按真实尺寸建模和放尺度参照；扫描素材从哪拿（含网络受限时的办法）；假感毛病表。配套 `scripts/pbr_from_color.py`（只有颜色图时补法线和粗糙度、出无缝水面法线）、`scripts/render_stills.py`（按共用机位表 `views.json` 用 Blender Cycles 出图）、`scripts/shoot_views.mjs`（同一机位表截实时网页）。
 - `assets/web/adw-host.mjs`：AI 探索世界 App 的进度接口（adw-explore/1）。课要放进这个App时复制进源码原样使用：页面载入、任务进度、暂停都告诉App，每个孩子一份本机记录。用法和课程包格式见 [AI 探索世界 App 参考](references/app-reference.md)。
-- `scripts/check_package.py <课程包目录或.zip>`：交给 AI 探索世界 App 之前的预检，规则和App导入时相同（结构、`exploration.json`、构建、相对路径、外网依赖、进度接口、大小、密钥文件）。只做静态检查，不运行网页；过了仍要在App里预览。
+- `scripts/check_package.py <课程包目录或.zip>`：交给 AI 探索世界 App 之前的预检，规则和App导入时相同（结构、`exploration.json` 和它的 `topic`、构建、相对路径、外网依赖、进度接口、大小、密钥文件；素材清单由 `scripts/topic_assets.py` 查，见 [主题与素材](references/topic-assets.md)）。只做静态检查，不运行网页；过了仍要在App里预览。
 - `assets/web/physical-viewer.mjs`：可选的渐进光照观察适配器，已在台北101独立Web中运行；交互/动作保留快速预览，报告真实渲染状态与回退原因。仅在几何、材质与参考已核对、目标设备支持时选用。依赖、调用和限制见[网页物理光照](references/web-lighting.md)，不强制所有主题使用光追。
 - [实际试课、退回与回修](references/field-trials.md) 记录主角替换失败、人形重做及高楼验证的实际原因和修复；不是任何主题的质量保证。
 - `scripts/render_asset_diagnostics.py`：通过Blender输出同机位材质/素模视图和指定部件近景，用来发现玩具比例、连接缺口和表面掩饰。它不会给写实打分，也不能代替最终Web。用法见[真实对象重建](references/real-object-reconstruction.md#可运行的制作辅助工具)。

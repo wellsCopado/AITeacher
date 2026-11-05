@@ -28,7 +28,8 @@ const OUTPUT_RULES = `## 输出格式（必须严格遵守）
 - 上下文里 fixed 的值原样使用：tenant_id、for_child、version、learner_profile.grade、learner_profile.language、curriculum_mapping 的 region / system / grade / status / verified_by。lesson_id 用所选组件的 new_lesson_id。
 - director.theme 原样复制所选组件的 suggested_theme；end_chat 里 kind 为 next_lesson_wish 的那一题原样复制 wish_question。
 - 上下文的 next_lesson_wish 不为空时，这节课就是按孩子自己说的这个心愿准备的：parent_tip 写一句“按（孩子）的心愿「主题」准备”。
-- suggested_theme 里有 subject（主角）时：这节课就是讲它的。场景（theme.skin，也是 component_params 里的 theme）系统已经按它真实生活的地方选好，原样用，不要换；标题、说明页、讲解和题目都围绕它和它生活的地方写（例如 shrimp 讲解位置写成它的名字和它真实的样子），不要写成别的动物、别的环境。示例课是螳螂虾和海底，只参考结构：主角不是螳螂虾时，课里不能出现螳螂虾；主角不住在海里时，不能出现海底、珊瑚、潜水。它的画面由系统另外做，你在 assets.pending 里列出它（系统会自动补）。说明页正文讲它真实的样子和生活；anchor 为 shrimp 的热点讲的就是它（不是螳螂虾），写 1–3 条 facts，每条 ref 写出处或“待科学审核”（V25）。
+- 课讲的就是画面上的东西（V27）：每个现成场景只画了 themes_ready[].depicts 里的东西，标题要写其中一个，说明页和讲解只讲画面里有的；别的主题（火箭、蜜蜂、火山……）系统会做成探索课，按主题自己建场景、做图，你不要把它写进这里的场景，也不要只改文字把别的场景说成它。家长退回意见要换成场景里没有的主题时，同样不要硬改。
+- suggested_theme 里有 subject（主角）时，它一定是这个场景画着的东西（例如珊瑚礁里的螳螂虾）：这节课就是讲它的，场景原样用，标题、说明页、讲解和题目都围绕它写；它的画面由系统另外做，你在 assets.pending 里列出它（系统会自动补）。说明页正文讲它真实的样子和生活；anchor 为 shrimp 的热点讲的就是它，写 1–3 条 facts，每条 ref 写出处或“待科学审核”（V25）。示例课只借结构，内容一个字也不抄。
 - 写之前读 reference/writing.md“把课写好”：数学要从主角的世界里真会发生的测量或数数里长出来，数字合乎真实比例，整节课一条故事线；讲解和题目只说画面上有的东西，每个场景有什么看 themes_ready[].shows（花园里是测距轮、木栅栏和地砖，没有卷尺和样方框）。交之前按它的自查清单过一遍：把主角名字换成别的动物课还成立，就是主角只是贴上去的，重写。
 - 课内进度看上下文 school：家长写了就按它选知识点；没写就按年级和日期推断，在 parent_tip 里写“课内进度是推断的”。不要因为资料不全而不写课。
 - scene_component_ids 只能用 components[].id；component_params 必须符合该组件的 params_schema；热点 anchor 只能用 hotspot_anchors；activity_graph 里的 action 只能用 actions。

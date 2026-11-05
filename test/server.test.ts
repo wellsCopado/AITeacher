@@ -221,20 +221,20 @@ describe('family server', () => {
     expect(preps.map((p: { topic: string; status: string }) => [p.topic, p.status])).toEqual([['螳螂虾', '准备中'], ['机器人', '准备中'], ['恐龙化石', '等你确认主题'], ['晚上一直叫的那个', '等你确认主题']]);
     expect(preps[0]).toMatchObject({ child: 'gege', said: '我想看螳螂虾打架', wished: '10月24日', lesson_from: 'L-PA@1.0', subject: null, scenes: [{ name: '珊瑚礁样方调查' }], ready: true });
     expect(preps[0].log.map((l: { msg: string }) => l.msg).join('\n')).toContain('又说了一次想学「螳螂虾」'); // the same wish again joins its list
-    expect(preps[1].scenes[0].realism).toContain('不够写实'); // the robot cell is being replaced
-    expect(preps[1].ready).toBe(false);
+    // 写啥主题就做啥图片: the robot arm's scene doesn't depict a robot (a whole humanoid one), so 机器人 is made as an 探索课
+    expect(preps[1]).toMatchObject({ scenes: [], explore: true, subject: { name: '机器人' }, ready: false });
+    expect(preps[1].log.at(-1).msg).toContain('做成探索课');
     expect(preps[2].log[0].msg).toContain('确认前不会发给任何模型');
     // the interest keeps the topic, the words stay with it on this server
     expect((await req('GET', '/v1/interests?child=gege', t)).body.find((x: { said: string }) => x.said === '我想看螳螂虾打架')).toMatchObject({ topic: '螳螂虾', state: '下一课心愿' });
 
     // the parent names the words' topic in one tap, or sets a wish aside
     const cricket = (await req('POST', `/v1/preps/${preps[3].id}/topic`, t, { topic: '蟋蟀' })).body;
-    expect(cricket).toMatchObject({ topic: '蟋蟀', status: '准备中', subject: { name: '蟋蟀', kind: 'organism' }, lives: '院子和草丛', home_scene: '花园围栏与铺砖', ready: false });
-    expect(cricket.log.map((l: { msg: string }) => l.msg).join('\n')).toContain('下一课用「花园围栏与铺砖」场景：蟋蟀生活在院子和草丛');
-    expect(cricket.log.at(-1).msg).toContain('ChatGPT 账号'); // nothing to find photos with yet: it says how
-    // no scene is where a dinosaur lived: no pictures are made for a lesson that can't be written right
+    // no ready scene is a cricket's or a dinosaur's: each gets its own scene and pictures as an 探索课, never the garden's fence and tiles
+    expect(cricket).toMatchObject({ topic: '蟋蟀', status: '准备中', explore: true, subject: { name: '蟋蟀', kind: 'organism' }, ready: false });
+    expect(cricket.log.at(-1).msg).toContain('按「蟋蟀」自己的样子建场景、做每一张图，做成探索课');
     const dino = (await req('POST', `/v1/preps/${preps[2].id}/topic`, t, { topic: '恐龙' })).body;
-    expect(dino).toMatchObject({ topic: '恐龙', status: '准备中', home_scene: null, ready: false });
+    expect(dino).toMatchObject({ topic: '恐龙', status: '准备中', explore: true, ready: false });
     expect(dino.log.at(-1).msg).toContain('探索课');
     expect((await req('POST', `/v1/preps/${preps[1].id}/skip`, t)).status).toBe(200);
     preps = (await req('GET', '/v1/preps', t)).body;

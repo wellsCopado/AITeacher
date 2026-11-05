@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canonical, contentHash, habitatOf, sceneFor, suggestTheme } from '../packages/cli/src/lib.js';
+import { canonical, contentHash, habitatOf, scenesShowing, suggestTheme } from '../packages/cli/src/lib.js';
 import type { ChildProfile, InterestObservation, LessonSpec, ThemeTable } from '../packages/schema/src/index.js';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -18,33 +18,40 @@ describe('theme rotation', () => {
     expect(s.theme.id).toBe('reef');
     expect(s.wish.options[0]).toBe('还是螳螂虾');
   });
-  it("puts the child's own next-lesson wish first: without its scene, the robot itself becomes the subject to make", () => {
+  it("puts the child's own next-lesson wish first: no ready scene depicts a robot (a whole one), so the robot is the subject of its own 探索课", () => {
     const s = run('gege', [io('IO-0002', 'gege', '螳螂虾', '近期最喜欢'), io('IO-0009', 'gege', '机器人', '下一课心愿')]);
-    expect(s.notes.join()).toContain('扫地机器人清扫');
-    expect(s.theme).toMatchObject({ name: '机器人', skin: 'garden', interest_refs: ['IO-0009'], subject: { name: '机器人', kind: 'object' } });
+    expect(s.notes.join()).toContain('「机器人」没有现成的 3D 场景');
+    expect(s.notes.join()).toContain('做成探索课');
+    // no scene: the server makes it an 探索课 with its own scene and pictures, never the robot arm or the garden
+    expect(s.theme).toMatchObject({ name: '机器人', interest_refs: ['IO-0009'], subject: { name: '机器人', kind: 'object' } });
+    expect(s.theme.skin).toBeUndefined();
     expect(s.theme.id).toMatch(/^topic-/);
   });
-  it('puts a subject only where it really lives: a cricket in the yard, a bobbit worm on the reef, a goldfish or a lion nowhere yet', () => {
+  it('puts a topic only in a scene that depicts it (写啥主题就做啥图片): where it lives is not enough', () => {
     expect(['蟋蟀', '博比特虫', '小龙虾', '金鱼', '鳄鱼', '熊猫', '螳螂', '上海中心'].map(t => habitatOf(themes, t, 'organism')))
       .toEqual(['yard', 'sea', 'fresh', 'fresh', 'wild', 'wild', 'yard', 'city']);
     expect(habitatOf(themes, '某种没听过的动物', 'organism')).toBe('wild'); // unknown animals aren't guessed into the yard
     const named = (topic: string, component = 'PerimeterArea') => run('gege', [io('IO-0002', 'gege', '螳螂虾', '近期最喜欢'), io('IO-0012', 'gege', topic, '家长指定')], [], component).theme;
-    expect(named('蟋蟀')).toMatchObject({ name: '蟋蟀', skin: 'garden', subject: { name: '蟋蟀', kind: 'organism' } });
-    expect(named('博比特虫')).toMatchObject({ skin: 'reef' });
-    expect(named('金鱼').skin).toBeUndefined(); // no pond scene: the lesson can't be written with this component
-    expect(named('狮子').skin).toBeUndefined(); // a lion in a backyard is as wrong as a cricket on the sea floor
+    // the garden is where crickets live, but it shows a fence and tiles, not a cricket; the reef shows a 螳螂虾, not a bobbit worm
+    for (const t of ['蟋蟀', '博比特虫', '金鱼', '狮子', '火箭发射', '蜜蜂', '火山']) expect(named(t), t).toMatchObject({ name: t, subject: { name: t } });
+    for (const t of ['蟋蟀', '博比特虫', '金鱼', '狮子', '火箭发射', '蜜蜂', '火山']) expect(named(t).skin, t).toBeUndefined();
     expect(named('金鱼', 'ArrayMultiplier').skin).toBeUndefined(); // blocks show only blocks: never a stand-in for an animal
-    expect(sceneFor(themes, 'ArrayMultiplier', 'yard')).toBeNull(); // nor the robot factory for a cricket
+    expect(named('螳螂虾')).toMatchObject({ id: 'reef', skin: 'reef' });
+    expect(named('孔雀螳螂虾')).toMatchObject({ skin: 'reef' }); // a kind of what the reef shows
+    expect(scenesShowing(themes, '花园里的蜜蜂')).toEqual([]); // the garden is in it, the bee isn't in the garden's pictures
+    expect(scenesShowing(themes, '火箭发射')).toEqual([]);
+    expect(scenesShowing(themes, '螳螂虾和海底')).toEqual(['reef']);
   });
   it('does what the parent named, for either child, before any interest', () => {
     const worm = run('gege', [io('IO-0003', 'gege', '螳螂虾', '近期最喜欢'), io('IO-0010', 'gege', '博比特虫', '家长指定')]);
     expect(worm.theme).toMatchObject({ name: '博比特虫', interest_refs: ['IO-0010'], subject: { name: '博比特虫', kind: 'organism' } });
     expect(worm.theme.subject!.asset_id).toBe(run('gege', [io('IO-0011', 'gege', '博比特虫', '家长指定')]).theme.subject!.asset_id); // one id per subject
-    // 妹妹's robot lesson for multiplication gets the real robot factory, not blocks
-    const robot = run('meimei', [io('IO-0006', 'gege', '机器人', '喜欢'), io('IO-0012', 'meimei', '机器人', '家长指定')], [], 'ArrayMultiplier');
-    expect(robot.theme).toMatchObject({ id: 'robot_factory', skin: 'robot_factory', interest_refs: ['IO-0012'] });
-    expect(run('meimei', [io('IO-0013', 'meimei', '工厂里的机器人', '家长指定')], [], 'ArrayMultiplier').theme.skin).toBe('robot_factory');
-    // for perimeter and area there is no robot scene yet: the robot itself becomes the subject to make
+    // 妹妹's robot-arm lesson for multiplication gets the robot factory, not blocks
+    const arm = run('meimei', [io('IO-0006', 'gege', '机器人', '喜欢'), io('IO-0012', 'meimei', '工厂里的机械臂', '家长指定')], [], 'ArrayMultiplier');
+    expect(arm.theme).toMatchObject({ id: 'robot_factory', skin: 'robot_factory', interest_refs: ['IO-0012'] });
+    expect(run('meimei', [io('IO-0013', 'meimei', '机器人工厂', '家长指定')], [], 'ArrayMultiplier').theme.skin).toBe('robot_factory');
+    // a robot is not a robot arm (the parent: “机器人” is a whole humanoid robot): it is its own subject, for either component
+    expect(run('meimei', [io('IO-0012', 'meimei', '机器人', '家长指定')], [], 'ArrayMultiplier').theme).toMatchObject({ name: '机器人', subject: { kind: 'object' } });
     expect(run('meimei', [io('IO-0012', 'meimei', '机器人', '家长指定')]).theme).toMatchObject({ name: '机器人', subject: { kind: 'object' } });
   });
   it("never uses a sibling's interests", () => {

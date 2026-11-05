@@ -2,6 +2,7 @@
 // Stands in for the Codex command line in tests: same arguments, canned answers, every run logged.
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 
 const args = process.argv.slice(2);
 const env = process.env;
@@ -44,10 +45,22 @@ process.stdin.on('end', () => {
     if (existsSync(join(home, 'no-package'))) { writeFileSync(out, '没能做完：构建失败。'); process.exit(0); }
     const id = /id "(X-[A-Za-z0-9-]+)"/.exec(prompt)?.[1], kid = /for_child "([a-z]+)"/.exec(prompt)?.[1];
     const put = (f, t) => { mkdirSync(join(dir, 'package', f, '..'), { recursive: true }); writeFileSync(join(dir, 'package', f), t); };
-    put('exploration.json', JSON.stringify({ format: 'adw-explore/1', id, version: '1.0', for_child: kid, grade: 4, title: '蜜蜂的六边形巢房', concept: '角的度量', subjects: ['数学', '科学'], minutes: 25, summary: '转动三维蜂巢，量六边形的角。', entry: 'web/dist/index.html' }));
-    put('web/dist/index.html', '<!doctype html><title>蜜蜂</title><script type="module" src="./assets/index.js"></script>');
-    put('web/dist/assets/index.js', "const BRIDGE = 'adw-explore/1'; fetch('./models/hive.glb');");
-    put('web/dist/models/hive.glb', 'glTF');
+    // the topic it was asked for, its hero made for it and on the asset list (references/topic-assets.md);
+    // a file assets-copied in its home leaves in a picture taken from elsewhere, unlisted; assets-reused names a file it copies in
+    const topic = /主题：「(.+?)」/.exec(prompt)?.[1] ?? '', hero = topic === '蜜蜂' ? 'hive' : 'hero';
+    const model = Buffer.concat([Buffer.from('glTF'), Buffer.alloc(2048, createHash('md5').update(topic).digest())]); // one topic, one model
+    put('exploration.json', JSON.stringify({ format: 'adw-explore/1', id, version: '1.0', for_child: kid, grade: 4, topic, title: topic === '蜜蜂' ? '蜜蜂的六边形巢房' : `${topic}探索课`, concept: '角的度量', subjects: ['数学', '科学'], minutes: 25, summary: '转动三维蜂巢，量六边形的角。', entry: 'web/dist/index.html' }));
+    put('web/dist/index.html', `<!doctype html><title>${topic}</title><script type="module" src="./assets/index.js"></script>`);
+    put('web/dist/assets/index.js', `const BRIDGE = 'adw-explore/1'; fetch('./models/${hero}.glb');`);
+    put(`web/dist/models/${hero}.glb`, model);
+    const items = [{ file: `web/dist/models/${hero}.glb`, sha256: createHash('sha256').update(model).digest('hex'), role: 'hero', depicts: `${topic}（三维模型）`, made_for: topic, origin: 'modeled', how: 'Blender 本次建模', license: '自制' }];
+    if (existsSync(join(home, 'assets-copied'))) put('web/dist/img/robot-arm.png', Buffer.alloc(4096, 7));
+    if (existsSync(join(home, 'assets-reused'))) {
+      const old = readFileSync(readFileSync(join(home, 'assets-reused'), 'utf8').trim());
+      put('web/dist/models/borrowed.glb', old);
+      items.push({ file: 'web/dist/models/borrowed.glb', sha256: createHash('sha256').update(old).digest('hex'), role: 'scene', depicts: `${topic}的环境`, made_for: topic, origin: 'modeled', how: '本次建模', license: '自制' });
+    }
+    put('research/assets.json', JSON.stringify({ topic, items }));
     put('web/node_modules/three/index.js', 'not packed');
     for (const f of ['README.md', '课程设计.md', '验收结果.md', 'licenses/README.md']) put(f, `# ${f}`);
     symlinkSync('/etc/hosts', join(dir, 'package', 'web', 'dist', 'leak.txt'));

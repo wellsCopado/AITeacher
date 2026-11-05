@@ -4,7 +4,7 @@ import type {
 } from '../../schema/src/index.js';
 import { lessonSpecSchema } from '../../schema/src/index.js';
 import { evalExpr, exprVars, ExprError } from './expr.js';
-import { fitsHabitat, habitatName, habitatOf, sceneFor } from './themes.js';
+import { fitsHabitat, habitatName, habitatOf, sceneFor, shownBy, shows, subjectsIn } from './themes.js';
 
 export interface Concept { name: string; misconceptions: string[] }
 export interface Ctx {
@@ -336,6 +336,25 @@ export const RULES: Rule[] = [
       for (const [path, s] of strings(sp).filter(([p]) => /^\$\.(title|intro|hotspots|activity_graph|challenges|encouragement)/.test(p))) {
         const hit = foreign.filter(f => at(s, f.w));
         if (hit.length) out.push({ path, msg: `场景「${here.name}」里没有「${hit.map(f => f.w).join('、')}」（那是「${hit[0].from}」里的）`, fix: `只写这个场景里看得到的：${here.shows ?? (here.words ?? []).join('、')}` });
+      }
+      return out;
+    },
+  },
+  {
+    id: 'V27', name: '课讲的就是画面上的东西：有主角的课，场景里得有它；标题和说明讲的东西画面里都有（只改文字、图还是机械臂的课不通过）', basis: '家长：“图片还是机器臂，这完全不对啊”“写啥主题就做啥图片啊，不要总是复用原来的素材”', level: 'error',
+    check(sp, ctx) {
+      const out: Issue[] = [], th = ctx.themes, skin = sp.theme.skin;
+      if (!th || !skin || !th.skins[skin]?.depicts?.length) return out;
+      const here = th.skins[skin], depicts = here.depicts!.join('、');
+      const elsewhere = `参数课只能讲场景里本来就有的东西（${depicts}）。别的主题按主题自己建场景、做图：做成探索课（课程库 → 探索课 → 让 AI 做一节探索课）`;
+      const subj = sp.theme.subject;
+      if (subj && !shows(th, skin, subj.name)) out.push({ path: '$.theme.subject', msg: `「${subj.name}」不在「${here.name}」的画面里（这个场景画的是${depicts}）：孩子看到的图和课讲的不是一个东西`, fix: elsewhere });
+      if (!here.depicts!.some(w => sp.title.includes(w))) out.push({ path: '$.title', msg: `标题「${sp.title}」没讲画面里的东西：场景「${here.name}」画的是${depicts}`, fix: `标题写画面里的东西。${elsewhere}` });
+      // what the lesson says it is about, not the questions (a transfer question goes elsewhere on purpose)
+      const said = strings(sp).filter(([p]) => /^\$\.(title|intro|hotspots\[\d+\]\.(label|language_pack\.zh))/.test(p));
+      for (const [path, s] of said) {
+        const off = subjectsIn(th, s).filter(w => !shownBy(th, skin, w));
+        if (off.length) out.push({ path, msg: `这里讲「${off.join('、')}」，场景「${here.name}」里没有${off.length > 1 ? '它们' : '它'}（画面是${depicts}）`, fix: `只讲画面里的东西。${elsewhere}` });
       }
       return out;
     },

@@ -122,8 +122,10 @@ export interface ThemeTable {
    * goes into a scene of its own habitat (V24): a cricket never on the sea floor.
    * shows: what the child sees in it, so a lesson only talks about things that are on screen.
    * words: the things only this scene has (卷尺 on the reef, 测距轮 in the garden); another scene's lesson can't name them (V26).
+   * depicts: what the scene itself is of, the only topics a lesson in it can be about (V27). A topic none of them
+   * depicts gets its own scene and pictures as an 探索课 (“写啥主题就做啥图片”): never 火箭 on the robot arm's pictures.
    */
-  skins: Record<string, { name: string; component: string; habitat: string; status: '已有' | '待开发'; realism?: string; shows?: string; words?: string[] }>;
+  skins: Record<string, { name: string; component: string; habitat: string; status: '已有' | '待开发'; realism?: string; shows?: string; words?: string[]; depicts?: string[] }>;
   topics: Record<string, string[]>;
   neutral: Record<string, string>;
   /** Where a subject lives, from the words in its name; the longest word that matches wins (小龙虾 over 虾). */

@@ -1,4 +1,5 @@
 """探索课包预检：和 App 导入规则一致；夹具只是几行网页，不是课程。"""
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -32,6 +33,11 @@ class PackageTests(unittest.TestCase):
         self.write('evidence/visual-gate.jpg', 'jpg')
         for doc in ('README.md', '课程设计.md', '验收结果.md', 'licenses/README.md'):
             self.write(doc, '# 说明')
+        # 主题和素材清单（references/topic-assets.md）：大桥这节课的主角是大桥
+        self.write('exploration.json', json.dumps({**MANIFEST, 'topic': '大桥'}, ensure_ascii=False))
+        self.write('research/assets.json', json.dumps({'topic': '大桥', 'items': [
+            {'file': 'web/dist/models/bridge.glb', 'sha256': hashlib.sha256(b'glTF').hexdigest(), 'role': 'hero', 'depicts': '斜拉大桥',
+             'made_for': '大桥', 'origin': 'modeled', 'how': 'Blender 按公开图纸建模', 'license': '自制'}]}, ensure_ascii=False))
 
     def tearDown(self):
         self.temp.cleanup()

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -8,6 +9,7 @@ import {
   authorMessages, BRIEF_HEADER, checkStages, codexPrompt, codexResearch, codexStatus, createMcp, designPrompt, exampleStages, generateLesson, guide, INSTALL_CODEX, LOGIN_CODEX,
   localBackend, modelFromEnv, normalize, parseJsonReply, serveStdio, studioContext, type Message, type Stages,
 } from '../packages/studio/src/index.js';
+import { subjectId } from '../packages/cli/src/lib.js';
 
 const root = join(import.meta.dirname, '..');
 const example = () => structuredClone(exampleStages(root));
@@ -308,41 +310,22 @@ describe('server: models, AI lesson writer, MCP for agents', () => {
     expect((await req('GET', '/v1/drafts', p)).body.find((x: { key: string }) => x.key === 'L-PA-2@1.0').submitted_by).toBe('AI 出课 · DeepSeek · deepseek-v4-pro · 方案：Codex');
   });
 
-  it('does what the parent names: child and topic, with the subject shown before it can be published', async () => {
+  it('does what the parent names: a topic a ready scene depicts is written in it, any other is never put in an old scene', async () => {
     const p = await login();
     await req('POST', '/v1/studio/models', p, { provider: 'deepseek', base_url: 'https://api.deepseek.com', model: 'deepseek-v4-pro', api_key: 'sk-1' });
     await req('PUT', '/v1/studio/settings', p, { consent: true });
     await req('PUT', '/v1/progress/meimei', p, { text: '第二单元 表内乘法（一）' });
     expect((await req('GET', '/v1/progress', p)).body).toMatchObject({ meimei: '第二单元 表内乘法（一）', gege: '' });
 
-    const titled = (t: string, name: string) => { const e = about(name); e.director.title = t; return reply(e); };
-    modelReplies = [titled('珊瑚礁沙底：博比特虫的伏击圈有多大', '博比特虫')];
-    const { job } = (await req('POST', '/v1/studio/generate', p, { child: 'gege', topic: '博比特虫' })).body;
-    const done = await until(`/v1/studio/jobs/${job}`, p);
-    expect(done.status, JSON.stringify(done)).toBe('done');
-    const sent = JSON.stringify(calls.at(-1)!.body);
-    expect(sent).toContain('博比特虫');
-    expect(sent).toContain('家长指定');
-    const draft = (await req('GET', `/v1/drafts/${done.key}`, p)).body;
-    expect(draft.theme).toMatchObject({ name: '博比特虫', subject: { name: '博比特虫', kind: 'organism' } });
-    const subject = draft.theme.subject.asset_id;
-    expect(draft.pending_assets.map((x: { asset_id: string }) => x.asset_id)).toContain(subject);
-    expect(draft.pending_assets.map((x: { asset_id: string }) => x.asset_id)).not.toContain('M-peacock-mantis-shrimp'); // no shrimp standing in for the worm
-    // the parent's topic was used: it stays an interest, no longer a standing order
-    expect((await req('GET', '/v1/interests?child=gege', p)).body.find((x: { topic: string }) => x.topic === '博比特虫')).toMatchObject({ state: '喜欢', lesson_ref: done.key });
-
-    // 生物素材 lists the worm as still to be made; publishing waits for its picture
-    const worm = (await req('GET', '/v1/organisms', p)).body.find((o: { asset_id: string }) => o.asset_id === subject);
-    expect(worm).toMatchObject({ name: '博比特虫', status: '待制作' });
-    expect((await req('GET', '/v1/drafts', p)).body.find((x: { key: string }) => x.key === done.key).subject).toMatchObject({ name: '博比特虫', ready: false });
-    const checklist = (await req('GET', '/v1/review-checklist', p)).body;
-    const approve = () => req('POST', `/v1/drafts/${done.key}/approve`, p, { checked: checklist });
-    const blocked = await approve();
-    expect(blocked.status).toBe(409);
-    expect(blocked.body.error).toContain('博比特虫');
-    const PNG = Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010806000000', 'hex').toString('base64');
-    await req('POST', `/v1/organisms/${subject}/media`, p, { mime: 'image/png', data: PNG, real: true, origin: '实拍', credit: '海洋馆', license: '自己拍的' });
-    expect((await approve()).status).toBe(201);
+    // 博比特虫: no ready scene depicts it, so it gets its own as an 探索课; without the ChatGPT account nothing can make
+    // that, and nothing is written into the reef instead
+    calls.length = 0;
+    const worm = await req('POST', '/v1/studio/generate', p, { child: 'gege', topic: '博比特虫' });
+    expect(worm.status).toBe(400);
+    expect(worm.body.error).toContain('「博比特虫」没有现成的 3D 场景（现成的只有珊瑚礁样方调查、花园围栏与铺砖、积木方块、机器人工厂，画的都不是它）');
+    expect(worm.body.error).toContain('ChatGPT 账号');
+    expect(calls).toHaveLength(0);
+    expect((await req('GET', '/v1/interests?child=gege', p)).body.some((x: { topic: string }) => x.topic === '博比特虫')).toBe(false);
 
     // an agreed plan for 妹妹 is written for 妹妹, about what it says, whoever was selected
     const arr = JSON.parse(JSON.stringify(Object.fromEntries((['target', 'director', 'assets'] as const).map((k, i) => [k, JSON.parse(readFileSync(join(root, 'content/lessons/L-ARR/1.0', ['01-target.json', '02-director.json', '03-assets.json'][i]), 'utf8'))]))));
@@ -360,52 +343,55 @@ describe('server: models, AI lesson writer, MCP for agents', () => {
         twin: { prompt: '2 行，每行 5 个，一共几个？', picture: { params: { rows: 2, cols: 5 } }, options: ['10 个', '7 个', '25 个'], answers: [{ field: 'total', value: '10 个' }] } },
     ];
     modelReplies = [reply(arr)];
-    const brief = `${BRIEF_HEADER}\n孩子：妹妹（2 年级）\n主题：机器人（工厂里的机械臂）\n主角：工业机械臂\n知识点：乘法的意义`;
+    const brief = `${BRIEF_HEADER}\n孩子：妹妹（2 年级）\n主题：工厂里的机械臂\n主角：工业机械臂\n知识点：乘法的意义`;
     const j2 = (await req('POST', '/v1/studio/generate', p, { child: 'gege', wish: brief })).body.job;
     const d2 = await until(`/v1/studio/jobs/${j2}`, p);
     expect(d2).toMatchObject({ child: 'meimei' });
-    // the model wrote it on blocks, the parent named a robot: the robot scene is used anyway (no blocks for a robot)
+    // the model wrote it on blocks, the parent named the robot arm: its scene is used anyway (no blocks for a robot arm)
     expect((await req('GET', `/v1/drafts/${d2.key}`, p)).body.theme).toMatchObject({ skin: 'robot_factory', id: 'robot_factory' });
     expect((await req('GET', `/v1/drafts/${d2.key}`, p)).body.component_params.ArrayMultiplier.theme).toBe('robot_factory');
     expect(JSON.stringify(calls.at(-1)!.body)).toContain('第二单元 表内乘法（一）'); // her school progress went along
-    expect((await req('GET', '/v1/interests?child=meimei', p)).body.some((x: { topic: string }) => x.topic === '机器人')).toBe(true);
+    expect((await req('GET', '/v1/interests?child=meimei', p)).body.some((x: { topic: string }) => x.topic === '工厂里的机械臂')).toBe(true);
   });
 
-  it('puts a cricket where crickets live, also when the parent only names it in the request', async () => {
+  it('never puts a topic into a scene that does not depict it: the cricket of 11-04, the rocket of 11-05, from every way in', async () => {
     const p = await login();
     await req('POST', '/v1/studio/models', p, { provider: 'deepseek', base_url: 'https://api.deepseek.com', model: 'deepseek-v4-pro', api_key: 'sk-1' });
     await req('PUT', '/v1/studio/settings', p, { consent: true });
-    // the parent's words from 2026-11-04; the model even leaves the example's reef in, as it did then
-    const cricket = about('蟋蟀', true); cricket.director.title = '草地上的蟋蟀：围出它的地盘';
-    modelReplies = [reply(cricket)];
-    const { job } = (await req('POST', '/v1/studio/generate', p, { child: 'gege', wish: '写一个蟋蟀的课程' })).body;
-    const done = await until(`/v1/studio/jobs/${job}`, p);
-    expect(done.status, JSON.stringify(done)).toBe('done');
-    const draft = (await req('GET', `/v1/drafts/${done.key}`, p)).body;
-    expect(draft.theme).toMatchObject({ name: '蟋蟀', skin: 'garden', subject: { name: '蟋蟀', kind: 'organism' } });
-    expect(draft.component_params.PerimeterArea.theme).toBe('garden');
-    const said = done.log.map((l: { msg: string }) => l.msg).join('\n');
-    expect(said).toContain('主题「蟋蟀」：从你写的要求里看出来的');
-    expect(said).toContain('场景用「花园围栏与铺砖」：蟋蟀生活在院子和草丛');
-    expect(JSON.stringify(calls.at(-1)!.body)).toContain('蟋蟀');
-
-    // the model sends a cricket on the sea floor anyway: it never reaches the parent
     calls.length = 0;
-    const wrong = about('蟋蟀'); wrong.director.title = '海底的蟋蟀';
-    modelReplies = [reply(wrong), reply(wrong), reply(wrong)];
-    const bad = await until(`/v1/studio/jobs/${(await req('POST', '/v1/studio/generate', p, { child: 'gege', topic: '蟋蟀' })).body.job}`, p);
-    expect(bad.status).toBe('failed');
-    expect(JSON.stringify(calls.at(-1)!.body)).toContain('V24');
+    // the 主题 box, a one-line request, an agreed plan, a component picked by hand: each would have to be an 探索课
+    const asks = [{ child: 'gege', wish: '写一个蟋蟀的课程' }, { child: 'meimei', topic: '火箭发射' }, { child: 'gege', wish: `${BRIEF_HEADER}\n孩子：哥哥（4 年级）\n主题：火山\n知识点：角的度量` },
+      { child: 'gege', topic: '金鱼', component: 'PerimeterArea@1.2' }, { child: 'meimei', topic: '机器人' }];
+    for (const [i, body] of asks.entries()) {
+      const r = await req('POST', '/v1/studio/generate', p, body);
+      expect(r.status, JSON.stringify(r.body)).toBe(400);
+      expect(r.body.error).toContain(`「${['蟋蟀', '火箭发射', '火山', '金鱼', '机器人'][i]}」没有现成的 3D 场景`);
+      expect(r.body.error).toContain('ChatGPT 账号');
+    }
+    expect(calls).toHaveLength(0);
 
-    // nowhere real to put it: say so before writing anything
-    const fish = await req('POST', '/v1/studio/generate', p, { child: 'gege', topic: '金鱼', component: 'PerimeterArea@1.2' });
-    expect(fish.status).toBe(400);
-    expect(fish.body.error).toContain('「金鱼」生活在河湖池塘');
-    expect(fish.body.error).toContain('探索课');
-    expect((await req('GET', '/v1/interests?child=gege', p)).body.some((x: { topic: string }) => x.topic === '金鱼')).toBe(false);
+    // the parent sends a lesson back asking for another topic: changing its words can't change its pictures
+    modelReplies = [reply(example())];
+    const first = await until(`/v1/studio/jobs/${(await req('POST', '/v1/studio/generate', p, { child: 'gege' })).body.job}`, p);
+    expect(first.status, JSON.stringify(first)).toBe('done');
+    await req('POST', `/v1/drafts/${first.key}/reject`, p, { note: '改成火箭发射的课' });
+    const back = await req('POST', '/v1/studio/generate', p, { revise: first.key });
+    expect(back.status).toBe(400);
+    expect(back.body.error).toContain('「火箭发射」不在「珊瑚礁样方调查」的画面里');
+
+    // an assistant hands in the old scene with new words anyway: the words are about a rocket, the pictures a reef (V27)
+    const { token } = (await req('POST', '/v1/agents', p, { label: 'Codex' })).body;
+    const tool = async (name: string, args: unknown) => JSON.parse((await req('POST', '/mcp', token, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } })).body.result.content[0].text);
+    const s = example();
+    s.director.title = '火箭发射：发射场有多大';
+    s.director.intro.paragraphs[0] = '火箭就要发射了，我们去发射场看看。';
+    const checked = await tool('adw_check_lesson', s);
+    expect(checked.ok).toBe(false);
+    expect(JSON.stringify(checked)).toContain('V27');
+    expect(JSON.stringify(checked)).toContain('这里讲「火箭」，场景「珊瑚礁样方调查」里没有它');
   });
 
-  it('does not write a queued wish into the wrong place either: an elephant has no scene yet', async () => {
+  it('does not write a queued wish into an old scene either: an elephant has none, so it would be an 探索课', async () => {
     const p = await login();
     await req('POST', '/v1/studio/models', p, { provider: 'deepseek', base_url: 'https://api.deepseek.com', model: 'deepseek-v4-pro', api_key: 'sk-1' });
     await req('PUT', '/v1/studio/settings', p, { consent: true });
@@ -413,8 +399,8 @@ describe('server: models, AI lesson writer, MCP for agents', () => {
     calls.length = 0;
     const r = await req('POST', '/v1/studio/generate', p, { child: 'gege' });
     expect(r.status).toBe(400);
-    expect(r.body.error).toContain('「大象」生活在野外');
-    expect(r.body.error).toContain('跳过这张准备单');
+    expect(r.body.error).toContain('「大象」没有现成的 3D 场景');
+    expect(r.body.error).toContain('探索课');
     expect(calls).toHaveLength(0); // nothing went to a model
   });
 
@@ -423,13 +409,13 @@ describe('server: models, AI lesson writer, MCP for agents', () => {
     await req('POST', '/v1/studio/models', p, { provider: 'deepseek', base_url: 'https://api.deepseek.com', model: 'deepseek-v4-pro', api_key: 'sk-1' });
     await req('PUT', '/v1/studio/settings', p, { consent: true });
     await req('POST', '/v1/interests', p, { child: 'gege', topic: '螳螂虾', state: '下一课心愿', said: '我想看螳螂虾打架' });
-    await req('POST', '/v1/interests', p, { child: 'gege', topic: '机器人', state: '下一课心愿', said: '机器人搬东西' });
+    await req('POST', '/v1/interests', p, { child: 'gege', topic: '花园', state: '下一课心愿', said: '在花园里搬东西' });
     const [first, second] = (await req('GET', '/v1/preps', p)).body;
 
     // any assistant sees the queue over MCP, topics only
     const { token } = (await req('POST', '/v1/agents', p, { label: 'Codex' })).body;
     const next = (await req('POST', '/mcp', token, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'adw_next_lessons', arguments: {} } })).body.result.content[0].text;
-    expect(JSON.parse(next)[0].queue.map((q: { topic: string }) => q.topic)).toEqual(['螳螂虾', '机器人']);
+    expect(JSON.parse(next)[0].queue.map((q: { topic: string }) => q.topic)).toEqual(['螳螂虾', '花园']);
     expect(next).not.toMatch(/打架|搬东西/);
 
     const { job } = (await req('POST', '/v1/studio/generate', p, { child: 'gege' })).body;
@@ -448,8 +434,8 @@ describe('server: models, AI lesson writer, MCP for agents', () => {
 
     // the parent can have a later one written now; a used one can't be used twice
     expect((await req('POST', '/v1/studio/generate', p, { prep: first.id })).status).toBe(400);
-    const robot = about('机器人', true); robot.director.title = '机器人巡检：围出机器人的工作区';
-    modelReplies = [reply(robot)];
+    const garden = about('花园', true); garden.director.title = '花园围栏：围出一块菜地';
+    modelReplies = [reply(garden)];
     const j2 = (await req('POST', '/v1/studio/generate', p, { prep: second.id })).body.job;
     const d2 = await until(`/v1/studio/jobs/${j2}`, p);
     expect(d2.status, JSON.stringify(d2)).toBe('done');
@@ -586,6 +572,7 @@ describe('ChatGPT through Codex on the home computer, all from the parent app', 
     expect(x).toMatchObject({ title: '蜜蜂的六边形巢房', for_child: 'gege', status: '待审核', concept: '角的度量', bridge: true });
     expect(x.imported_by).toMatch(/^AI 做探索课 · /);
     expect(x.files).toBe(3); // the built page only: no node_modules, no link out of Codex's folder
+    expect(x).toMatchObject({ topic: '蜜蜂', assets: [{ role: 'hero', depicts: '蜜蜂（三维模型）', origin: 'modeled' }] });
     expect(done.key).toMatch(/^X-GEGE-\d{8}-[0-9a-f]{4}@1\.0$/);
     expect((await app.inject({ method: 'GET', url: `/explore/${done.key}/index.html` })).statusCode).toBe(200);
     expect((await app.inject({ method: 'GET', url: `/explore/${done.key}/leak.txt` })).statusCode).toBe(404); // a link out of Codex's folder stays out
@@ -596,6 +583,62 @@ describe('ChatGPT through Codex on the home computer, all from the parent app', 
     const bad = await until(`/v1/studio/jobs/${(await req('POST', '/v1/explore/make', p, { child: 'gege', topic: '蚂蚁' })).body.job}`, p);
     expect(bad).toMatchObject({ status: 'failed' });
     expect(bad.error).toContain('没有交出课程包');
+  });
+
+  it('写啥主题就做啥图片: three topics never made before each become an 探索课 with their own pictures, from every way in', async () => {
+    const { p } = await setup();
+    await req('PUT', '/v1/studio/settings', p, { consent: true });
+    await req('PUT', '/v1/progress/meimei', p, { text: '第四单元 表内乘法（一）' });
+    const made = async (r: { status: number; body: any }, topic: string, child: string) => {
+      expect(r.status, JSON.stringify(r.body)).toBe(202);
+      expect(r.body).toMatchObject({ kind: 'explore', topic });
+      const done = await until(`/v1/studio/jobs/${r.body.job}`, p);
+      expect(done.status, JSON.stringify(done)).toBe('done');
+      const run = runs().at(-1)!;
+      // Codex is told the topic word for word and the steps every topic goes through: research, the picture list, own pictures
+      for (const words of [`「${topic}」`, `topic "${topic}"`, 'references/topic-assets.md', 'research/assets.json', '不用 App 里、别的课的场景和素材']) expect(run.prompt).toContain(words);
+      expect(run.args).toContain('workspace-write');
+      const x = (await req('GET', '/v1/explore', p)).body.find((k: { key: string }) => k.key === done.key);
+      expect(x).toMatchObject({ for_child: child, topic, status: '待审核', assets: [{ role: 'hero', depicts: `${topic}（三维模型）` }] });
+      return done;
+    };
+    // 妹妹 + 火箭发射 in the 主题 box (2026-11-05: “图片还是机器臂”): no robot arm, its own lesson
+    const rocket = await made(await req('POST', '/v1/studio/generate', p, { child: 'meimei', topic: '火箭发射' }), '火箭发射', 'meimei');
+    expect(rocket.log[0].msg).toContain('「火箭发射」没有现成的 3D 场景');
+    expect(runs().at(-1)!.prompt).toContain('2 年级');
+    expect(runs().at(-1)!.prompt).toContain('第四单元 表内乘法（一）');
+    // 哥哥 + a one-line request
+    await made(await req('POST', '/v1/studio/generate', p, { child: 'gege', wish: '写一个蜜蜂的课程' }), '蜜蜂', 'gege');
+    // an agreed plan
+    await made(await req('POST', '/v1/studio/generate', p, { child: 'meimei', wish: `${BRIEF_HEADER}\n孩子：哥哥（4 年级）\n主题：火山\n知识点：角的度量` }), '火山', 'gege');
+    // a lesson sent back with “改成…”: the reef lesson stays as it was, the new topic gets its own
+    writeFileSync(join(home, 'replies.json'), JSON.stringify([reply(example())]));
+    const reef = await until(`/v1/studio/jobs/${(await req('POST', '/v1/studio/generate', p, { child: 'gege', model: (await req('GET', '/v1/studio/models', p)).body.models[0].id })).body.job}`, p);
+    expect(reef.status, JSON.stringify(reef)).toBe('done');
+    await req('POST', `/v1/drafts/${reef.key}/reject`, p, { note: '改成火山的课' });
+    const again = await made(await req('POST', '/v1/studio/generate', p, { revise: reef.key }), '火山', 'gege');
+    expect(again.log[0].msg).toContain('「火山」不在「珊瑚礁样方调查」的画面里');
+    // a child's queued wish
+    await req('POST', '/v1/interests', p, { child: 'meimei', topic: '蝴蝶', state: '下一课心愿', said: '我想看蝴蝶' });
+    const prep = (await req('GET', '/v1/preps', p)).body.find((x: { topic: string }) => x.topic === '蝴蝶');
+    const fly = await made(await req('POST', '/v1/studio/generate', p, { prep: prep.id }), '蝴蝶', 'meimei');
+    expect((await req('GET', '/v1/preps', p)).body.find((x: { id: string }) => x.id === prep.id)).toMatchObject({ status: '已安排', lesson_ref: fly.key });
+
+    // a package with a picture brought in from elsewhere and not on the list is not taken
+    writeFileSync(join(home, 'assets-copied'), '');
+    const copied = await until(`/v1/studio/jobs/${(await req('POST', '/v1/studio/generate', p, { child: 'meimei', topic: '月亮' })).body.job}`, p);
+    expect(copied.status).toBe('failed');
+    expect(copied.error).toContain('画面没有按「月亮」做，没放进课程库');
+    expect(copied.error).toContain('img/robot-arm.png');
+    // nor one that carries another lesson's model: the rocket's own, inside a 恐龙 lesson
+    rmSync(join(home, 'assets-copied'));
+    const rocketModel = join(home, 'rocket.glb');
+    writeFileSync(rocketModel, Buffer.concat([Buffer.from('glTF'), Buffer.alloc(2048, createHash('md5').update('火箭发射').digest())]));
+    writeFileSync(join(home, 'assets-reused'), rocketModel);
+    const reused = await until(`/v1/studio/jobs/${(await req('POST', '/v1/studio/generate', p, { child: 'gege', topic: '恐龙' })).body.job}`, p);
+    expect(reused.status).toBe('failed');
+    expect(reused.error).toContain('那节课的一模一样');
+    expect((await req('GET', '/v1/explore', p)).body.map((x: { topic: string }) => x.topic).sort()).toEqual(['火山', '火山', '火箭发射', '蜜蜂', '蝴蝶'].sort());
   });
 
   it('plans the lesson in a chat in the parent app and hands the agreed plan to another model to write', async () => {
@@ -663,27 +706,40 @@ describe('ChatGPT through Codex on the home computer, all from the parent app', 
   it('makes the animal a lesson is about by itself: real photos from the web, then a top view the scene turns into 3D', async () => {
     const { p, codex } = await setup();
     await req('PUT', '/v1/studio/settings', p, { consent: true });
-    const e = about('博比特虫'); e.director.title = '珊瑚礁沙底：博比特虫的伏击圈有多大';
-    writeFileSync(join(home, 'replies.json'), JSON.stringify([reply(e)]));
-    const { job } = (await req('POST', '/v1/studio/generate', p, { child: 'gege', topic: '博比特虫', model: codex })).body;
-    const done = await until(`/v1/studio/jobs/${job}`, p);
-    expect(done.status, JSON.stringify(done)).toBe('done');
-    expect(done.log.map((l: { msg: string }) => l.msg).join('\n')).toContain('已让 ChatGPT 去找「博比特虫」的实拍照片');
-    const subject = (await req('GET', `/v1/drafts/${done.key}`, p)).body.theme.subject.asset_id;
-    const task = (await req('GET', '/v1/studio/tasks', p)).body.find((t: { asset?: string }) => t.asset === subject);
-    expect(await until(`/v1/studio/tasks/${task.id}`, p)).toMatchObject({ status: 'done', step: '做好了，等你确认' });
+    expect(codex).toBeTruthy();
+    // an assistant hands in a reef lesson with the shrimp as its subject: the reef depicts it (V27), its pictures are still to make (V19)
+    const { token } = (await req('POST', '/v1/agents', p, { label: 'Codex' })).body;
+    const tool = async (name: string, args: unknown) => JSON.parse((await req('POST', '/mcp', token, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } })).body.result.content[0].text);
+    const ctx = await tool('adw_get_context', { child: 'gege' });
+    const e = example(), subject = subjectId('螳螂虾');
+    e.target.lesson_id = ctx.components.find((c: { name: string }) => c.name === 'PerimeterArea').new_lesson_id;
+    Object.assign(e.target, { version: ctx.fixed.version, previous_version: null });
+    e.director.theme = { ...e.director.theme, subject: { name: '螳螂虾', asset_id: subject, kind: 'organism' } };
+    e.assets.pending = [{ asset_id: subject, kind: 'organism', realism_required: 'ai_from_photo', status: '待制作', until_ready: '不展示：螳螂虾的写实画面做好、家长确认后才出现' }];
+    const sub = await tool('adw_submit_for_review', e);
+    expect(sub.status, JSON.stringify(sub)).toContain('已交给家长审核');
+    const done = { key: `${e.target.lesson_id}@1.0` };
+    const checklist = (await req('GET', '/v1/review-checklist', p)).body;
+    const approve = () => req('POST', `/v1/drafts/${done.key}/approve`, p, { checked: checklist });
+    const blocked = await approve();
+    expect(blocked.status).toBe(409); // publishing waits for its pictures
+    expect(blocked.body.error).toContain('螳螂虾');
+    // 生物素材 → 让 ChatGPT 做: real photos from the web first, then a top view
+    const started = await req('POST', '/v1/studio/subject', p, { asset: subject });
+    expect(started.status, JSON.stringify(started.body)).toBe(202);
+    expect(await until(`/v1/studio/tasks/${started.body.id}`, p)).toMatchObject({ status: 'done', step: '做好了，等你确认' });
 
     // first it searched the web (only the animal's name went out), then drew from what it found
     const [find, draw] = runs().slice(-2);
     expect(find.args).toEqual(expect.arrayContaining(['--sandbox', 'workspace-write', 'web_search="live"', 'sandbox_workspace_write.network_access=true']));
-    expect(find.prompt).toContain('「博比特虫」');
+    expect(find.prompt).toContain('「螳螂虾」');
     expect(find.prompt).not.toMatch(/哥哥|gege/);
     expect(draw.images).toHaveLength(4);
     expect(draw.prompt).toMatch(/正上方垂直俯视[\s\S]*头朝画面左边/);
     expect(draw.prompt).toContain('真实体长约 100 厘米');
 
     const worm = (await req('GET', '/v1/organisms', p)).body.find((o: { asset_id: string }) => o.asset_id === subject);
-    expect(worm).toMatchObject({ name: '博比特虫', subject: 'organism', real_scale: '约 100 厘米', facts: { scientific_name: 'Eunice aphroditois', length_cm: 100 } });
+    expect(worm).toMatchObject({ name: '螳螂虾', subject: 'organism', real_scale: '约 100 厘米', facts: { scientific_name: 'Eunice aphroditois', length_cm: 100 } }); // (the fake's canned find)
     const photos = worm.media.filter((m: { kind: string }) => m.kind === 'photo'), cut = worm.media.find((m: { kind: string }) => m.kind === 'cutout');
     expect(photos).toHaveLength(4); // the file outside its folder was not taken
     expect(photos[0]).toMatchObject({ origin: '实拍', pending: true, credit: '摄影者 1', license: 'CC BY-SA 4.0', source_url: 'https://commons.wikimedia.org/wiki/File:Bobbit_1.jpg' });
@@ -694,21 +750,17 @@ describe('ChatGPT through Codex on the home computer, all from the parent app', 
     const device = async (q = '') => (await req('GET', `/v1/media?asset=${subject}${q}`, p)).body.length;
     expect(await device()).toBe(0);
     expect(await device('&pending=1')).toBe(5);
-    const checklist = (await req('GET', '/v1/review-checklist', p)).body;
-    const approve = () => req('POST', `/v1/drafts/${done.key}/approve`, p, { checked: checklist });
     expect((await approve()).status).toBe(409);
     expect((await req('POST', `/v1/organisms/${subject}/confirm`, p)).body).toEqual({ confirmed: 5 });
     expect(await device()).toBe(5);
     expect((await approve()).status).toBe(201);
 
-    // a child's wish for an animal with no scene starts the photos right away, before any lesson is written
+    // a child's wish for an animal no scene depicts makes no photos for an old scene: its lesson will be an 探索课
     await req('POST', '/v1/interests', p, { child: 'meimei', topic: '海蛞蝓', state: '下一课心愿', said: '我想看海蛞蝓' });
     const prep = (await req('GET', '/v1/preps', p)).body.find((x: { topic: string }) => x.topic === '海蛞蝓');
-    expect(prep.log.at(-1).msg).toContain('已让 ChatGPT 去找「海蛞蝓」的实拍照片');
-    const early = (await req('GET', '/v1/studio/tasks', p)).body.find((t: { asset?: string }) => t.asset === prep.subject.asset_id);
-    expect(await until(`/v1/studio/tasks/${early.id}`, p)).toMatchObject({ status: 'done' });
-    expect(runs().at(-2)!.prompt).not.toContain('我想看');
-    expect((await req('GET', '/v1/preps', p)).body.find((x: { id: string }) => x.id === prep.id).subject.state).toContain('等你在“生物素材”里确认');
+    expect(prep).toMatchObject({ explore: true, subject: { state: '没有现成的场景：按「海蛞蝓」自己的样子做成探索课' } });
+    expect(prep.log.at(-1).msg).toContain('做成探索课');
+    expect((await req('GET', '/v1/studio/tasks', p)).body.some((t: { asset?: string }) => t.asset === prep.subject.asset_id)).toBe(false);
 
     // too few photos found: it says so instead of drawing from nothing
     writeFileSync(join(home, 'few-photos'), '');
