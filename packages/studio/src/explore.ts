@@ -37,7 +37,7 @@ export function explorePrompt(ctx: StudioContext, a: { topic: string; wish?: str
 ${declined ? `- 家长没采用过的课和原因：${declined}。不要重犯。\n` : ''}
 ## 先定学什么，再动手做
 1. 查「${a.topic}」的真实资料：机构、博物馆、论文、百科的原始来源，记下来源。
-2. 对照课内进度，找这个主题里真实存在、这个年级该学或刚学过的数学和科学，定一个主问题和 2–4 个学习目标。比如蜜蜂可以是巢房的六边形、采蜜的次数和距离。不要默认周长和面积。
+2. 数学优先：对照课内进度，找这个主题里真实存在、这个年级该学或刚学过的数学（再配科学），定一个要用数学回答的主问题和 2–4 个学习目标，写进 lesson-flow.json 的 math（point、question）。比如蜜蜂可以是巢房的六边形、采蜜的次数和距离。不要默认周长和面积。
 3. 孩子看到的每一样画面都为「${a.topic}」现做现找（步骤和验收照 ./skill/references/topic-assets.md）：动手前先列素材清单 research/assets.json——主角、部件、环境、题目和讲解的配图，每一项写画的是什么（depicts）、made_for "${a.topic}"、怎么来的（origin、how）、许可和 sha256。场景是「${a.topic}」真实所在的地方；配图从本课自己的三维场景渲染。不用 App 里、别的课的场景和素材（机械臂、齿轮、积木、珊瑚礁、花园的栅栏和地砖都不行，除非主题就是它），不用卡通或别的东西顶替；做不出来的写进 课程设计.md 的缺口。
 4. 把调研结果、学习目标和你的取舍写在 课程设计.md 的开头。
 
@@ -46,9 +46,11 @@ ${declined ? `- 家长没采用过的课和原因：${declined}。不要重犯�
 - 用 ./skill/assets/web/adw-family.mjs 跑上课流程：步骤按顺序解锁、每步倒计时、到时间自动下一步、字幕加朗读、讲解一中三英、答错先夸做对的地方再说看哪里、错 3 次先演示再做同类题。不要自己另写。
 - 孩子看到、听到的每句话写进 web/public/lesson-flow.json（照 ./skill/examples/lesson-flow.example.json），用 \`python3 ./skill/scripts/make_family_audio.py web/public\` 录音。给孩子的话短、像老师在旁边说，不写“示意、近似、不能推成”这类给大人的话，那些放进 parent_notes。
 - 至少 3 个孩子用手指亲手改变三维场景的实验（拖、转、推、组装、放、描），切镜头、下拉框、滑条不算。
+- 一半以上的题是数学题（"math": true），至少一道数学题是动手题。lesson-flow.json 写 grade ${c.grade}；${c.grade <= 2 ? '二年级每步讲解最多 2 句' : '每步讲解最多 3 句'}。
+- wish.options 写 2–4 个从这节课延伸出去的下一课主题，课末给孩子点选。
 - 主角是真三维、环境像那个真实的地方；只用免费素材和本机工具，要花钱的写进 课程设计.md 等家长决定。
 - 画面按 references/photoreal-pipeline.md：先查真实尺寸（单位米，带来源）再建模，画面里放孩子熟悉的尺度参照；“看”的步骤写 media: render，给同一模型的光线追踪图（scripts/render_stills.py）；有实验或动手题的步骤写 media: realtime，用实时三维。
-- 写题目之前先做画面对照图 evidence/visual-gate.jpg（同机位的真实照片、实时网页截图、有“看”的步骤时再加预渲染图），按假感毛病表挑毛病、返工，写进 lesson-flow.json 的 visual_gate（views、dimensions、self_review），并放在 验收结果.md 第一段。
+- 写题目之前先做画面对照图 evidence/visual-gate.jpg（同机位的真实照片、实时网页截图、有“看”的步骤时再加预渲染图），按假感毛病表挑毛病、返工，写进 lesson-flow.json 的 visual_gate（views、dimensions、self_review），并放在 验收结果.md 第一段。家长要先看这张图才能发布；没有它，App 不收这节课。
 
 ## 交付
 - 在当前目录做出课程包文件夹 package/，里面要有：

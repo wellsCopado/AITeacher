@@ -226,7 +226,7 @@ async function lessonScreen(child: Child, key: string) {
 function exploreScreen(child: Child, x: ExploreInfo) {
   const before = resumes(child.id)[x.key];
   const session = before?.session ?? newId();
-  let last: ExploreProgress | null = null, ended = false;
+  let last: ExploreProgress | null = null, ended = false, wishes: string[] = [];
   const log = (type: string, data: Record<string, unknown> = {}) => { queue.push({ session, child: child.id, lesson: x.key }, { id: newId(), at: new Date().toISOString(), type, ...data }); flush(); };
   app.innerHTML = `<div class="explore"><div class="xbar"><button class="btn" id="xrest">⏸ 休息 / 退出</button><b>${esc(x.title)}</b><span id="xprog" class="muted small"></span><span id="sync" class="muted small"></span></div>
     <iframe id="xframe" title="${esc(x.title)}" allow="autoplay; fullscreen" src="${esc(x.url)}?adw=1&learner=${encodeURIComponent(child.id)}"></iframe><div id="xcard" class="xcard" hidden></div></div>`;
@@ -242,16 +242,19 @@ function exploreScreen(child: Child, x: ExploreInfo) {
   };
   const onMsg = (e: MessageEvent) => {
     if (e.source !== frame.contentWindow || e.data?.adw !== 'explore/1') return;
-    const m = e.data as { type: string; message?: string } & Partial<ExploreProgress>;
+    const m = e.data as { type: string; message?: string; ended?: boolean; wish?: unknown } & Partial<ExploreProgress>;
     if (m.type === 'progress' && typeof m.done === 'number' && typeof m.total === 'number') {
       const p: ExploreProgress = { done: m.done, total: m.total, section: m.section, tasks: Array.isArray(m.tasks) ? m.tasks.slice(0, 40) : [] };
+      if (Array.isArray(m.wish)) wishes = m.wish.filter((w): w is string => typeof w === 'string' && !!w.trim()).map(w => w.trim().slice(0, 12)).slice(0, 4);
+      // 家里的上课规则：课走到最后一步结束或到时间下课（有的题超时没做完），也要收尾、问下一课心愿
+      if (m.ended && JSON.stringify(p) === JSON.stringify(last) && !ended) { finish(); ask(p.done >= p.total); return; }
       if (JSON.stringify(p) === JSON.stringify(last)) return;
       const opening = !last;
       last = p;
       document.getElementById('xprog')!.textContent = `已核对 ${p.done}/${p.total} 项`;
       if (!opening || p.done) log('explore_progress', { ...p }); // the page's first report on opening is only news if it carries earlier work
       keep();
-      if (p.total && p.done >= p.total && !ended) { finish(); ask(true); }
+      if (!ended && (m.ended || (p.total && p.done >= p.total))) { finish(); ask(p.done >= p.total); }
     }
     if (m.type === 'error') show(`<p class="lead">这节课没打开</p><p>${esc(m.message ?? '')}</p><p class="muted small">请告诉爸爸妈妈。</p><div class="row"><button class="btn primary" id="xleave">回到今天的课</button></div>`);
   };
@@ -261,6 +264,10 @@ function exploreScreen(child: Child, x: ExploreInfo) {
     card.querySelector('#xgo')?.addEventListener('click', () => { card.hidden = true; tell('resume'); log('resume'); });
     card.querySelector('#xleave')?.addEventListener('click', () => { log('lesson_exit', { step: last ? `已核对 ${last.done}/${last.total} 项` : '探索中', n: last?.done ?? 0 }); keep(); leave(); });
     card.querySelector('#xdone')?.addEventListener('click', () => { finish(); ask(false); });
+    card.querySelectorAll<HTMLButtonElement>('.xpick').forEach(b => b.addEventListener('click', () => {
+      card.querySelectorAll('.xpick').forEach(x => x.classList.remove('primary')); b.classList.add('primary');
+      (card.querySelector('#xwish') as HTMLInputElement).value = b.dataset.w!;
+    }));
     card.querySelector('#xbye')?.addEventListener('click', () => {
       const wish = (card.querySelector('#xwish') as HTMLInputElement).value.trim();
       log(wish ? 'next_lesson_wish' : 'chat_skipped', wish ? { question: 'next', answer: wish, source: '孩子自述' } : {});
@@ -271,7 +278,8 @@ function exploreScreen(child: Child, x: ExploreInfo) {
   const ask = (all: boolean) => {
     tell('pause');
     show(`<p class="lead">${all && last ? `${last.total} 项都核对完了！` : '这节探索课学完了！'}</p><p>下一次想探索什么？说不说都可以。</p>
-      <input id="xwish" maxlength="20" placeholder="比如：大桥、螳螂虾" aria-label="下一次想探索什么">
+      ${wishes.length ? `<div class="row">${wishes.map(w => `<button class="btn xpick" data-w="${esc(w)}">${esc(w)}</button>`).join('')}</div>` : ''}
+      <input id="xwish" maxlength="20" placeholder="${wishes.length ? '也可以自己写' : '比如：大桥、螳螂虾'}" aria-label="下一次想探索什么">
       <div class="row"><button class="btn primary" id="xbye">说完了，回到今天的课</button><button class="btn" id="xgo">再看一会儿</button></div>`);
   };
   document.getElementById('xrest')!.onclick = () => {

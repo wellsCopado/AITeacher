@@ -120,8 +120,8 @@ export function createFamilyEngine(flow, { saved, emit = () => {} } = {}) {
     const h = task?.hints?.[t.hints]; if (!h) return [];
     t.hints++; const lines = [zh(PHRASES.hint_intro), zh(h)]; emit('say', { lines }); return lines;
   }
-  /** 给 adw-host.mjs 的 report()：只报题目结果。 */
-  const report = () => ({ section: s.step, sections: steps.length, labels: Object.fromEntries(Object.entries(tasks).map(([id, x]) => [id, x.label ?? id])),
+  /** 给 adw-host.mjs 的 report()：题目结果；课结束（最后一步完成或到时间）时带 ended 和课末心愿选项，App 接着问孩子下一次想探索什么。 */
+  const report = () => ({ section: s.step, sections: steps.length, ended: s.ended, wish: flow.wish?.options ?? [], labels: Object.fromEntries(Object.entries(tasks).map(([id, x]) => [id, x.label ?? id])),
     tasks: Object.fromEntries(Object.entries(s.tasks).map(([id, t]) => [id, { passed: t.passed, result: t.result, helped: t.hints > 0 || t.demo, wrong: t.tries }])) });
   return {
     get state() { return s; }, get step() { return steps[s.step]; }, get paused() { return paused; },

@@ -571,7 +571,8 @@ describe('ChatGPT through Codex on the home computer, all from the parent app', 
     const x = (await req('GET', '/v1/explore', p)).body.find((k: { key: string }) => k.key === done.key);
     expect(x).toMatchObject({ title: '蜜蜂的六边形巢房', for_child: 'gege', status: '待审核', concept: '角的度量', bridge: true });
     expect(x.imported_by).toMatch(/^AI 做探索课 · /);
-    expect(x.files).toBe(3); // the built page only: no node_modules, no link out of Codex's folder
+    expect(x).toMatchObject({ family: true, gate: 'gate.jpg' }); // the family's lesson rules, and the visual gate the parent sees first
+    expect(x.files).toBe(4); // the built page only: no node_modules, no link out of Codex's folder
     expect(x).toMatchObject({ topic: '蜜蜂', assets: [{ role: 'hero', depicts: '蜜蜂（三维模型）', origin: 'modeled' }] });
     expect(done.key).toMatch(/^X-GEGE-\d{8}-[0-9a-f]{4}@1\.0$/);
     expect((await app.inject({ method: 'GET', url: `/explore/${done.key}/index.html` })).statusCode).toBe(200);
@@ -583,6 +584,15 @@ describe('ChatGPT through Codex on the home computer, all from the parent app', 
     const bad = await until(`/v1/studio/jobs/${(await req('POST', '/v1/explore/make', p, { child: 'gege', topic: '蚂蚁' })).body.job}`, p);
     expect(bad).toMatchObject({ status: 'failed' });
     expect(bad.error).toContain('没有交出课程包');
+    rmSync(join(home, 'no-package'));
+    // made here without the family's lesson rules or the visual gate: not taken (an uploaded old package only gets a warning)
+    writeFileSync(join(home, 'no-family'), '');
+    const loose = await until(`/v1/studio/jobs/${(await req('POST', '/v1/explore/make', p, { child: 'gege', topic: '蜻蜓' })).body.job}`, p);
+    rmSync(join(home, 'no-family'));
+    expect(loose).toMatchObject({ status: 'failed' });
+    expect(loose.error).toContain('没按家里的规则做完');
+    expect(loose.error).toContain('adw-family.mjs');
+    expect(loose.error).toContain('画面对照图');
   });
 
   it('写啥主题就做啥图片: three topics never made before each become an 探索课 with their own pictures, from every way in', async () => {

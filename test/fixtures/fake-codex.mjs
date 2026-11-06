@@ -51,7 +51,13 @@ process.stdin.on('end', () => {
     const model = Buffer.concat([Buffer.from('glTF'), Buffer.alloc(2048, createHash('md5').update(topic).digest())]); // one topic, one model
     put('exploration.json', JSON.stringify({ format: 'adw-explore/1', id, version: '1.0', for_child: kid, grade: 4, topic, title: topic === '蜜蜂' ? '蜜蜂的六边形巢房' : `${topic}探索课`, concept: '角的度量', subjects: ['数学', '科学'], minutes: 25, summary: '转动三维蜂巢，量六边形的角。', entry: 'web/dist/index.html' }));
     put('web/dist/index.html', `<!doctype html><title>${topic}</title><script type="module" src="./assets/index.js"></script>`);
-    put('web/dist/assets/index.js', `const BRIDGE = 'adw-explore/1'; fetch('./models/${hero}.glb');`);
+    // the family's lesson rules and the visual gate (references/family-profile.md); a file no-family in its home leaves them out
+    const family = !existsSync(join(home, 'no-family'));
+    put('web/dist/assets/index.js', `const BRIDGE = 'adw-explore/1'; ${family ? "const FAMILY = 'adw-family/1'; " : ''}fetch('./models/${hero}.glb');`);
+    if (family) {
+      put('web/dist/lesson-flow.json', JSON.stringify({ format: 'adw-family/1', visual_gate: { sheet: 'evidence/visual-gate.jpg' } }));
+      put('evidence/visual-gate.jpg', Buffer.from([0xff, 0xd8, 0xff, 0xe0]));
+    }
     put(`web/dist/models/${hero}.glb`, model);
     const items = [{ file: `web/dist/models/${hero}.glb`, sha256: createHash('sha256').update(model).digest('hex'), role: 'hero', depicts: `${topic}（三维模型）`, made_for: topic, origin: 'modeled', how: 'Blender 本次建模', license: '自制' }];
     if (existsSync(join(home, 'assets-copied'))) put('web/dist/img/robot-arm.png', Buffer.alloc(4096, 7));

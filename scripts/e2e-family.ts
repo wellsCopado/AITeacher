@@ -141,7 +141,13 @@ try {
   const after = await pv.evaluate(() => { const s = (window as any).__lesson.engine.state; return { step: s.step, t: s.tasks[Object.keys(s.tasks)[0]] }; });
   check(before === 0 && after.step === 1 && after.t.timeout, '家长预览：第 1 步到时间自动进第 2 步，没做完的题记“超时”');
   await pv.close();
+  // 画面对照图放在卡片最前面；没勾“对照图看过了”不能发布
+  await card.locator('.xgate img[src^="blob:"]').waitFor({ timeout: 15000 });
+  ok('家长卡片最前面显示画面对照图');
   await card.locator('.seen').check(); await card.locator('.xapprove').click();
+  await parent.waitForFunction(() => /画面对照图/.test(document.getElementById('toast')?.textContent ?? ''));
+  ok('没勾“对照图看过了”不能发布');
+  await card.locator('.gseen').check(); await card.locator('.xapprove').click();
   await parent.waitForSelector('#jp');
   await parent.click('#jp .when[data-n="0"]');
   await parent.waitForFunction(() => /已排到今天/.test(document.getElementById('toast')?.textContent ?? ''));
@@ -213,7 +219,10 @@ try {
   // 最后一题做完，全部核对通过：App 自己弹出“学完了”
   await pad.waitForSelector('#xwish', { timeout: 15000 });
   check((await pad.textContent('#xcard'))?.includes('3 项都核对完了'), '最后一步做完：平板说学完了，问下一次想探索什么');
-  await pad.fill('#xwish', '火山'); await pad.click('#xbye');
+  const pick = flow.wish.options[0];
+  await pad.click(`#xcard .xpick[data-w="${pick}"]`);
+  check((await pad.inputValue('#xwish')) === pick, `课末给孩子点选下一课主题（${flow.wish.options.join('、')}），点了就填好`);
+  await pad.click('#xbye');
   await pad.waitForSelector(`.lesson[data-key="${key}"]`);
   await pad.evaluate(() => (window as any).__pad.flush());
 

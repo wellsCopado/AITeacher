@@ -11,6 +11,11 @@ KINDS = {'choice', 'application', 'hands_on', 'explain'}
 MEDIA = {'render', 'realtime'}
 INPUTS = {'drag', 'rotate', 'push', 'assemble', 'place', 'draw', 'pinch'}
 LINE_MAX, CLAUSE_MAX = 40, 24
+# 每步讲解最多几句（按年级）：二年级及以下 2 句，三年级及以上 3 句
+def say_max(grade):
+    return 2 if grade <= 2 else 3
+SENTENCE = re.compile(r'[^。！？!?]+[。！？!?]*')
+WISH_MAX = 12
 # 写给家长的知识边界和免责话，不放进孩子听的句子
 ADULT_WORDS = ['示意', '近似', '不能推成', '教学算例', '未标定', '性能保证', '不代表', '仅供', '不能冒称', '待核对', '教学重建']
 CJK = re.compile(r'[一-鿿]')
@@ -80,11 +85,22 @@ def all_lines(flow):
     return out
 
 
-def check_flow(flow, has_file=lambda rel: True):
-    """返回 (errors, warnings)。has_file(rel) 判断网页目录里有没有这个文件。"""
+def sentences(text):
+    return [x for x in SENTENCE.findall(str(text or '')) if CJK.search(x)]
+
+
+def check_flow(flow, has_file=lambda rel: True, grade=None):
+    """返回 (errors, warnings)。has_file(rel) 判断网页目录里有没有这个文件；grade 是 exploration.json 的年级（没给就读 flow.grade）。"""
     e, w = [], []
     if not isinstance(flow, dict) or flow.get('format') != FORMAT:
         return [f'lesson-flow.json 的 format 要写 {FORMAT}'], w
+    if grade is None:
+        grade = flow.get('grade')
+    if flow.get('grade') is not None and grade != flow.get('grade'):
+        e.append(f'lesson-flow.json 的 grade（{flow.get("grade")!r}）和 exploration.json 的 grade（{grade!r}）不一样')
+    if not (isinstance(grade, int) and 1 <= grade <= 6):
+        w.append('没写年级（exploration.json 或 lesson-flow.json 的 grade）：句数按三年级以上查；二年级的课每步只能 2 句')
+        grade = 4
     steps, narration, tasks = flow.get('steps') or [], flow.get('narration') or {}, flow.get('tasks') or {}
     experiments = flow.get('experiments') or []
     if not 2 <= len(steps) <= 8:
@@ -121,6 +137,12 @@ def check_flow(flow, has_file=lambda rel: True):
         if len(en) != 3:
             e.append(f'讲解点 {nid} 要正好 3 句英文（一中三英），现在 {len(en)} 句')
 
+    limit = say_max(grade)
+    for s in steps:
+        n = sum(len(sentences((narration.get(nid) or {}).get('zh'))) for nid in s.get('say') or [] if nid in narration)
+        if n > limit:
+            e.append(f'步骤 {s.get("id")} 的讲解有 {n} 句中文，{grade} 年级每步不超过 {limit} 句')
+
     exp_ids = set()
     for x in experiments:
         xid = x.get('id')
@@ -150,6 +172,32 @@ def check_flow(flow, has_file=lambda rel: True):
         e.append('至少 1 道选择题（kind: choice）')
     if 'hands_on' not in kinds:
         e.append('至少 1 道动手题（kind: hands_on），用实验判题')
+
+    # 数学优先（BL01）：主问题和一半以上的题是本年级的数学，至少一道数学题要亲手做
+    math = flow.get('math') if isinstance(flow.get('math'), dict) else {}
+    if not str(math.get('point', '')).strip():
+        e.append('math.point 没写：数学优先，写这节课用到的课本知识点（例如“除法：平均分”“角的度量”）')
+    if not str(math.get('question', '')).strip():
+        e.append('math.question 没写：写这节课要用数学回答的主问题')
+    if isinstance(math.get('grade'), int) and math['grade'] > grade:
+        e.append(f'math.grade 是 {math["grade"]} 年级的知识，比孩子的 {grade} 年级高')
+    math_tasks = [tid for tid, t in tasks.items() if isinstance(t, dict) and t.get('math') is True]
+    need = max(2, (len(tasks) + 1) // 2)
+    if len(math_tasks) < need:
+        e.append(f'数学题（math: true）要至少 {need} 道（一半以上，且不少于 2 道），现在 {len(math_tasks)} 道')
+    elif not any(tasks[t].get('kind') == 'hands_on' for t in math_tasks):
+        e.append('至少一道数学题是动手题（kind: hands_on），让孩子在三维场景里亲手算、量、摆')
+    for tid in math_tasks:
+        t = tasks[tid]
+        if not re.search(r'[0-9０-９一二三四五六七八九十百千万半]', ' '.join(_texts([t.get('ask'), t.get('worked_example')]))):
+            w.append(f'数学题 {tid} 的题目和演示里没有数：数学题要有数量、长度、角度或图形')
+
+    wish = (flow.get('wish') or {}).get('options') if isinstance(flow.get('wish'), dict) else None
+    wish = [x for x in wish or [] if isinstance(x, str) and x.strip()]
+    if not 2 <= len(wish) <= 4:
+        e.append('wish.options 要 2–4 个下一课可以探索的主题：课末 App 问孩子“下一次想探索什么”时给他点选')
+    elif any(len(x) > WISH_MAX for x in wish):
+        e.append(f'wish.options 每个不超过 {WISH_MAX} 个字')
 
     def options(a, where):
         opts = a.get('options') or []

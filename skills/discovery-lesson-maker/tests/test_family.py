@@ -102,6 +102,42 @@ class FamilyFlowTests(unittest.TestCase):
         f['visual_gate']['dimensions'] = [{'what': '主跨', 'meters': 602}]
         self.assertIn('至少 1 条真实尺寸', errors(f))
 
+    def test_math_comes_first(self):
+        f = self.flow()
+        del f['math']
+        f['tasks']['why'].pop('math')
+        e = errors(f)
+        self.assertIn('math.point 没写', e)
+        self.assertIn('math.question 没写', e)
+        self.assertIn('至少 2 道', e)
+        f = self.flow()
+        f['tasks']['span'].pop('math')
+        f['tasks']['which']['math'] = True
+        self.assertIn('至少一道数学题是动手题', errors(f))
+        f = self.flow()
+        f['math']['grade'] = 6
+        self.assertIn('比孩子的 4 年级高', errors(f))
+
+    def test_second_grade_gets_two_sentences_a_step(self):
+        f = self.flow()
+        self.assertEqual(errors(f), '')
+        f['grade'] = 2
+        self.assertEqual(check_flow(f)[0], [])           # 示例每步最多 2 句，二年级也过
+        f['narration']['load']['zh'] = '把卡车拖上桥。看看哪里在用力。拉索会变直。'
+        self.assertIn('2 年级每步不超过 2 句', errors(f))
+        f['grade'] = 4
+        self.assertEqual(errors(f), '')
+        self.assertIn('不一样', ' | '.join(check_flow(f, grade=2)[0]))
+        g = self.flow(); del g['grade']
+        self.assertIn('没写年级', ' | '.join(check_flow(g)[1]))
+
+    def test_wish_options_for_the_next_lesson(self):
+        f = self.flow()
+        del f['wish']
+        self.assertIn('wish.options 要 2–4 个', errors(f))
+        f['wish'] = {'options': ['隧道', '一个特别特别长的名字的主题']}
+        self.assertIn('不超过 12 个字', errors(f))
+
     def test_stray_chinese_counts_only_unrecorded_text(self):
         page = 'h("' + '","'.join(t for _, t, _ in child_lines(FLOW)) + '");/* 注释里的中文不算 */'
         self.assertEqual(stray_chinese(page, FLOW), 0)

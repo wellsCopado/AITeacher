@@ -53,8 +53,9 @@
 2. **相对路径。** App 把课放在 `/explore/<课号>/` 下。Vite 在 `vite.config.mjs` 写 `base: './'`；代码里载入文件写 `./models/x.glb`、`./audio/intro.m4a`，不写 `/models/…`。用了绝对路径 App 会尽量转接，但会在家长的卡片上提示。
 3. **不连外网。** 运行时只用包里的文件；平板只连家里的 Mac。给大人核对的来源链接可以留，但放在说明抽屉或文档里：孩子点到外链，App 会跳到平板浏览器。
 4. **大小。** 网页部分最好在 150 MB 以内（平板第一次打开要下载）；超过 800 MB 拒收。
-5. **用家庭上课流程**：`web/dist/lesson-flow.json`、`web/dist/audio/family/` 下每句话的录音、源码里的 `adw-family.mjs`，见 [家庭档案](family-profile.md)。`adw-family.mjs` 的 `report()` 直接交给下面的 `report`。
-6. **接 App 的进度接口**：把 [`assets/web/adw-host.mjs`](../assets/web/adw-host.mjs) 复制进源码，原样使用：
+5. **用家庭上课流程**：`web/dist/lesson-flow.json`、`web/dist/audio/family/` 下每句话的录音、源码里的 `adw-family.mjs`，见 [家庭档案](family-profile.md)。`adw-family.mjs` 的 `report()` 直接交给下面的 `report`（它带着课走完的 `ended` 和课末心愿选项 `wish`）。家长手动导入的旧课没有它只提醒；App 自己做的课没有它就拒收。
+6. **画面对照图**：`lesson-flow.json` 的 `visual_gate.sheet`（默认 `evidence/visual-gate.jpg`，jpg/png/webp）。App 把它放在家长课程卡片的最前面，家长勾上“对照图看过了”才能发布；App 自己做的课没有它就拒收。
+7. **接 App 的进度接口**：把 [`assets/web/adw-host.mjs`](../assets/web/adw-host.mjs) 复制进源码，原样使用：
 
 ```js
 import { storageKey, report, ready, failed, onHost } from './adw-host.mjs';
@@ -73,6 +74,7 @@ onHost((m) => { if (m.type === 'pause') { stopVoice(); world.setPaused(true); } 
 ## App 怎么上这节课
 
 - 平板上全屏打开网页，上面一条窄栏：「⏸ 休息 / 退出」和“已核对 n/m 项”。点它时 App 先发 `pause`；孩子选“继续探索”发 `resume`，选“退出，下次接着上”就回到课程列表，当天再点开从页面自己的记录接着做。
+- 课走完（全部核对通过，或家庭流程报 `ended`：最后一步结束、到时间下课）时，App 收尾并问孩子下一课心愿，`wish` 里的主题做成按钮给孩子点。
 - App 记下开始、休息、继续、退出、每次进度、学完和孩子说的下一课心愿，家长在「学习记录」看到“核对了 3/4 项：公平比较（改错后完成）……”。
 - 家长预览用 `?learner=preview`，不动孩子的记录；地址带 `?qa=1` 的制作验收模式照旧可用。
 - 家长定的上课规则（一中三英、每步计时、顺序解锁、字幕加朗读、错三次先演示再做同类题）对探索课同样是硬要求（家长 2026-11-05 定的）。用 [`assets/web/adw-family.mjs`](../assets/web/adw-family.mjs) 跑流程，内容写在 `web/public/lesson-flow.json`，规则见 [家庭档案](family-profile.md)。`check_package.py` 没看到它们会报错。

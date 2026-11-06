@@ -161,7 +161,7 @@ def check(path):
         errors.append('网页里没有 lesson-flow.json：给这个家庭做的课要按 references/family-profile.md 写上课流程'
                       '（一中三英、每步计时、顺序解锁、朗读、错三次演示、3 个以上实验），放在 web/public/')
     if isinstance(flow, dict):
-        flow_errors, flow_warnings = check_flow(flow, lambda rel: prefix + rel in has)
+        flow_errors, flow_warnings = check_flow(flow, lambda rel: prefix + rel in has, manifest.get("grade") if isinstance(manifest.get("grade"), int) else None)
         errors.extend(flow_errors)
         warnings.extend(flow_warnings)
         sheet = (flow.get('visual_gate') or {}).get('sheet')

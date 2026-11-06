@@ -14,6 +14,8 @@ interface Explore {
   bytes: number; files: number; docs: string[]; warnings: string[]; replaces: string | null; source_name: string; imported_by: string; bridge: boolean;
   /** The parent's topic and what each picture is of (research/assets.json). */
   topic?: string | null; assets?: { file: string; role: string; depicts: string; origin: string }[];
+  /** The visual gate picture (real photos beside the lesson's own pictures), when the package has one. */
+  gate?: string | null;
 }
 const ROLE_NAMES: Record<string, string> = { hero: '主角', part: '主角部件', scene: '环境', picture: '配图', video: '视频' };
 const ORIGIN_NAMES: Record<string, string> = { modeled: '这节课建模', procedural: '程序生成', scan: '实物扫描', cad: '工程图纸', photo: '实拍照片', 'cc0-library': '免费素材库', licensed: '有授权的素材', generated: 'AI 生成', rendered: '从这节课的三维场景渲染', drawn: '手绘' };
@@ -205,12 +207,14 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
       ${xopen.map(x => `<div class="card xdraft" data-k="${esc(x.key)}"><h3>${esc(x.title)} <span class="badge">探索课</span> <span class="badge">${esc(x.status)}</span></h3>
         <p class="muted small">${esc(name(x.for_child))} · ${esc(x.concept || '课程包没写知识点')} · ${esc(x.key)} · ${mb(x.bytes)}，${x.files} 个文件 · 由 ${esc(x.imported_by)} 导入${x.source_name ? `（${esc(x.source_name)}）` : ''}</p>
         ${x.summary ? `<p>${esc(x.summary)}</p>` : ''}
+        ${x.gate ? `<figure class="xgate"><figcaption class="small"><b>第一步：画面对照图。</b>左边是真实照片，旁边是这节课里的画面。先比一比像不像，不像就直接退回，不用往下看。</figcaption><img alt="画面对照图" loading="lazy"></figure>` : ''}
         ${x.assets?.length ? `<details class="small"><summary>主题「${esc(x.topic ?? '')}」的画面：${x.assets.filter(a => a.role !== 'ui').length} 样，都登记为给这个主题做的</summary><ul>${x.assets.filter(a => a.role !== 'ui').map(a => `<li>${esc(ROLE_NAMES[a.role] ?? a.role)}：${esc(a.depicts)}（${esc(ORIGIN_NAMES[a.origin] ?? a.origin)}）</li>`).join('')}</ul></details>` : ''}
         ${x.replaces ? `<p class="small replaces">这是 ${esc(x.replaces)} 的新版本。发布后自动排课只排新版；孩子上过旧版就算上过这节课。</p>` : ''}
         ${x.note ? `<p class="toast bad">你退回时写的：${esc(x.note)}<br>把这句意见交给做课的 AI，改好后重新导入，新包会替换这一份。</p>` : ''}
         ${x.warnings.map(w => `<p class="small toast bad">${esc(w)}</p>`).join('')}
         <p class="row"><a class="btn" href="${xpreview(x.key)}" target="_blank" rel="noopener">预览这节课</a>${x.docs.map(d => `<button class="btn sm doc" data-doc="${esc(d)}">看「${esc(d.replace(/\.md$/, ''))}」</button>`).join('')}</p>
         <div class="xdoc"></div>
+        ${x.status === '待审核' && x.gate ? `<p><label><input type="checkbox" class="gseen"> 对照图看过了，课里的画面和真实照片像</label></p>` : ''}
         ${x.status === '待审核' ? `<p><label><input type="checkbox" class="seen"> 我预览过了，画面和内容可以给孩子上</label></p>` : ''}
         <div class="row">${x.status === '待审核' ? '<button class="btn primary xapprove">通过并发布</button>' : ''}
           <input class="note" placeholder="意见：退回要写改哪里；不要可以写原因" maxlength="500">${x.status === '待审核' ? '<button class="btn xreject">退回修改</button>' : ''}<button class="btn danger xdiscard">不要这节课</button></div></div>`).join('')}
@@ -313,13 +317,15 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
     };
     view().querySelectorAll<HTMLElement>('.xdraft').forEach(card => {
       const key = card.dataset.k!, note = () => card.querySelector<HTMLInputElement>('.note')!.value;
+      const gimg = card.querySelector<HTMLImageElement>('.xgate img');
+      if (gimg) blob(`/v1/explore/${encodeURIComponent(key)}/gate`).then(b => { gimg.src = URL.createObjectURL(b); }).catch(() => { gimg.replaceWith(Object.assign(document.createElement('p'), { className: 'small toast bad', textContent: '对照图打不开' })); });
       card.querySelectorAll<HTMLButtonElement>('.doc').forEach(b => b.onclick = guard(async () => {
         const box = card.querySelector<HTMLElement>('.xdoc')!;
         if (box.dataset.doc === b.dataset.doc) { box.innerHTML = ''; box.dataset.doc = ''; return; }
         box.innerHTML = md(await (await blob(`/v1/explore/${key}/docs/${encodeURIComponent(b.dataset.doc!)}`)).text()); box.dataset.doc = b.dataset.doc!;
       }));
       card.querySelector<HTMLButtonElement>('.xapprove')?.addEventListener('click', guard(async () => {
-        await api(`/v1/explore/${key}/approve`, { method: 'POST', body: JSON.stringify({ previewed: card.querySelector<HTMLInputElement>('.seen')!.checked }) });
+        await api(`/v1/explore/${key}/approve`, { method: 'POST', body: JSON.stringify({ previewed: card.querySelector<HTMLInputElement>('.seen')!.checked, gate_seen: !!card.querySelector<HTMLInputElement>('.gseen')?.checked }) });
         lessons = await api<Lesson[]>('/v1/lessons');
         justPublished = lessons.find(l => l.key === key) ?? null;
         await VIEWS.课程库(); toast('已发布。');
