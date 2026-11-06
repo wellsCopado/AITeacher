@@ -68,7 +68,7 @@ pnpm -s dls context --child gege --json   # 完整内容
 | 2 导演设计 | `02-director.json` | `dls theme --write` | 主题引用这个孩子的兴趣；每道题有演示和同类题；有 `encouragement.persist`；课末有心愿题 |
 | 3 素材核验 | `03-assets.json` | `dls assets` | 只用登记过的素材；没到位的在 `pending` 里写“不展示” |
 | 4 组装 | `lessonspec.json` | `dls assemble` | 能组装，没有未登记素材 |
-| 5 自动校验 | `05-validation.json` | `dls validate`、`dls preview` | V01–V27 没有错误；警告告诉家长 |
+| 5 自动校验 | `05-validation.json` | `dls validate`、`dls preview` | V01–V28 没有错误；警告告诉家长 |
 | 6 家长审核 | 家长端「课程库 → 等你审核」 | `dls submit` | 家长看过、勾完四类审核、点发布（只有家长能做） |
 
 ### 1. 目标锁定 → `01-target.json`
@@ -116,7 +116,7 @@ pnpm -s dls assemble content/lessons/L-XXX/1.0
 pnpm -s dls validate content/lessons/L-XXX/1.0
 ```
 
-V01–V27 全部无错误才能继续；警告要告诉家长。按每条问题后面的“→”提示修改阶段文件，再从阶段 4 重跑。规则解释见 [reference/validation.md](reference/validation.md)。
+V01–V28 全部无错误才能继续；警告要告诉家长。按每条问题后面的“→”提示修改阶段文件，再从阶段 4 重跑。规则解释见 [reference/validation.md](reference/validation.md)。
 
 ### 预览（阶段 5 之后、审核之前）
 
@@ -194,6 +194,7 @@ pnpm -s dls publish content/lessons/L-XXX/1.0
 | V24 场景不是主角生活的地方 | 改了系统选的场景，或照抄了示例课的螳螂虾、海底 | `theme.skin` 和 `component_params` 的 `theme` 都用 `suggested_theme.skin`；按主角自己的样子和生活重写那几句 |
 | V26 说了画面上没有的东西 | 照抄了示例课的卷尺、样方框，或在机器人工厂里写积木 | 换成这个场景里的东西（`themes_ready[].shows`），英文那 3 条也换 |
 | V25 主角没贯穿全课 | 说明页正文没讲它、没有讲它的热点、事实没出处 | 第一段写它；加 anchor 为 `shrimp` 的热点讲它本身，`facts` 每条写出处或“待科学审核” |
+| V28 读出来有 AI 味 | 稿子写给眼睛看：“！！”“~”、表情、省略号、“3.5m”“1/4” | 按 [reference/lesson-flow.md](reference/lesson-flow.md) 第 2 节写成能读出口的话 |
 | V27 讲的东西画面里没有 | 只改了文字，把场景说成别的主题（火箭、蟋蟀、蜜蜂……），或主角不是场景画着的 | 只讲 `themes_ready[].depicts` 里的东西，标题写其中一个；要讲别的主题就做成探索课（服务器会自动转），不硬写 |
 
 ## 课后：记录孩子的心愿

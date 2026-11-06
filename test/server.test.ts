@@ -364,6 +364,14 @@ describe('organism media', () => {
   });
 });
 
+/** A tiny 24 kHz 16-bit mono WAV with n samples. */
+function wav(n: number) {
+  const b = Buffer.alloc(44 + n * 2);
+  b.write('RIFF', 0, 'ascii'); b.writeUInt32LE(36 + n * 2, 4); b.write('WAVE', 8, 'ascii'); b.write('fmt ', 12, 'ascii'); b.writeUInt32LE(16, 16);
+  b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22); b.writeUInt32LE(24000, 24); b.writeUInt32LE(48000, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34);
+  b.write('data', 36, 'ascii'); b.writeUInt32LE(n * 2, 40);
+  return b;
+}
 describe('narration audio', () => {
   it('picks the Mac voices from `say -v ?`', async () => {
     const { pickVoices } = await import('../apps/server/src/tts.js');
@@ -422,7 +430,92 @@ describe('narration audio', () => {
     await get(`lang=zh&text=${encodeURIComponent('你好')}`, pad);
     expect(made).toEqual(['zh:你好']);
     expect((await get('lang=fr&text=x', pad)).statusCode).toBe(400);
-    expect((await req('GET', '/v1/tts/info', pad)).body).toEqual({ available: true, voices: { zh: 'Tingting', en: 'Samantha' } });
+    expect((await req('GET', '/v1/tts/info', pad)).body).toEqual({ available: true, voices: { zh: 'Tingting', en: 'Samantha' }, engine: 'mac' });
+  });
+  it('reads a whole mixed Chinese/English line as one clip (whole=1)', async () => {
+    await app.close();
+    const { joinWav } = await import('../apps/server/src/voice-cloud.js');
+    const made: string[] = [];
+    app = await buildApp({ root, dbPath: join(mkdtempSync(join(tmpdir(), 'adw-')), 'db.sqlite'), pin: PIN, now: () => clock,
+      tts: { voices: { zh: 'Tingting', en: 'Samantha' }, make: async (t, l) => { made.push(`${l}:${t}`); return wav(100); } } });
+    const pad = await pair(await login());
+    const r = await app.inject({ method: 'GET', url: `/v1/tts?lang=zh&whole=1&text=${encodeURIComponent('周长 perimeter 是一圈的长度。')}`, headers: { authorization: `Bearer ${pad}` } });
+    expect(r.statusCode).toBe(200);
+    expect(made).toEqual(['zh:周长', 'en:perimeter', 'zh:是一圈的长度。']);
+    expect(r.rawPayload.length).toBeGreaterThan(300);
+    expect(joinWav([wav(10)]).length).toBe(wav(10).length);
+  });
+  it('uses a cloud announcer voice the parent connects, keeps the key secret, and falls back to the Mac', async () => {
+    await app.close();
+    const calls: { url: string; init: RequestInit }[] = [];
+    let down = false;
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      calls.push({ url: String(url), init });
+      if (down) return new Response('quota', { status: 429 });
+      return new Response(wav(50), { status: 200 });
+    }) as unknown as typeof fetch;
+    const mac: string[] = [];
+    const dbPath = join(mkdtempSync(join(tmpdir(), 'adw-')), 'db.sqlite');
+    const build = () => buildApp({ root, dbPath, pin: PIN, now: () => clock, fetchImpl,
+      tts: { voices: { zh: 'Tingting', en: 'Samantha' }, make: async (t, l) => { mac.push(`${l}:${t}`); return wav(20); } } });
+    app = await build();
+    const parent = await login(), pad = await pair(parent);
+    expect((await req('PUT', '/v1/tts/engine', pad, { provider: 'azure', api_key: 'k' })).status).toBe(403);
+    expect((await req('PUT', '/v1/tts/engine', parent, { provider: 'azure' })).status).toBe(400);
+    const put = await req('PUT', '/v1/tts/engine', parent, { provider: 'azure', api_key: 'secret-key-1234', region: 'eastasia' });
+    expect(put.status).toBe(200);
+    expect(JSON.stringify(put.body)).not.toContain('secret-key');
+    expect(put.body.cloud.key_tail).toBe('1234');
+    expect((await req('GET', '/v1/tts/info', pad)).body).toMatchObject({ engine: 'azure', voices: { zh: 'zh-CN-XiaoxiaoNeural', en: 'en-US-AvaNeural' } });
+    const text = '你好！！！螳螂虾 mantis shrimp 有多长~';
+    const r = await app.inject({ method: 'GET', url: `/v1/tts?lang=zh&whole=1&text=${encodeURIComponent(text)}`, headers: { authorization: `Bearer ${pad}` } });
+    expect(r.statusCode).toBe(200);
+    expect(r.headers['x-voice-engine']).toBe('azure');
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe('https://eastasia.tts.speech.microsoft.com/cognitiveservices/v1');
+    expect((calls[0].init.headers as Record<string, string>)['Ocp-Apim-Subscription-Key']).toBe('secret-key-1234');
+    const ssml = String(calls[0].init.body);
+    expect(ssml).toContain('<voice name="zh-CN-XiaoxiaoNeural">你好！螳螂虾</voice><voice name="en-US-AvaNeural">mantis shrimp</voice>');
+    expect(ssml).not.toContain('~');
+    expect(mac).toEqual([]);
+    // the parent changes the cloud voice; it is stored with the engine and survives a restart
+    expect((await req('PUT', '/v1/tts/voices', parent, { zh: 'zh-CN-YunyangNeural' })).body.current.zh).toBe('zh-CN-YunyangNeural');
+    await app.close(); app = await build();
+    expect((await req('GET', '/v1/tts/info', pad)).body.voices.zh).toBe('zh-CN-YunyangNeural');
+    // saving again without a key keeps the old one
+    expect((await req('PUT', '/v1/tts/engine', parent, { provider: 'azure', region: 'japaneast' })).status).toBe(200);
+    // the cloud is down: the Mac reads, nothing is cached, and the parent sees why
+    down = true;
+    const f = await app.inject({ method: 'GET', url: `/v1/tts?lang=zh&text=${encodeURIComponent('新的一句')}`, headers: { authorization: `Bearer ${pad}` } });
+    expect(f.statusCode).toBe(200);
+    expect(f.headers['x-voice-engine']).toBe('mac');
+    expect(mac).toEqual(['zh:新的一句']);
+    expect(calls.at(-1)!.url).toContain('japaneast');
+    expect((calls.at(-1)!.init.headers as Record<string, string>)['Ocp-Apim-Subscription-Key']).toBe('secret-key-1234');
+    expect((await req('GET', '/v1/tts/engine', parent)).body.error).toContain('429');
+    // back to the Mac voice
+    expect((await req('PUT', '/v1/tts/engine', parent, { provider: 'mac' })).body.engine).toBe('mac');
+  });
+  it('talks to 火山引擎 and OpenAI-compatible speech in their own formats', async () => {
+    const { cloudSynth } = await import('../apps/server/src/voice-cloud.js');
+    const calls: { url: string; body: Record<string, any> }[] = [];
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      calls.push({ url: String(url), body: JSON.parse(String(init.body)) });
+      return String(url).includes('bytedance') ? Response.json({ code: 3000, data: wav(10).toString('base64') }) : new Response(wav(10));
+    }) as unknown as typeof fetch;
+    const v = cloudSynth({ provider: 'volcengine', api_key: 'tok', appid: 'app1', voices: { zh: 'BV001_streaming', en: 'BV503_streaming' } }, fetchImpl);
+    expect((await v.make('你好！！', 'zh')).toString('ascii', 0, 4)).toBe('RIFF');
+    expect(calls[0].body).toMatchObject({ app: { appid: 'app1', token: 'tok', cluster: 'volcano_tts' }, audio: { voice_type: 'BV001_streaming', encoding: 'wav' }, request: { text: '你好！', operation: 'query' } });
+    const o = cloudSynth({ provider: 'openai', api_key: 'sk', voices: { zh: 'coral', en: 'ash' } }, fetchImpl);
+    await o.makeLine('面积 area', 'zh');
+    expect(calls.slice(1).map(c => c.url)).toEqual(['https://api.openai.com/v1/audio/speech', 'https://api.openai.com/v1/audio/speech']);
+    expect(calls.slice(1).map(c => [c.body.voice, c.body.input, c.body.response_format])).toEqual([['coral', '面积', 'wav'], ['ash', 'area', 'wav']]);
+  });
+  it('cleans text so a voice does not sound fake-excited', async () => {
+    const { speakable } = await import('../apps/server/src/voice-cloud.js');
+    expect(speakable('太棒了！！！🎉 你找到了~')).toBe('太棒了！ 你找到了');
+    expect(speakable('我们来想一想……答案是多少？？')).toBe('我们来想一想，答案是多少？');
+    expect(speakable('Wow!!! Great job...')).toBe('Wow! Great job');
   });
   it('says so when the server has no voice', async () => {
     await app.close();
