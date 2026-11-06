@@ -17,6 +17,7 @@ try {
   process.exit(1);
 }
 console.log(`孩子的 Pad 打开 http://<这台机器的地址>:${port}/pad/ ，家长端 http://<这台机器的地址>:${port}/parent/`);
-const voices = (app as unknown as { ttsVoices: { zh: string; en: string } | null }).ttsVoices;
-console.log(voices ? `朗读用这台 Mac 的语音：中文 ${voices.zh}，英文 ${voices.en}（家长端「设备与数据 → 朗读声音」可以试听和更换）` : '没找到这台机器的中文语音，平板会改用自带的语音。');
-if (!voices || !/\((Premium|Enhanced)\)/.test(`${voices.zh} ${voices.en}`)) console.log('想要更像真人的声音：Mac 上打开 系统设置 → 辅助功能 → 朗读内容 → 系统声音 → 管理声音，下载中文“Lilian（高级）”或“婷婷（增强）”、英文“Ava（高级）”或“Zoe（高级）”，然后重启服务。');
+const { ttsVoices: voices, ttsEngine: engine } = app as unknown as { ttsVoices: { zh: string; en: string } | null; ttsEngine: string | null };
+if (engine && engine !== 'mac') console.log(`朗读用云端神经语音（${engine}）：中文 ${voices?.zh}，英文 ${voices?.en}；云端不通时自动改用这台 Mac 的声音。`);
+else console.log(voices ? `朗读用这台 Mac 的语音：中文 ${voices.zh}，英文 ${voices.en}（家长端「设备与数据 → 朗读声音」可以试听和更换）` : '没找到这台机器的中文语音，平板会改用自带的语音。');
+if (engine === 'mac' || !engine) console.log('想要播音级、更像真人的声音：家长端「设备与数据 → 朗读声音 → 声音来源」选“微软 Azure 神经语音”（每月 50 万字免费），填上密钥即可。');

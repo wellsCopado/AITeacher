@@ -6,9 +6,10 @@ import { execFile, execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { speakable } from './voice-cloud.js';
 
 export type Lang = 'zh' | 'en';
-export type Quality = 'premium' | 'enhanced' | 'standard' | 'system';
+export type Quality = 'neural' | 'premium' | 'enhanced' | 'standard' | 'system';
 export interface VoiceInfo { name: string; locale: string; lang: Lang; quality: Quality }
 /** The Mac's own system voice (Spoken Content). It can be a Siri voice, which `say -v` can't name. */
 export const SYSTEM_VOICE = 'system';
@@ -21,7 +22,7 @@ const PREFER: Record<Lang, string[]> = {
   zh: ['Lilian', 'Tingting', 'Ting-Ting', 'Yue', 'Lili', 'Shasha', 'Lanlan', 'Binbin', 'Lisheng', 'Panpan'],
   en: ['Ava', 'Zoe', 'Samantha', 'Evan', 'Nathan', 'Joelle', 'Allison', 'Susan', 'Tom', 'Alex'],
 };
-const QUALITY: Record<Quality, number> = { system: 0, premium: 3, enhanced: 2, standard: 1 };
+const QUALITY: Record<Quality, number> = { system: 0, neural: 4, premium: 3, enhanced: 2, standard: 1 };
 
 /** Voices from `say -v ?` lines like "Tingting (Enhanced)  zh_CN    # 你好！", Mandarin and English only. */
 export function listVoices(list: string): VoiceInfo[] {
@@ -65,7 +66,7 @@ export function macSay(): Synth | null {
       await slot();
       const dir = mkdtempSync(join(tmpdir(), 'adw-say-'));
       try {
-        writeFileSync(join(dir, 'in.txt'), text);
+        writeFileSync(join(dir, 'in.txt'), speakable(text));
         // The voice's own speaking rate: forcing a rate is what makes these voices sound mechanical.
         const args = [...(voice === SYSTEM_VOICE ? [] : ['-v', voice]), '-f', join(dir, 'in.txt'), '-o', join(dir, 'out.wav'), '--file-format=WAVE', '--data-format=LEI16@24000'];
         await new Promise<void>((res, rej) => execFile('say', args, { timeout: 30_000 }, e => (e ? rej(e) : res())));

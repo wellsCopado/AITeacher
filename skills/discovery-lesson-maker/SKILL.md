@@ -35,7 +35,7 @@ metadata:
    在扩课前先完成一个实际运行的视觉样段：同真实参考对照整体轮廓、关键部位近景和有尺度参照的观察位置。先核对主角身份，再核对画面是否达到本轮要求的真实感；不合格时只返工这段资产/材质/环境/相机，暂停扩课和配音。模型能加载、节点齐全不能越过这一步。制作方法与返工分诊见 [写实画面](references/visual-animation.md#写实样段先于整课)。
 3. **导演一次值得探索的经历。** 找孩子可能提出的问题和一个能亲眼发现的关键转折，让操作产生证据，再形成解释。把语言、英文、数学与科学自然编织进去；用真实进步和可选择的帮助支持信心。见 [精巧课程设计](references/experience-design.md) 和 [教学与挑战](references/teaching-challenges.md)。
 4. **制作课程。** 按学习目标组织观察、预测、操作、解释和迁移，输出宿主实际支持的格式。沿用已确认的语言、流程和学情配置：AI 探索世界这个家庭按[家庭档案](references/family-profile.md)；别的用户未配置时默认中文、可暂停回看、无强制倒计时和英语门槛。见 [教学与挑战](references/teaching-challenges.md)。
-5. **完成所需媒体和自然语音。** 用户需要短片时，优先从同一三维资产渲染有教学作用的镜头；外部生成视频仅在允许时使用并核对主角一致性。只要求可操作三维时，制作记录明确视频不适用的原因，不把缺视频当阻断。旁白根据实际画面分句配制，优先有授权真人录音或自然合成声音，保留观察与回应的空白。见 [语音制作](references/voice-direction.md)。必需媒体缺失如实记录，不能用提示词或低帧率GIF充数。
+5. **完成所需媒体和自然语音。** 用户需要短片时，优先从同一三维资产渲染有教学作用的镜头；外部生成视频仅在允许时使用并核对主角一致性。只要求可操作三维时，制作记录明确视频不适用的原因，不把缺视频当阻断。旁白根据实际画面分句配制，优先有授权真人录音或云端神经语音（Mac 自带声音只作兜底），按听检验收听过才交，保留观察与回应的空白。见 [语音制作](references/voice-direction.md)。必需媒体缺失如实记录，不能用提示词或低帧率GIF充数。
 6. **走完真实学习流程后交付。** 从打开、三维操作、按需动作/短片、答错后的帮助、新任务、暂停和续学实际走一遍。技术检查、视觉审查、科学核实和学习效果分开报告。见 [验收与交付](references/acceptance.md)。
 
 上面是依赖关系，不要求先写满一堆文档再开始制作。优先完成一个可运行的核心流程，发现首个阻断就修复它；材料不足时针对缺口补查，禁止“搜索所有候选”这种无终点任务。
@@ -62,7 +62,7 @@ metadata:
 - `scripts/check_production.py <制作目录> [--stage assets|course] [--expected-topic '主题'] [--probe-media]`：检查实际模型/短片文件、校验值、来源、能力与验收记录一致性；不执行课程JS，不宣布画面或教学合格。
 - `scripts/check_challenges.py <课程JSON> --capabilities <能力JSON> [--audit <判题审计JSON>]`：检查补充材料的 `task / answers` 风格内容；宿主原生校验仍是最终兼容依据。
 - `examples/`：题目/能力和跨主题评估案例，只作明确标注的结构与决策回归。没有制作这些主题的三维课程，不得宣称示例已成课。
-- [家庭档案](references/family-profile.md)、`assets/web/adw-family.mjs`（上课流程，复制进源码原样用）、`examples/lesson-flow.example.json`（`lesson-flow.json` 的完整示例）、`scripts/make_family_audio.py <web/public>`（在 Mac 上给每句话录音）：给 AI 探索世界这个家庭做课时都要用。
+- [家庭档案](references/family-profile.md)、`assets/web/adw-family.mjs`（上课流程，复制进源码原样用）、`examples/lesson-flow.example.json`（`lesson-flow.json` 的完整示例）、`scripts/make_family_audio.py <web/public> --engine azure`（给每句话配播音级云端语音；没有密钥才用 Mac 声音）：给 AI 探索世界这个家庭做课时都要用。
 - [写实画面的通用做法](references/photoreal-pipeline.md)：任何主题都适用。“看”用光线追踪预渲染、“动手”用实时三维；按真实尺寸建模和放尺度参照；扫描素材从哪拿（含网络受限时的办法）；假感毛病表。配套 `scripts/pbr_from_color.py`（只有颜色图时补法线和粗糙度、出无缝水面法线）、`scripts/render_stills.py`（按共用机位表 `views.json` 用 Blender Cycles 出图）、`scripts/shoot_views.mjs`（同一机位表截实时网页）。
 - `assets/web/adw-host.mjs`：AI 探索世界 App 的进度接口（adw-explore/1）。课要放进这个App时复制进源码原样使用：页面载入、任务进度、暂停都告诉App，每个孩子一份本机记录。用法和课程包格式见 [AI 探索世界 App 参考](references/app-reference.md)。
 - `scripts/check_package.py <课程包目录或.zip>`：交给 AI 探索世界 App 之前的预检，规则和App导入时相同（结构、`exploration.json` 和它的 `topic`、构建、相对路径、外网依赖、进度接口、大小、密钥文件；素材清单由 `scripts/topic_assets.py` 查，见 [主题与素材](references/topic-assets.md)）。只做静态检查，不运行网页；过了仍要在App里预览。

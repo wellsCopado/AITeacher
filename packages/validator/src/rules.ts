@@ -492,4 +492,19 @@ export const RULES: Rule[] = [
       return empty.length ? [{ path: '$.encouragement.persist', msg: `“${empty[0]}”太空了，孩子听不出为什么要坚持`, fix: '说出一个具体的理由，最好和主题相连' }] : [];
     },
   },
+  {
+    id: 'V28', name: '孩子听的话写成能读得自然的样子：不叠用！？，不写 ~、表情和省略号，单位和分数写成读法', basis: '家长：“现在的语音 AI 味道很重，尽可能标准的播音声音或者真人声音”', level: 'warn',
+    check(sp) {
+      const out: Issue[] = [];
+      // everything the Pad reads aloud: intro, hotspot narration, questions, options, hints, demo steps, praise, end questions
+      const spoken = strings(sp).filter(([p]) => /^\$\.(intro|hotspots\[\d+\]\.language_pack|challenges\[\d+\]\.(prompt|hints|options|worked_example|twin\.(prompt|hints|options))|encouragement|end_chat\.questions\[\d+\]\.(prompt|options))/.test(p));
+      for (const [path, s] of spoken) {
+        if (/[！!？?]{2,}/.test(s)) out.push({ path, msg: `“${s.slice(0, 20)}”连用了几个！或？，读出来像假热情`, fix: '每句最多一个感叹号或问号' });
+        if (/[~～]|[\p{Extended_Pictographic}]/u.test(s)) out.push({ path, msg: `“${s.slice(0, 20)}”里有 ~ 或表情，语音读不出来，读法会怪`, fix: '去掉 ~ 和表情，用词表达语气' });
+        if (/……|\.{3}|…/.test(s)) out.push({ path, msg: `“${s.slice(0, 20)}”用省略号拖腔`, fix: '断成两句，需要停顿就用句号' });
+        if (/\d\s*(m|cm|mm|km|kg|g|m²|m2|cm²)(?![A-Za-z])|\d+\/\d+/.test(s) && /[\u4e00-\u9fff]/.test(s)) out.push({ path, msg: `“${s.slice(0, 20)}”里的单位或分数是写给眼睛看的`, fix: '写成读法：“3.5 米”“平方米”“四分之一”' });
+      }
+      return out;
+    },
+  },
 ];

@@ -18,10 +18,10 @@ async function get<T = LessonSpec>(path: string): Promise<T | null> {
   document.title = `${sp.title} · 预览`;
   // pictures still waiting for the parent's check are shown here too, so the 3D can be seen before confirming it
   const media = (await get<OrganismMedia[]>('/v1/media?pending=1')) ?? [];
-  const audio = async (text: string, lang: string) => {
-    const r = await fetch(`/v1/tts?lang=${lang}&text=${encodeURIComponent(text)}`, { headers: { authorization: `Bearer ${token}` } });
+  const audio = Object.assign(async (text: string, lang: string) => {
+    const r = await fetch(`/v1/tts?lang=${lang}&whole=1&text=${encodeURIComponent(text)}`, { headers: { authorization: `Bearer ${token}` } });
     if (!r.ok) throw new Error(`tts ${r.status}`);
     return r.arrayBuffer();
-  };
+  }, { whole: true });
   (window as unknown as { __player: unknown }).__player = play(app, sp, { media, audio });
 })();

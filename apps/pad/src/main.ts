@@ -7,10 +7,11 @@ import { createVoice, type FetchAudio } from '../../../packages/player/src/voice
 declare const __BUILD__: string;
 /** Narration made by the server Mac's voice, played as ordinary audio on the Pad. */
 const audio: FetchAudio = async (text, lang) => {
-  const r = await fetch(`/v1/tts?lang=${lang}&text=${encodeURIComponent(text)}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+  const r = await fetch(`/v1/tts?lang=${lang}&whole=1&text=${encodeURIComponent(text)}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
   if (!r.ok) throw new Error(`tts ${r.status}`);
   return r.arrayBuffer();
 };
+audio.whole = true;
 import { Queue, type Store as KV } from './queue.js';
 import { installSpeech, native } from './native.js';
 
