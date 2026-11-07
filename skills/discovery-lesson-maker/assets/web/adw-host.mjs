@@ -16,10 +16,12 @@ export const failed = (message) => post({ type: 'error', message: String(message
 /**
  * 每次保存记录时调用。tasks 里每项：passed（这次核对通过）、result（independent 独立 / assisted 借助帮助 / corrected 改错后）、
  * helped、wrong（错的次数）。全部 passed 时 App 记这节课学完；帮助和改错照实记，不算独立完成。
+ * ended：课已经走完（家庭流程到最后一步结束或超时下课），App 收尾并问孩子下一课心愿；wish 是课末给孩子点选的几个主题。
  */
-export const report = ({ section = 0, sections = 0, tasks = {}, labels = {} }) => {
+export const report = ({ section = 0, sections = 0, tasks = {}, labels = {}, ended = false, wish = [] }) => {
   const list = Object.entries(tasks).map(([id, t]) => ({ id, label: labels[id] || id, passed: Boolean(t.passed), result: t.passed ? String(t.result || '') : '', helped: Boolean(t.helped), wrong: Math.max(0, Number(t.wrong ?? t.wrongAttempts) || 0) }));
-  post({ type: 'progress', section, sections, done: list.filter((t) => t.passed).length, total: list.length, tasks: list });
+  post({ type: 'progress', section, sections, done: list.filter((t) => t.passed).length, total: list.length, tasks: list,
+    ...(wish.length ? { wish: wish.map(String).filter(Boolean).slice(0, 4) } : {}), ...(ended ? { ended: true } : {}) });
 };
 /** App 发来的指令：pause（孩子点了 App 的退出，先停下声音和动画）、resume（孩子选了继续）。 */
 export const onHost = (fn) => {

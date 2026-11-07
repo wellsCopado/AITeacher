@@ -60,7 +60,7 @@ describe('探索课 packages', () => {
     const r = await upload(t, pkg(), '?name=' + encodeURIComponent('台北101_四年级探索课_20261027.zip'));
     expect(r.status).toBe(201);
     expect(r.body).toMatchObject({ key: 'X-TAIPEI101@1.0', status: '待审核', title: '台北101：风中的稳定秘密', for_child: 'gege', bridge: true, files: 4, docs: ['README.md', '课程设计.md'] });
-    expect(r.body.warnings).toEqual([]);
+    expect(r.body.warnings).toEqual([expect.stringContaining('没有画面对照图')]);
     const list = (await req('GET', '/v1/explore', t)).body;
     expect(list.map((x: { key: string }) => x.key)).toEqual(['X-TAIPEI101@1.0']);
 
@@ -78,6 +78,27 @@ describe('探索课 packages', () => {
     expect((await req('GET', '/v1/explore', t)).body).toEqual([]);
     const lessons = (await req('GET', '/v1/lessons', t)).body;
     expect(lessons.find((l: { key: string }) => l.key === 'X-TAIPEI101@1.0')).toMatchObject({ kind: 'explore', for_child: 'gege', title: '台北101：风中的稳定秘密' });
+  });
+
+  it('shows the parent the visual gate first, and publishes only after they compared it with the real photos', async () => {
+    const t = await login();
+    const jpg = '\xff\xd8\xff\xe0 gate';
+    const r = await upload(t, pkg({ extra: { '台北101_四年级探索课/evidence/visual-gate.jpg': jpg } }));
+    expect(r.status).toBe(201);
+    expect(r.body).toMatchObject({ gate: 'gate.jpg', family: true });
+    expect(r.body.warnings.some((w: string) => w.includes('对照图'))).toBe(false);
+    const g = await req('GET', '/v1/explore/X-TAIPEI101@1.0/gate', t);
+    expect(g.status).toBe(200);
+    expect(g.headers['content-type']).toContain('image/jpeg');
+    expect((await req('GET', '/v1/explore/X-TAIPEI101@1.0/gate')).status).toBe(401);
+    const no = await req('POST', '/v1/explore/X-TAIPEI101@1.0/approve', t, { previewed: true });
+    expect(no.status).toBe(400);
+    expect(JSON.stringify(no.body)).toContain('画面对照图');
+    expect((await req('POST', '/v1/explore/X-TAIPEI101@1.0/approve', t, { previewed: true, gate_seen: true })).status).toBe(201);
+    // the sheet can live anywhere lesson-flow.json says
+    const other = await upload(t, pkg({ manifest: { format: 'adw-explore/1', id: 'X-TAIPEI101B', version: '1.0', topic: '台北101', title: '台北101 二', for_child: 'gege' },
+      extra: { '台北101_四年级探索课/web/dist/lesson-flow.json': '{"format":"adw-family/1","visual_gate":{"sheet":"evidence/compare.png"}}', '台北101_四年级探索课/evidence/compare.png': '\x89PNG' } }));
+    expect(other.body.gate).toBe('gate.png');
   });
 
   it('is scheduled, opened on the Pad and finished like any other lesson', async () => {
@@ -189,7 +210,7 @@ describe('探索课 packages', () => {
     const rocket = await upload(t, made({ id: 'X-ROCKET', topic: '火箭发射', folder: '火箭发射', files: { 'models/rocket.glb': model(1), 'textures/pad.jpg': model(2) } }));
     expect(rocket.status, JSON.stringify(rocket.body)).toBe(201);
     expect(rocket.body.topic).toBe('火箭发射');
-    expect(rocket.body.warnings.filter((w: string) => /画面|素材/.test(w))).toEqual([]); // (warnings about the bridge and docs aside)
+    expect(rocket.body.warnings.filter((w: string) => /画面|素材/.test(w) && !/对照图/.test(w))).toEqual([]); // (warnings about the bridge and docs aside)
     expect(rocket.body.assets).toEqual([expect.objectContaining({ role: 'hero', depicts: '火箭发射（三维）', origin: 'modeled' }), expect.objectContaining({ role: 'scene' })]);
     // the volcano lesson brings the rocket lesson's launch pad along: not taken, and it says from which lesson
     const volcano = await upload(t, made({ id: 'X-VOLCANO', topic: '火山', folder: '火山', files: { 'models/volcano.glb': model(3), 'textures/ground.jpg': model(2) } }));

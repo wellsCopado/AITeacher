@@ -85,6 +85,8 @@ describe('adw-family 上课流程', () => {
     e.tick(FLOW.steps[1].seconds); e.tick(FLOW.steps[2].seconds);
     expect(e.state.ended).toBe(true);
     expect(events.some(x => x.type === 'end')).toBe(true);
+    // 下课时告诉 App：课走完了（有题超时也算），App 接着问下一课心愿，给孩子点选的主题来自 lesson-flow.json
+    expect(e.report()).toMatchObject({ ended: true, wish: FLOW.wish.options });
   });
 
   it('退出再进从存下的地方接着上', async () => {

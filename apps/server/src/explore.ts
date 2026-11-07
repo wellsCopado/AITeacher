@@ -14,6 +14,7 @@ import { VISUAL as VISUAL_FILE, checkAssets, visualHashes, type AssetLine } from
 export const BRIDGE = 'adw-explore/1';
 const MAX_ZIP = 600 * 1024 * 1024, MAX_SITE = 800 * 1024 * 1024, MAX_FILES = 5000;
 /** Files kept beside the page for the parent: the package's own notes, licences and sources. */
+const GATE = /\.(jpe?g|png|webp)$/i;
 const DOC = /^(?:[^/]+\.md|licenses\/.+|research\/(?:sources|assets)\.json|exploration\.json)$/;
 
 /** What the App knows about one imported 探索课. */
@@ -23,6 +24,10 @@ export interface Exploration {
   concept: string; subjects: string[]; minutes: number | null; summary: string;
   /** The page tells the App its progress (adw-explore/1); without it the child says when they're done. */
   bridge: boolean;
+  /** The page runs the family's lesson rules (adw-family/1 and lesson-flow.json). */
+  family?: boolean;
+  /** The visual gate: real photos beside the lesson's own pictures (lesson-flow.json visual_gate.sheet), kept under docs/. */
+  gate?: string | null;
   /** Notes kept for the parent (README.md, 课程设计.md, 验收结果.md …). */
   docs: string[];
   sha256: string; bytes: number; files: number;
@@ -89,6 +94,12 @@ export function readPackage(zip: Uint8Array) {
   if (!bridge) warnings.push('这节课没接 App 的进度接口：App 不知道孩子做到哪；孩子退出时自己选“学完了”还是“下次接着上”。');
   // 家长定的上课规则（一中三英、每步计时、错三次演示……）由课里的 adw-family.mjs 执行；旧课没有，导入照收，但要让家长知道
   const family = has.has(prefix + 'lesson-flow.json') && site.some(f => /\.(m?js|html)$/.test(f.name) && Buffer.from(byName.get(f.name)!).includes('adw-family/1'));
+  // 画面对照图（真实照片和课里画面并排）：家长在课程卡片上先看它，再预览
+  let sheet = 'evidence/visual-gate.jpg';
+  try { sheet = String(JSON.parse(Buffer.from(byName.get(prefix + 'lesson-flow.json') ?? new Uint8Array()).toString('utf8') || '{}')?.visual_gate?.sheet ?? sheet); } catch { /* checked by the Skill */ }
+  const gateFile = GATE.test(sheet) && safePath(sheet) ? [base + sheet, prefix + sheet].map(n => files.find(f => f.name === n)).find(Boolean) : undefined;
+  const gate = gateFile ? { path: `gate${posix.extname(gateFile.name).toLowerCase()}`, data: gateFile.name.startsWith(prefix) && byName.has(gateFile.name) ? byName.get(gateFile.name)! : extract(zip, [gateFile.raw])[gateFile.raw] } : null;
+  if (!gate) warnings.push('没有画面对照图（真实照片和课里画面并排）：画面像不像，只能靠你预览时自己对照实物判断。');
   if (!family) warnings.push('这节课没按家里的上课规则做（一中三英、每步计时、按顺序解锁、错三次先演示）：孩子可以自由跳着上。新课让做课的 AI 按 family-profile.md 重做。');
   if (/(src|href)=["']\/(?!\/)/.test(html)) warnings.push('网页里用的是绝对路径（/assets/…）。App 会自动转接，一般能打开；以后请让做课的 AI 用相对路径构建（vite 的 base: "./"）。');
   if (bytes > 150 * 1048576) warnings.push(`网页有 ${Math.round(bytes / 1048576)} MB，平板第一次打开会比较慢。`);
@@ -104,7 +115,7 @@ export function readPackage(zip: Uint8Array) {
   if (listed) try { assetList = JSON.parse(Buffer.from(listed).toString('utf8')); } catch { assetList = null; }
   const digest = sha(Buffer.concat([...site, ...docs].sort((a, b) => a.name.localeCompare(b.name)).flatMap(f => [Buffer.from(f.name.slice(base.length) + '\0'), Buffer.from(byName.get(f.name)!)])));
   return {
-    manifest, assetList, title: title.slice(0, 80), pkgName, folder: base.replace(/\/$/, '').split('/').pop() ?? '', digest, bytes, warnings, bridge,
+    manifest, assetList, title: title.slice(0, 80), pkgName, folder: base.replace(/\/$/, '').split('/').pop() ?? '', digest, bytes, warnings, bridge, family, gate,
     site: site.map(f => ({ path: f.name.slice(prefix.length), data: byName.get(f.name)! })),
     docs: docs.map(f => ({ path: f.name.slice(base.length), data: byName.get(f.name)! })),
   };
@@ -157,6 +168,10 @@ export async function exploreRoutes(app: FastifyInstance, d: Deps) {
     if (q.topic) {
       const problems = [...(topic && topic !== q.topic ? [`课程包的主题是「${topic}」，要做的是「${q.topic}」`] : []), ...assets.errors];
       if (problems.length) fail(422, `画面没有按「${q.topic}」做，没放进课程库：${problems.slice(0, 4).join('；')}`);
+      // App 自己做的课必须守家里的上课规则，还要交画面对照图（family-profile.md）；家长手动导入的旧课只提醒
+      const rules = [...(pkg.family ? [] : ['没用 adw-family.mjs 和 lesson-flow.json 跑家里的上课规则（一中三英、每步计时、按顺序解锁、错三次先演示）']),
+        ...(pkg.gate ? [] : ['没交画面对照图（lesson-flow.json 的 visual_gate.sheet）'])];
+      if (rules.length) fail(422, `「${q.topic}」这节课没按家里的规则做完，没放进课程库：${rules.join('；')}`);
     }
     const kids = store.children();
     // who it's for: the parent's pick, else the package's, else the grade its name says (四年级 → the grade-4 child)
@@ -187,7 +202,7 @@ export async function exploreRoutes(app: FastifyInstance, d: Deps) {
       format: BRIDGE, lesson_id: lessonId, version, title: pkg.title, for_child: child,
       concept: String(m.concept ?? '').slice(0, 80), subjects: Array.isArray(m.subjects) ? m.subjects.map(String).slice(0, 8) : [],
       minutes: Number(m.minutes) > 0 ? Math.round(Number(m.minutes)) : null, summary: String(m.summary ?? '').slice(0, 600),
-      bridge: pkg.bridge, docs: pkg.docs.filter(f => f.path.endsWith('.md')).map(f => f.path), sha256: pkg.digest, bytes: pkg.bytes, files: pkg.site.length,
+      bridge: pkg.bridge, family: pkg.family, gate: pkg.gate?.path ?? null, docs: pkg.docs.filter(f => f.path.endsWith('.md')).map(f => f.path), sha256: pkg.digest, bytes: pkg.bytes, files: pkg.site.length,
       source_name: String(q.name ?? '').slice(0, 120), warnings: [...pkg.warnings, ...assets.errors.map(e => `画面没按主题登记：${e}`), ...assets.warnings],
       topic: topic || null, assets: assets.lines,
       replaces: published.sort((a, b) => (newer(a.version, b.version) ? -1 : 1))[0]?.key ?? null, imported_at: iso(),
@@ -196,7 +211,7 @@ export async function exploreRoutes(app: FastifyInstance, d: Deps) {
     const tmp = `${folder(key)}.part`;
     rmSync(tmp, { recursive: true, force: true });
     for (const f of pkg.site) { const p = join(tmp, 'site', f.path); mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, f.data); }
-    for (const f of pkg.docs) { const p = join(tmp, 'docs', f.path); mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, f.data); }
+    for (const f of [...pkg.docs, ...(pkg.gate ? [pkg.gate] : [])]) { const p = join(tmp, 'docs', f.path); mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, f.data); }
     writeFileSync(join(tmp, 'media.json'), JSON.stringify(Object.fromEntries(mine)));
     rmSync(folder(key), { recursive: true, force: true });
     renameSync(tmp, folder(key));
@@ -214,7 +229,9 @@ export async function exploreRoutes(app: FastifyInstance, d: Deps) {
   app.post('/v1/explore/:key/approve', d.parent, async (req, reply) => {
     const r = row(req);
     if (r.status !== '待审核') fail(409, r.status === '不采用' ? '这节课在“没采用的课”里，先放回审核' : '这节课退回修改了，等新的课程包');
-    if (!(req.body as { previewed?: unknown } | undefined)?.previewed) fail(400, '先预览一遍，再勾上“我预览过了”');
+    const body = req.body as { previewed?: unknown; gate_seen?: unknown } | undefined;
+    if ((r.meta as Exploration).gate && !body?.gate_seen) fail(400, '先看画面对照图，和真实照片比过像不像，再勾上“对照图看过了”');
+    if (!body?.previewed) fail(400, '先预览一遍，再勾上“我预览过了”');
     if (store.lessons().some(l => l.key === r.key)) fail(409, `${r.key} 已经发布过了`);
     store.tx(() => { store.addExploration({ ...r.meta, published_at: iso() }); store.deleteExploreDraft(r.key); });
     return reply.code(201).send({ key: r.key, status: '已发布' });
@@ -245,6 +262,16 @@ export async function exploreRoutes(app: FastifyInstance, d: Deps) {
     const p = join(folder(key), 'docs', rest);
     if (!existsSync(p)) fail(404, '没有这份说明');
     return reply.type('text/markdown; charset=utf-8').send(readFileSync(p, 'utf8'));
+  });
+
+  /** The visual gate picture: real photos beside the lesson's own pictures. */
+  app.get('/v1/explore/:key/gate', d.parent, async (req, reply) => {
+    const key = (req.params as { key: string }).key;
+    const x = (drafts().find(r => r.key === key)?.meta ?? store.exploration<Exploration>(key)) as Exploration | undefined;
+    const p = x?.gate ? join(folder(key), 'docs', x.gate) : '';
+    if (!p || !existsSync(p)) fail(404, '这节课没有画面对照图');
+    const ext = posix.extname(p).slice(1);
+    return reply.type(ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg').header('cache-control', 'no-cache').send(readFileSync(p));
   });
 
   // The pages themselves. No login: a frame can't send one, and nothing here is about the children.
