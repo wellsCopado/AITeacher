@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { heroGlb } from './fixtures/hero-glb.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -322,7 +323,7 @@ describe('server: models, AI lesson writer, MCP for agents', () => {
     calls.length = 0;
     const worm = await req('POST', '/v1/studio/generate', p, { child: 'gege', topic: '博比特虫' });
     expect(worm.status).toBe(400);
-    expect(worm.body.error).toContain('「博比特虫」没有现成的 3D 场景（现成的只有珊瑚礁样方调查、花园围栏与铺砖、积木方块、机器人工厂，画的都不是它）');
+    expect(worm.body.error).toContain('「博比特虫」没有现成的 3D 场景（现成的只有珊瑚礁样方调查、花园围栏与铺砖、积木方块，画的都不是它）');
     expect(worm.body.error).toContain('ChatGPT 账号');
     expect(calls).toHaveLength(0);
     expect((await req('GET', '/v1/interests?child=gege', p)).body.some((x: { topic: string }) => x.topic === '博比特虫')).toBe(false);
@@ -343,15 +344,12 @@ describe('server: models, AI lesson writer, MCP for agents', () => {
         twin: { prompt: '2 行，每行 5 个，一共几个？', picture: { params: { rows: 2, cols: 5 } }, options: ['10 个', '7 个', '25 个'], answers: [{ field: 'total', value: '10 个' }] } },
     ];
     modelReplies = [reply(arr)];
+    // the robot factory failed the parent's realism check (themes.json realism): a robot-arm lesson is never written in
+    // it any more; the topic is made as an 探索课 with its own real model (here without the ChatGPT account: refused)
     const brief = `${BRIEF_HEADER}\n孩子：妹妹（2 年级）\n主题：工厂里的机械臂\n主角：工业机械臂\n知识点：乘法的意义`;
-    const j2 = (await req('POST', '/v1/studio/generate', p, { child: 'gege', wish: brief })).body.job;
-    const d2 = await until(`/v1/studio/jobs/${j2}`, p);
-    expect(d2).toMatchObject({ child: 'meimei' });
-    // the model wrote it on blocks, the parent named the robot arm: its scene is used anyway (no blocks for a robot arm)
-    expect((await req('GET', `/v1/drafts/${d2.key}`, p)).body.theme).toMatchObject({ skin: 'robot_factory', id: 'robot_factory' });
-    expect((await req('GET', `/v1/drafts/${d2.key}`, p)).body.component_params.ArrayMultiplier.theme).toBe('robot_factory');
-    expect(JSON.stringify(calls.at(-1)!.body)).toContain('第二单元 表内乘法（一）'); // her school progress went along
-    expect((await req('GET', '/v1/interests?child=meimei', p)).body.some((x: { topic: string }) => x.topic === '工厂里的机械臂')).toBe(true);
+    const r2 = await req('POST', '/v1/studio/generate', p, { child: 'gege', wish: brief });
+    expect(r2.status, JSON.stringify(r2.body)).toBe(400);
+    expect(r2.body.error).toContain('「工厂里的机械臂」没有现成的 3D 场景');
   });
 
   it('never puts a topic into a scene that does not depict it: the cricket of 11-04, the rocket of 11-05, from every way in', async () => {
@@ -561,7 +559,7 @@ describe('ChatGPT through Codex on the home computer, all from the parent app', 
     expect(done.status, JSON.stringify(done)).toBe('done');
     const run = runs().at(-1)!;
     // what Codex is told: the topic, grade and school progress, to find out what to learn first, not to default to tape measures
-    for (const words of ['「蜜蜂」', '4 年级', '第三单元 角的度量', '讲讲蜂巢为什么是六边形', './skill/SKILL.md', '不要默认周长和面积', 'check_package.py', 'family-profile.md', 'adw-family.mjs', '一中三英', '错 3 次先演示', 'visual-gate.jpg']) expect(run.prompt).toContain(words);
+    for (const words of ['「蜜蜂」', '4 年级', '第三单元 角的度量', '讲讲蜂巢为什么是六边形', './skill/SKILL.md', '不要默认周长和面积', 'check_package.py', 'family-profile.md', 'adw-family.mjs', '一中三英', '错 3 次先演示', 'visual-gate.jpg', 'topic-3d-production.md', 'research/subject.json', '不是方块圆柱拼的']) expect(run.prompt).toContain(words);
     expect(run.args).toContain('workspace-write');
     const said = done.log.map((l: { msg: string }) => l.msg).join('\n');
     expect(said).toContain('查到了：蜜蜂的巢房是六边形'); // its progress shows while it works
@@ -593,6 +591,13 @@ describe('ChatGPT through Codex on the home computer, all from the parent app', 
     expect(loose.error).toContain('没按家里的规则做完');
     expect(loose.error).toContain('adw-family.mjs');
     expect(loose.error).toContain('画面对照图');
+    // a hero that is a toy (no subject card, a few bytes of model, no real size): not taken either
+    writeFileSync(join(home, 'toy-hero'), '');
+    const toy = await until(`/v1/studio/jobs/${(await req('POST', '/v1/explore/make', p, { child: 'gege', topic: '甲虫' })).body.job}`, p);
+    rmSync(join(home, 'toy-hero'));
+    expect(toy).toMatchObject({ status: 'failed' });
+    expect(toy.error).toContain('主角没按主题真实做');
+    expect(toy.error).toContain('没有主角卡');
   });
 
   it('写啥主题就做啥图片: three topics never made before each become an 探索课 with their own pictures, from every way in', async () => {
@@ -643,7 +648,7 @@ describe('ChatGPT through Codex on the home computer, all from the parent app', 
     // nor one that carries another lesson's model: the rocket's own, inside a 恐龙 lesson
     rmSync(join(home, 'assets-copied'));
     const rocketModel = join(home, 'rocket.glb');
-    writeFileSync(rocketModel, Buffer.concat([Buffer.from('glTF'), Buffer.alloc(2048, createHash('md5').update('火箭发射').digest())]));
+    writeFileSync(rocketModel, heroGlb({ size: [6, 12, 6], seed: createHash('md5').update('火箭发射').digest().readUInt32BE(0) }));
     writeFileSync(join(home, 'assets-reused'), rocketModel);
     const reused = await until(`/v1/studio/jobs/${(await req('POST', '/v1/studio/generate', p, { child: 'gege', topic: '恐龙' })).body.job}`, p);
     expect(reused.status).toBe('failed');

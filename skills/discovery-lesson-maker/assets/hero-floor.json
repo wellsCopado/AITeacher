@@ -1,0 +1,34 @@
+{
+  "about": "主角三维模型的最低线（references/topic-3d-production.md）。scripts/hero_model.py 和 App 导入（apps/server/src/hero-check.ts）都读这一份。过了只说明不是糊弄出来的，不说明像；像不像看画面对照图。",
+  "kinds": {
+    "animal": "动物（昆虫、鱼、鸟、兽……）",
+    "plant": "植物",
+    "machine": "机器（机械臂、机器人、发动机……）",
+    "vehicle": "交通工具（火箭、飞机、船、车……）",
+    "building": "建筑（大楼、塔……）",
+    "structure": "构筑物（桥、隧道、大坝……）",
+    "landform": "地貌（火山、山、河谷……）",
+    "other": "其他实物"
+  },
+  "routes": {
+    "scan": "现成的实物扫描（博物馆、科研机构、Sketchfab 上 CC0/CC-BY 的扫描件）",
+    "cad": "制造商、机构公开的 CAD/BIM/工程模型",
+    "photogrammetry": "用至少 3 张不同角度的真实照片或视频做摄影测量 / 照片建模，再修整",
+    "licensed-model": "有许可的写实成品模型（不是低多边形、卡通、风格化的）",
+    "modeled-from-reference": "照着真实照片和真实尺寸在 Blender 里建模（建筑、桥、机械、交通工具可以；动物、人不走这条）"
+  },
+  "no_reference_modeling": ["animal"],
+  "min_triangles": { "animal": 15000, "plant": 10000, "machine": 20000, "vehicle": 20000, "building": 20000, "structure": 20000, "landform": 10000, "other": 15000 },
+  "min_texture_px": 1024,
+  "size_tolerance": 0.2,
+  "primitive_triangles": 48,
+  "primitive_share": 0.5,
+  "min_references": 3,
+  "min_angles": 2,
+  "min_dimensions": 2,
+  "min_features": 4,
+  "banned_origins": ["procedural", "drawn"],
+  "banned_words": ["low poly", "lowpoly", "low-poly", "卡通", "cartoon", "stylized", "风格化", "toon", "Q版", "chibi"],
+  "code_geometry": "new\\s+(?:THREE\\.)?(?:Box|Cylinder|Sphere|Cone|Capsule|Torus|TorusKnot|Dodecahedron|Icosahedron|Octahedron|Tetrahedron|Lathe|Extrude|Ring|Circle)(?:Buffer)?Geometry\\s*\\(",
+  "code_geometry_allow": "adw-allow-geometry"
+}

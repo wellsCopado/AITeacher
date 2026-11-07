@@ -51,7 +51,8 @@ export const shownBy = (themes: ThemeTable, skin: string, word: string) => (them
  */
 export function shows(themes: ThemeTable, skin: string, topic: string): boolean {
   const s = themes.skins[skin];
-  if (!s || s.status !== '已有' || !s.depicts?.length) return false;
+  // a scene the parent judged not photoreal (realism set) isn't one: the topic is made as an 探索课 with its own real model
+  if (!s || s.status !== '已有' || s.realism || !s.depicts?.length) return false;
   const named = subjectsIn(themes, topic, { places: true });
   return named.length > 0 && named.every(w => shownBy(themes, skin, w));
 }

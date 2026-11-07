@@ -11,6 +11,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 from check_package import check
 from family_flow import all_lines, line_file
+from test_hero import CARD, make_glb
+
+GLB = make_glb(size=(30, 200, 900), names=('tower_*', 'tower_n', 'tower_s', 'cable_fan', 'deck'))
+BRIDGE_CARD = {**CARD, 'topic': '大桥', 'instance': '杨浦大桥（斜拉桥）', 'kind': 'structure',
+               'dimensions': [{'what': '全长', 'meters': 900, 'source': 'https://example.org/b', 'main': True}, {'what': '塔高', 'meters': 208, 'source': 'https://example.org/b'}],
+               'features': [{'name': '两座主塔', 'node': 'tower_*'}, {'name': '扇形拉索', 'node': 'cable_fan'}, {'name': '桥面', 'node': 'deck'}, {'name': '北塔', 'node': 'tower_n'}]}
 
 BRIDGE = (ROOT / 'assets/web/adw-host.mjs').read_text(encoding='utf-8')
 FAMILY = "const FORMAT='adw-family/1';"
@@ -26,7 +32,12 @@ class PackageTests(unittest.TestCase):
         self.write('exploration.json', json.dumps(MANIFEST, ensure_ascii=False))
         self.write('web/dist/index.html', '<!doctype html><title>大桥</title><script type="module" src="./assets/index.js"></script>')
         self.write('web/dist/assets/index.js', BRIDGE + FAMILY + "\nfetch('./models/bridge.glb');")
-        self.write('web/dist/models/bridge.glb', 'glTF')
+        (self.root / 'web/dist/models').mkdir(parents=True, exist_ok=True)
+        (self.root / 'web/dist/models/bridge.glb').write_bytes(GLB)
+        self.write('research/subject.json', json.dumps(BRIDGE_CARD, ensure_ascii=False))
+        for r in BRIDGE_CARD['references']:
+            self.write(r['file'], 'jpg')
+        self.write('web/src/main.js', 'import * as THREE from "three";')
         self.write('web/dist/lesson-flow.json', json.dumps(FLOW, ensure_ascii=False))
         for lang, text, _ in all_lines(FLOW):
             self.write('web/dist/' + line_file(lang, text), 'm4a')
@@ -36,7 +47,7 @@ class PackageTests(unittest.TestCase):
         # 主题和素材清单（references/topic-assets.md）：大桥这节课的主角是大桥
         self.write('exploration.json', json.dumps({**MANIFEST, 'topic': '大桥'}, ensure_ascii=False))
         self.write('research/assets.json', json.dumps({'topic': '大桥', 'items': [
-            {'file': 'web/dist/models/bridge.glb', 'sha256': hashlib.sha256(b'glTF').hexdigest(), 'role': 'hero', 'depicts': '斜拉大桥',
+            {'file': 'web/dist/models/bridge.glb', 'sha256': hashlib.sha256(GLB).hexdigest(), 'role': 'hero', 'depicts': '斜拉大桥',
              'made_for': '大桥', 'origin': 'modeled', 'how': 'Blender 按公开图纸建模', 'license': '自制'}]}, ensure_ascii=False))
 
     def tearDown(self):

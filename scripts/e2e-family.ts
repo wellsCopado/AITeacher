@@ -13,6 +13,7 @@ import { execFileSync } from 'node:child_process';
 import { zipSync } from 'fflate';
 import { build } from 'esbuild';
 import { buildApp } from '../apps/server/src/app.js';
+import { heroGlb, subjectCard } from '../test/fixtures/hero-glb.mjs';
 
 const { chromium } = createRequire(import.meta.url)('playwright');
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -33,17 +34,6 @@ function wav(seconds: number) {
   return b;
 }
 // 测试用的小主角：一个三角面，补到 2 KB，好让素材清单真的要登记它。不是写实素材。
-function tinyGlb() {
-  const bin = Buffer.alloc(2048); [0, 0, 0, 1, 0, 0, 0, 1, 0].forEach((v, i) => bin.writeFloatLE(v, i * 4));
-  const doc = { asset: { version: '2.0' }, scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0 }], buffers: [{ byteLength: bin.length }],
-    bufferViews: [{ buffer: 0, byteLength: 36 }], accessors: [{ bufferView: 0, componentType: 5126, count: 3, type: 'VEC3', min: [0, 0, 0], max: [1, 1, 0] }],
-    meshes: [{ primitives: [{ attributes: { POSITION: 0 } }] }] };
-  let json = Buffer.from(JSON.stringify(doc)); json = Buffer.concat([json, Buffer.alloc(-json.length % 4 & 3, 0x20)]);
-  const chunk = (t: number, d: Buffer) => { const h = Buffer.alloc(8); h.writeUInt32LE(d.length, 0); h.writeUInt32LE(t, 4); return Buffer.concat([h, d]); };
-  const body = Buffer.concat([chunk(0x4e4f534a, json), chunk(0x004e4942, bin)]);
-  const head = Buffer.alloc(12); head.write('glTF', 0); head.writeUInt32LE(2, 4); head.writeUInt32LE(12 + body.length, 8);
-  return Buffer.concat([head, body]);
-}
 
 /** 照 Skill 做一个小课程包：上课流程、每句录音、素材清单都齐。 */
 async function fixturePackage() {
@@ -59,12 +49,16 @@ async function fixturePackage() {
   writeFileSync(join(dist, 'lesson-flow.json'), JSON.stringify(flow));
   const lines = JSON.parse(execFileSync('python3', ['-c', 'import json,sys; sys.path.insert(0, sys.argv[1]); from family_flow import all_lines, line_file; print(json.dumps(sorted({line_file(l, t) for l, t, _ in all_lines(json.load(open(sys.argv[2])))})))', join(skill, 'scripts'), join(dist, 'lesson-flow.json')], { encoding: 'utf8' }));
   for (const f of lines as string[]) { mkdirSync(dirname(join(dist, f)), { recursive: true }); writeFileSync(join(dist, f), wav(0.2)); }
-  const glb = tinyGlb(); writeFileSync(join(dist, 'models', 'hero.glb'), glb);
+  // 主角按主题真实做（references/topic-3d-production.md）：主角卡在前，模型按真实尺寸、带贴图、节点对得上辨识特征
+  const size: [number, number, number] = [4, 12, 40], parts = ['tower_n', 'tower_s', 'cable_fan', 'deck'];
+  const glb = heroGlb({ size, names: parts }); writeFileSync(join(dist, 'models', 'hero.glb'), glb);
   const topic = '斜拉桥';
   writeFileSync(join(dir, 'exploration.json'), JSON.stringify({ format: 'adw-explore/1', topic, id: 'X-E2E-FAMILY', version: '1.0', title: '斜拉桥：谁拉住了桥面', for_child: 'gege', concept: '平均分', subjects: ['数学', '科学', '英语'], minutes: 15, summary: '拖开拉索、摆桥墩把桥面平均分。', entry: 'web/dist/index.html' }));
   mkdirSync(join(dir, 'research'));
-  writeFileSync(join(dir, 'research', 'assets.json'), JSON.stringify({ topic, items: [{ file: 'web/dist/models/hero.glb', sha256: sha(glb), role: 'hero', depicts: '斜拉桥（测试用三角面）', made_for: topic, origin: 'procedural', how: 'e2e-family.ts 生成', license: '自制' }] }));
+  writeFileSync(join(dir, 'research', 'assets.json'), JSON.stringify({ topic, items: [{ file: 'web/dist/models/hero.glb', sha256: sha(glb), role: 'hero', depicts: '斜拉桥（测试用网格）', made_for: topic, origin: 'modeled', how: 'e2e-family.ts 生成', license: '自制' }] }));
   writeFileSync(join(dir, 'research', 'sources.json'), '{"sources":[]}');
+  writeFileSync(join(dir, 'research', 'subject.json'), JSON.stringify(subjectCard({ topic, instance: '测试用斜拉桥', kind: 'structure', size, names: parts })));
+  mkdirSync(join(dir, 'research', 'refs')); for (const i of [1, 2, 3]) writeFileSync(join(dir, 'research', 'refs', `ref-${i}.jpg`), 'jpg');
   mkdirSync(join(dir, 'evidence')); writeFileSync(join(dir, 'evidence', 'visual-gate.jpg'), Buffer.from([0xff, 0xd8, 0xff, 0xd9])); // 占位：测试不看画面
   for (const f of ['README.md', '课程设计.md', '验收结果.md']) writeFileSync(join(dir, f), `# ${f}\n\n端到端测试包。\n`);
   return dir;

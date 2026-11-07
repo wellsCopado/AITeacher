@@ -146,6 +146,16 @@ def check(path):
     errors.extend(asset_errors)
     warnings.extend(asset_warnings)
     facts.update(asset_facts)
+    # 按主题做主角：主角卡和主角模型的最低线（references/topic-3d-production.md）
+    from hero_model import check_hero
+    try:
+        listed = json.loads(pkg.read(base + 'research/assets.json').decode('utf-8')).get('items') or []
+    except (KeyError, ValueError, UnicodeDecodeError, AttributeError):
+        listed = []
+    hero_errors, hero_warnings, hero_facts = check_hero(pkg.read, names, base, manifest, listed)
+    errors.extend(hero_errors)
+    warnings.extend(hero_warnings)
+    facts.update(hero_facts)
     if len(site) > MAX_FILES or size > HARD_LIMIT:
         errors.append(f'网页部分 {size / 2**20:.0f} MB、{len(site)} 个文件，超过 App 上限（800 MB / 5000 个）')
     elif size > SOFT_LIMIT:
