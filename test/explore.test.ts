@@ -6,6 +6,11 @@ import { join } from 'node:path';
 import { strToU8, zipSync } from 'fflate';
 import { buildApp } from '../apps/server/src/app.js';
 import { summarize } from '../apps/parent/src/summary.js';
+import { heroGlb, subjectCard } from './fixtures/hero-glb.mjs';
+
+/** 台北101 as the fixture's hero: a model at its real height, and the card that says what it is. */
+const TOWER = heroGlb({ size: [60, 508, 60], names: ['spire', 'pagoda_segments', 'damper_ball', 'podium'] });
+const CARD = subjectCard({ topic: '台北101', instance: '台北101大楼', kind: 'building', size: [60, 508, 60], names: ['spire', 'pagoda_segments', 'damper_ball', 'podium'] });
 
 const root = join(import.meta.dirname, '..');
 const PIN = '2468';
@@ -19,9 +24,10 @@ function pkg(o: { manifest?: object | null; js?: string; html?: string; extra?: 
     [`${f}/web/dist/index.html`]: strToU8(o.html ?? '<!doctype html><title>台北101 · 风中的稳定秘密</title><script type="module" src="./assets/app.js"></script>'),
     [`${f}/web/dist/assets/app.js`]: strToU8(o.js ?? "parent.postMessage({adw:'explore/1',type:'ready'},location.origin);const F='adw-family/1'"),
     [`${f}/web/dist/lesson-flow.json`]: strToU8('{"format":"adw-family/1"}'),
-    [`${f}/web/dist/models/tower.glb`]: new Uint8Array([103, 108, 84, 70]),
+    [`${f}/web/dist/models/tower.glb`]: new Uint8Array(TOWER),
+    [`${f}/research/subject.json`]: strToU8(JSON.stringify(CARD)),
     // what each picture is of and that it was made for this topic (skills/discovery-lesson-maker/references/topic-assets.md)
-    [`${f}/research/assets.json`]: strToU8(JSON.stringify({ topic: '台北101', items: [{ file: 'web/dist/models/tower.glb', sha256: createHash('sha256').update(new Uint8Array([103, 108, 84, 70])).digest('hex'), role: 'hero', depicts: '台北101大楼和阻尼球', made_for: '台北101', origin: 'modeled', how: 'Blender 按公开图纸建模', license: '自制' }] })),
+    [`${f}/research/assets.json`]: strToU8(JSON.stringify({ topic: '台北101', items: [{ file: 'web/dist/models/tower.glb', sha256: createHash('sha256').update(TOWER).digest('hex'), role: 'hero', depicts: '台北101大楼和阻尼球', made_for: '台北101', origin: 'modeled', how: 'Blender 按公开图纸建模', license: '自制' }] })),
     [`${f}/web/src/main.mjs`]: strToU8('// source, not served'),
     [`${f}/README.md`]: strToU8('# 台北101\n\n说明'),
     [`${f}/课程设计.md`]: strToU8('# 课程设计'),
@@ -85,7 +91,7 @@ describe('探索课 packages', () => {
     const jpg = '\xff\xd8\xff\xe0 gate';
     const r = await upload(t, pkg({ extra: { '台北101_四年级探索课/evidence/visual-gate.jpg': jpg } }));
     expect(r.status).toBe(201);
-    expect(r.body).toMatchObject({ gate: 'gate.jpg', family: true });
+    expect(r.body).toMatchObject({ gate: 'gate.jpg', family: true, subject: '台北101大楼' });
     expect(r.body.warnings.some((w: string) => w.includes('对照图'))).toBe(false);
     const g = await req('GET', '/v1/explore/X-TAIPEI101@1.0/gate', t);
     expect(g.status).toBe(200);
@@ -99,6 +105,16 @@ describe('探索课 packages', () => {
     const other = await upload(t, pkg({ manifest: { format: 'adw-explore/1', id: 'X-TAIPEI101B', version: '1.0', topic: '台北101', title: '台北101 二', for_child: 'gege' },
       extra: { '台北101_四年级探索课/web/dist/lesson-flow.json': '{"format":"adw-family/1","visual_gate":{"sheet":"evidence/compare.png"}}', '台北101_四年级探索课/evidence/compare.png': '\x89PNG' } }));
     expect(other.body.gate).toBe('gate.png');
+  });
+
+  it('tells the parent when the hero of an uploaded package is not made for real', async () => {
+    const t = await login();
+    const r = await upload(t, pkg());
+    expect(r.body.warnings.some((w: string) => w.includes('主角没按主题真实做'))).toBe(false);
+    const bad = await upload(t, pkg({ manifest: { format: 'adw-explore/1', id: 'X-TOY', version: '1.0', topic: '台北101', title: '玩具塔', for_child: 'gege' },
+      extra: { '台北101_四年级探索课/web/src/tower.js': 'const t = new THREE.BoxGeometry(60, 508, 60);' } }));
+    expect(bad.status).toBe(201); // an uploaded package is the parent's call: it is taken, with what is wrong said
+    expect(bad.body.warnings.join(' ')).toContain('代码里用几何体拼了 1 处');
   });
 
   it('is scheduled, opened on the Pad and finished like any other lesson', async () => {

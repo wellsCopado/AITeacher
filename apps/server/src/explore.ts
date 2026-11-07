@@ -10,6 +10,7 @@ import { dirname, join, posix } from 'node:path';
 import type { ExploreStatus, Store } from './db.js';
 import { fail, sha } from './http.js';
 import { VISUAL as VISUAL_FILE, checkAssets, visualHashes, type AssetLine } from './topic-assets.js';
+import { checkHero, type HeroItem } from './hero-check.js';
 
 export const BRIDGE = 'adw-explore/1';
 const MAX_ZIP = 600 * 1024 * 1024, MAX_SITE = 800 * 1024 * 1024, MAX_FILES = 5000;
@@ -28,6 +29,8 @@ export interface Exploration {
   family?: boolean;
   /** The visual gate: real photos beside the lesson's own pictures (lesson-flow.json visual_gate.sheet), kept under docs/. */
   gate?: string | null;
+  /** Which real thing the hero is (research/subject.json instance), for the parent's card. */
+  subject?: string | null;
   /** Notes kept for the parent (README.md, 课程设计.md, 验收结果.md …). */
   docs: string[];
   sha256: string; bytes: number; files: number;
@@ -113,9 +116,15 @@ export function readPackage(zip: Uint8Array) {
   const listed = byName.get(base + 'research/assets.json');
   let assetList: unknown;
   if (listed) try { assetList = JSON.parse(Buffer.from(listed).toString('utf8')); } catch { assetList = null; }
+  // 按主题做主角 (hero-check.ts): the subject card, the hero model and the page's source, by their path from the package root
+  const heroFiles = new Map<string, Uint8Array>(site.map(f => [f.name.slice(base.length), byName.get(f.name)!]));
+  const more = files.filter(f => f.name === base + 'research/subject.json' || (f.name.startsWith(base + 'web/src/') && /\.(m?[jt]sx?)$/i.test(f.name) && f.size < 2 * 1048576));
+  if (more.length) { const got = extract(zip, more.map(f => f.raw)); for (const f of more) heroFiles.set(f.name.slice(base.length), got[f.raw]); }
+  const items = (assetList as { items?: HeroItem[] } | null)?.items;
+  const hero = checkHero(String(manifest.topic ?? '').trim(), heroFiles, Array.isArray(items) ? items : []);
   const digest = sha(Buffer.concat([...site, ...docs].sort((a, b) => a.name.localeCompare(b.name)).flatMap(f => [Buffer.from(f.name.slice(base.length) + '\0'), Buffer.from(byName.get(f.name)!)])));
   return {
-    manifest, assetList, title: title.slice(0, 80), pkgName, folder: base.replace(/\/$/, '').split('/').pop() ?? '', digest, bytes, warnings, bridge, family, gate,
+    manifest, assetList, title: title.slice(0, 80), pkgName, folder: base.replace(/\/$/, '').split('/').pop() ?? '', digest, bytes, warnings, bridge, family, gate, hero,
     site: site.map(f => ({ path: f.name.slice(prefix.length), data: byName.get(f.name)! })),
     docs: docs.map(f => ({ path: f.name.slice(base.length), data: byName.get(f.name)! })),
   };
@@ -170,8 +179,9 @@ export async function exploreRoutes(app: FastifyInstance, d: Deps) {
       if (problems.length) fail(422, `画面没有按「${q.topic}」做，没放进课程库：${problems.slice(0, 4).join('；')}`);
       // App 自己做的课必须守家里的上课规则，还要交画面对照图（family-profile.md）；家长手动导入的旧课只提醒
       const rules = [...(pkg.family ? [] : ['没用 adw-family.mjs 和 lesson-flow.json 跑家里的上课规则（一中三英、每步计时、按顺序解锁、错三次先演示）']),
-        ...(pkg.gate ? [] : ['没交画面对照图（lesson-flow.json 的 visual_gate.sheet）'])];
-      if (rules.length) fail(422, `「${q.topic}」这节课没按家里的规则做完，没放进课程库：${rules.join('；')}`);
+        ...(pkg.gate ? [] : ['没交画面对照图（lesson-flow.json 的 visual_gate.sheet）']),
+        ...pkg.hero.errors.map(x => `主角没按主题真实做：${x}`)];
+      if (rules.length) fail(422, `「${q.topic}」这节课没按家里的规则做完，没放进课程库：${rules.slice(0, 6).join('；')}`);
     }
     const kids = store.children();
     // who it's for: the parent's pick, else the package's, else the grade its name says (四年级 → the grade-4 child)
@@ -202,8 +212,8 @@ export async function exploreRoutes(app: FastifyInstance, d: Deps) {
       format: BRIDGE, lesson_id: lessonId, version, title: pkg.title, for_child: child,
       concept: String(m.concept ?? '').slice(0, 80), subjects: Array.isArray(m.subjects) ? m.subjects.map(String).slice(0, 8) : [],
       minutes: Number(m.minutes) > 0 ? Math.round(Number(m.minutes)) : null, summary: String(m.summary ?? '').slice(0, 600),
-      bridge: pkg.bridge, family: pkg.family, gate: pkg.gate?.path ?? null, docs: pkg.docs.filter(f => f.path.endsWith('.md')).map(f => f.path), sha256: pkg.digest, bytes: pkg.bytes, files: pkg.site.length,
-      source_name: String(q.name ?? '').slice(0, 120), warnings: [...pkg.warnings, ...assets.errors.map(e => `画面没按主题登记：${e}`), ...assets.warnings],
+      bridge: pkg.bridge, family: pkg.family, gate: pkg.gate?.path ?? null, subject: pkg.hero.subject, docs: pkg.docs.filter(f => f.path.endsWith('.md')).map(f => f.path), sha256: pkg.digest, bytes: pkg.bytes, files: pkg.site.length,
+      source_name: String(q.name ?? '').slice(0, 120), warnings: [...pkg.warnings, ...pkg.hero.errors.map(x => `主角没按主题真实做：${x}`), ...assets.errors.map(e => `画面没按主题登记：${e}`), ...assets.warnings],
       topic: topic || null, assets: assets.lines,
       replaces: published.sort((a, b) => (newer(a.version, b.version) ? -1 : 1))[0]?.key ?? null, imported_at: iso(),
     };

@@ -16,6 +16,8 @@ interface Explore {
   topic?: string | null; assets?: { file: string; role: string; depicts: string; origin: string }[];
   /** The visual gate picture (real photos beside the lesson's own pictures), when the package has one. */
   gate?: string | null;
+  /** Which real thing the hero is (the package's subject card). */
+  subject?: string | null;
 }
 const ROLE_NAMES: Record<string, string> = { hero: '主角', part: '主角部件', scene: '环境', picture: '配图', video: '视频' };
 const ORIGIN_NAMES: Record<string, string> = { modeled: '这节课建模', procedural: '程序生成', scan: '实物扫描', cad: '工程图纸', photo: '实拍照片', 'cc0-library': '免费素材库', licensed: '有授权的素材', generated: 'AI 生成', rendered: '从这节课的三维场景渲染', drawn: '手绘' };
@@ -207,6 +209,7 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
       ${xopen.map(x => `<div class="card xdraft" data-k="${esc(x.key)}"><h3>${esc(x.title)} <span class="badge">探索课</span> <span class="badge">${esc(x.status)}</span></h3>
         <p class="muted small">${esc(name(x.for_child))} · ${esc(x.concept || '课程包没写知识点')} · ${esc(x.key)} · ${mb(x.bytes)}，${x.files} 个文件 · 由 ${esc(x.imported_by)} 导入${x.source_name ? `（${esc(x.source_name)}）` : ''}</p>
         ${x.summary ? `<p>${esc(x.summary)}</p>` : ''}
+        ${x.subject ? `<p class="small">主角：<b>${esc(x.subject)}</b>（按主题真实建模，对照图里和真实照片比）</p>` : ''}
         ${x.gate ? `<figure class="xgate"><figcaption class="small"><b>第一步：画面对照图。</b>左边是真实照片，旁边是这节课里的画面。先比一比像不像，不像就直接退回，不用往下看。</figcaption><img alt="画面对照图" loading="lazy"></figure>` : ''}
         ${x.assets?.length ? `<details class="small"><summary>主题「${esc(x.topic ?? '')}」的画面：${x.assets.filter(a => a.role !== 'ui').length} 样，都登记为给这个主题做的</summary><ul>${x.assets.filter(a => a.role !== 'ui').map(a => `<li>${esc(ROLE_NAMES[a.role] ?? a.role)}：${esc(a.depicts)}（${esc(ORIGIN_NAMES[a.origin] ?? a.origin)}）</li>`).join('')}</ul></details>` : ''}
         ${x.replaces ? `<p class="small replaces">这是 ${esc(x.replaces)} 的新版本。发布后自动排课只排新版；孩子上过旧版就算上过这节课。</p>` : ''}

@@ -507,4 +507,11 @@ export const RULES: Rule[] = [
       return out;
     },
   },
+  {
+    id: 'V29', name: '家长判定不够写实的场景（themes.json 写了 realism）不给孩子上：这类主题按主题自己做成写实的探索课', basis: '家长：“改成真实写实”“要根据主题去生产 3D 和制作课程”；photoreal-3d-production/reference/gaps.md G1', level: 'error',
+    check(sp, ctx) {
+      const skin = sp.theme.skin, s = skin ? ctx.themes?.skins[skin] : undefined;
+      return s?.realism ? [{ path: '$.theme.skin', msg: `场景「${s.name}」${s.realism}`, fix: `把「${sp.theme.subject?.name ?? sp.theme.name}」做成探索课（课程库 → 探索课 → 让 AI 做一节探索课），主角按主题真实建模` }] : [];
+    },
+  },
 ];

@@ -5,7 +5,7 @@ import type { AssetEntry, ChildProfile, InterestObservation, LessonSpec, ThemeTa
 import { habitatName, habitatOf, scenesShowing } from '../../validator/src/themes.js';
 export { fitsHabitat, habitatName, habitatOf, sceneFor, scenesShowing, shows, subjectsIn } from '../../validator/src/themes.js';
 /** The ready 3D scenes, for telling the parent why a topic gets its own: 珊瑚礁样方调查、花园围栏与铺砖…. */
-export const readyDepicts = (themes: ThemeTable) => Object.values(themes.skins).filter(s => s.status === '已有' && s.depicts?.length).map(s => s.name.split('：')[0]).join('、');
+export const readyDepicts = (themes: ThemeTable) => Object.values(themes.skins).filter(s => s.status === '已有' && !s.realism && s.depicts?.length).map(s => s.name.split('：')[0]).join('、');
 
 export const readJson = <T = any>(p: string): T => JSON.parse(readFileSync(p, 'utf8'));
 export function writeJson(p: string, v: unknown) { mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, JSON.stringify(v, null, 2) + '\n'); }

@@ -101,6 +101,15 @@ describe('each rule catches its failure', () => {
     const sp2 = clone(base); sp2.encouragement = { persist: ['加油！', '螳螂虾的洞也是一点一点挖出来的。'] };
     expect(failed(sp2)).toContain('V18');
   });
+  it('V29 a scene the parent judged not photoreal is never shown to the child', () => {
+    expect(failed(base)).not.toContain('V29');
+    const sp = clone(base); sp.theme.skin = 'robot_factory';
+    const r = validate(sp, ctx()).results.find(x => x.id === 'V29')!;
+    expect(r.ok).toBe(false);
+    expect(r.level).toBe('error');
+    expect(r.issues[0].fix).toContain('探索课');
+  });
+
   it('V28 lines the child hears are written to be read aloud, not looked at', () => {
     expect(failed(base)).not.toContain('V28');
     const issues = (sp: LessonSpec) => validate(sp, ctx()).results.find(r => r.id === "V28")!.issues.map(i => i.msg).join(' | ');

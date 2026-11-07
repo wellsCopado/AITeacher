@@ -3,6 +3,7 @@
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
+import { heroGlb, subjectCard } from './hero-glb.mjs';
 
 const args = process.argv.slice(2);
 const env = process.env;
@@ -48,7 +49,15 @@ process.stdin.on('end', () => {
     // the topic it was asked for, its hero made for it and on the asset list (references/topic-assets.md);
     // a file assets-copied in its home leaves in a picture taken from elsewhere, unlisted; assets-reused names a file it copies in
     const topic = /主题：「(.+?)」/.exec(prompt)?.[1] ?? '', hero = topic === '蜜蜂' ? 'hive' : 'hero';
-    const model = Buffer.concat([Buffer.from('glTF'), Buffer.alloc(2048, createHash('md5').update(topic).digest())]); // one topic, one model
+    // the hero is made for the topic: its subject card first, then a model at the real size (one topic, one model);
+    // a file toy-hero in its home hands in a box-sized toy without a card instead
+    const seed = createHash('md5').update(topic).digest().readUInt32BE(0), toy = existsSync(join(home, 'toy-hero'));
+    const model = toy ? Buffer.concat([Buffer.from('glTF'), Buffer.alloc(2048, seed)]) : heroGlb({ size: [6, 12, 6], seed });
+    if (!toy) {
+      put('research/subject.json', JSON.stringify(subjectCard({ topic, instance: `${topic}（真实的那一个）`, kind: 'other', size: [6, 12, 6] })));
+      for (const i of [1, 2, 3]) put(`research/refs/ref-${i}.jpg`, 'jpg');
+      put('web/src/main.js', "import * as THREE from 'three'; const ring = new THREE.RingGeometry(1, 1.2, 32); // adw-allow-geometry: 高亮圈");
+    }
     put('exploration.json', JSON.stringify({ format: 'adw-explore/1', id, version: '1.0', for_child: kid, grade: 4, topic, title: topic === '蜜蜂' ? '蜜蜂的六边形巢房' : `${topic}探索课`, concept: '角的度量', subjects: ['数学', '科学'], minutes: 25, summary: '转动三维蜂巢，量六边形的角。', entry: 'web/dist/index.html' }));
     put('web/dist/index.html', `<!doctype html><title>${topic}</title><script type="module" src="./assets/index.js"></script>`);
     // the family's lesson rules and the visual gate (references/family-profile.md); a file no-family in its home leaves them out

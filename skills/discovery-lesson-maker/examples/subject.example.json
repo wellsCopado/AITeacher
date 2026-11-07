@@ -1,0 +1,64 @@
+{
+  "topic": "火箭发射",
+  "instance": "长征二号F运载火箭",
+  "kind": "vehicle",
+  "why_this_one": "载人航天用的就是它，资料最全",
+  "references": [
+    {
+      "file": "research/refs/cz2f-pad.jpg",
+      "angle": "整体",
+      "source": "https://example.org/cz2f-pad",
+      "license": "CC BY 4.0"
+    },
+    {
+      "file": "research/refs/cz2f-side.jpg",
+      "angle": "侧面",
+      "source": "https://example.org/cz2f-side",
+      "license": "CC BY 4.0"
+    },
+    {
+      "file": "research/refs/cz2f-boosters.jpg",
+      "angle": "近景",
+      "source": "https://example.org/cz2f-boosters",
+      "license": "CC BY 4.0"
+    }
+  ],
+  "dimensions": [
+    {
+      "what": "全长",
+      "meters": 58.3,
+      "source": "https://example.org/cz2f",
+      "main": true
+    },
+    {
+      "what": "芯级直径",
+      "meters": 3.35,
+      "source": "https://example.org/cz2f"
+    }
+  ],
+  "features": [
+    {
+      "name": "4 个助推器",
+      "node": "booster_*"
+    },
+    {
+      "name": "整流罩",
+      "node": "fairing"
+    },
+    {
+      "name": "逃逸塔",
+      "node": "tower_escape"
+    },
+    {
+      "name": "芯一级",
+      "node": "core_stage"
+    }
+  ],
+  "route": {
+    "hero": "modeled-from-reference",
+    "why": "找不到可用的扫描件；按公开尺寸和三张照片在 Blender 建模",
+    "tools": [
+      "Blender"
+    ]
+  }
+}

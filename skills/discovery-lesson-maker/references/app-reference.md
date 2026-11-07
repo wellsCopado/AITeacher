@@ -1,6 +1,6 @@
 # 宿主参考：AI 探索世界 App（AITeacher）
 
-接这个家庭的 App 时读。仓库：[wellsCopado/AITeacher](https://github.com/wellsCopado/AITeacher)（分支 `m4-homework-reteach`）。App 跑在家里的 Mac 上：家长用 Mac 上的「AI 探索世界」审课、排课、看记录，孩子用安卓平板上课。
+接这个家庭的 App 时读。仓库：[wellsCopado/AITeacher](https://github.com/wellsCopado/AITeacher)（分支 `main`）。App 跑在家里的 Mac 上：家长用 Mac 上的「AI 探索世界」审课、排课、看记录，孩子用安卓平板上课。
 
 ## App 收两种课
 
@@ -54,8 +54,9 @@
 3. **不连外网。** 运行时只用包里的文件；平板只连家里的 Mac。给大人核对的来源链接可以留，但放在说明抽屉或文档里：孩子点到外链，App 会跳到平板浏览器。
 4. **大小。** 网页部分最好在 150 MB 以内（平板第一次打开要下载）；超过 800 MB 拒收。
 5. **用家庭上课流程**：`web/dist/lesson-flow.json`、`web/dist/audio/family/` 下每句话的录音、源码里的 `adw-family.mjs`，见 [家庭档案](family-profile.md)。`adw-family.mjs` 的 `report()` 直接交给下面的 `report`（它带着课走完的 `ended` 和课末心愿选项 `wish`）。家长手动导入的旧课没有它只提醒；App 自己做的课没有它就拒收。
-6. **画面对照图**：`lesson-flow.json` 的 `visual_gate.sheet`（默认 `evidence/visual-gate.jpg`，jpg/png/webp）。App 把它放在家长课程卡片的最前面，家长勾上“对照图看过了”才能发布；App 自己做的课没有它就拒收。
-7. **接 App 的进度接口**：把 [`assets/web/adw-host.mjs`](../assets/web/adw-host.mjs) 复制进源码，原样使用：
+6. **按主题做的主角**：`research/subject.json` 主角卡、主角模型过最低线、`web/src` 源码在包里，见 [按主题做主角](topic-3d-production.md)。App 自己做的课不过就不收；家长手动导入的在卡片上提示。
+7. **画面对照图**：`lesson-flow.json` 的 `visual_gate.sheet`（默认 `evidence/visual-gate.jpg`，jpg/png/webp）。App 把它放在家长课程卡片的最前面，家长勾上“对照图看过了”才能发布；App 自己做的课没有它就拒收。
+8. **接 App 的进度接口**：把 [`assets/web/adw-host.mjs`](../assets/web/adw-host.mjs) 复制进源码，原样使用：
 
 ```js
 import { storageKey, report, ready, failed, onHost } from './adw-host.mjs';
