@@ -228,7 +228,15 @@ async function install() {
 async function update() {
   const env = agentEnv({}, savedEnv());
   say('· 下载最新版本…');
-  sh('git', ['pull', '--ff-only'], { cwd: root });
+  // the published version is always main (every fix is merged there). A Mac left on an older work branch
+  // (m3-…, m4-…) used to “update” to that branch's last commit and never got the fixes: switch it to main.
+  const git = args => quiet('git', ['-C', root, ...args]);
+  const branch = git(['rev-parse', '--abbrev-ref', 'HEAD']).stdout.trim();
+  sh('git', ['fetch', 'origin', 'main'], { cwd: root });
+  const changed = git(['status', '--porcelain', '--untracked-files=no']).stdout.trim();
+  if (changed) throw new Error(`程序文件在这台 Mac 上被改过，更新会把它们覆盖，所以停下了：\n${changed}\n要放弃这些改动就在终端运行：git -C "${root}" checkout -- . ，再点检查更新`);
+  if (branch !== 'main') { say(`· 这台 Mac 停在旧分支「${branch}」，换到发布的 main`); sh('git', ['checkout', '-B', 'main', 'origin/main'], { cwd: root }); }
+  else sh('git', ['merge', '--ff-only', 'origin/main'], { cwd: root });
   npmInstall();
   buildWeb();
   saveConfig(env);
@@ -238,8 +246,8 @@ async function update() {
     say('MAC_APP_REBUILT');
   }
   await startAgent(env);
-  const head = quiet('git', ['-C', root, 'log', '-1', '--format=%h %s']).stdout.trim();
-  say(`✓ 现在是最新版本：${head}`);
+  const head = quiet('git', ['-C', root, 'log', '-1', '--format=%h %cd %s', '--date=format:%Y-%m-%d %H:%M']).stdout.trim();
+  say(`✓ 现在是最新版本（main）：${head}`);
 }
 
 async function main(cmd = 'install') {
