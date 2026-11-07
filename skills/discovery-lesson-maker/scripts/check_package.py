@@ -164,6 +164,11 @@ def check(path):
         flow_errors, flow_warnings = check_flow(flow, lambda rel: prefix + rel in has, manifest.get("grade") if isinstance(manifest.get("grade"), int) else None)
         errors.extend(flow_errors)
         warnings.extend(flow_warnings)
+        # 主角盲看：不知道哪张是照片的审看人看过，不像动画片、不像玩具（references/hero-production.md）
+        from hero_check import check_blind_review
+        blind_errors, blind_warnings = check_blind_review(flow.get('visual_gate') or {})
+        errors.extend(blind_errors)
+        warnings.extend(blind_warnings)
         sheet = (flow.get('visual_gate') or {}).get('sheet')
         if sheet and base + sheet not in has and prefix + sheet not in has:
             errors.append(f'画面对照图不在包里：{sheet}')

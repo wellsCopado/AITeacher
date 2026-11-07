@@ -45,6 +45,8 @@ description: 为 AI Discovery World 找、做、接入和验收写实 3D 素材�
 
 课末主持人（机器人或真人）的规格单独写在 [reference/host.md](reference/host.md)。现在仓库里哪些东西不达标、要换成什么，见 [reference/gaps.md](reference/gaps.md)，**动手前先读它**。
 
+**主角**（课里孩子转着看、动手做的那个东西）不管在哪种课里，都按 [discovery-lesson-maker 的主角三维](../discovery-lesson-maker/references/hero-production.md) 的七步做、按 H1–H7 验收：按类别限定来源（动物和人只能扫描或依据照片生成）、≥3 张真实照片、真实尺寸、面数和真实贴图、没参与制作的审看人盲看。`dls asset-check` 的 A1–A9 查参数课资产库里的素材，H1–H7 查课程包里的主角，标准一致。
+
 整节探索课的画面怎么分（“看”用光线追踪预渲染、“动手”用实时三维）、按真实尺寸建模、网络受限时去哪拿扫描素材、常见假感毛病怎么修，见 [discovery-lesson-maker 的写实画面通用做法](../discovery-lesson-maker/references/photoreal-pipeline.md)，配套脚本在那里的 `scripts/`。
 
 ## 交付时必须给出

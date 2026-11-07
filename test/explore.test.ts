@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { strToU8, zipSync } from 'fflate';
 import { buildApp } from '../apps/server/src/app.js';
 import { summarize } from '../apps/parent/src/summary.js';
+import { heroFields, heroGlb } from './fixtures/glb.js';
 
 const root = join(import.meta.dirname, '..');
 const PIN = '2468';
@@ -13,15 +14,17 @@ let clock = new Date('2026-10-29T02:00:00Z');
 let app: Awaited<ReturnType<typeof buildApp>>;
 
 /** A package as the Skill hands it in: the built page under web/dist, notes beside it. */
+/** The tower: a hero that passes the file checks (tests the App's rules only, proves nothing about looks). */
+const TOWER = heroGlb([60, 508, 60]);
 function pkg(o: { manifest?: object | null; js?: string; html?: string; extra?: Record<string, string>; folder?: string } = {}) {
   const f = o.folder ?? '台北101_四年级探索课';
   const files: Record<string, Uint8Array> = {
     [`${f}/web/dist/index.html`]: strToU8(o.html ?? '<!doctype html><title>台北101 · 风中的稳定秘密</title><script type="module" src="./assets/app.js"></script>'),
     [`${f}/web/dist/assets/app.js`]: strToU8(o.js ?? "parent.postMessage({adw:'explore/1',type:'ready'},location.origin);const F='adw-family/1'"),
     [`${f}/web/dist/lesson-flow.json`]: strToU8('{"format":"adw-family/1"}'),
-    [`${f}/web/dist/models/tower.glb`]: new Uint8Array([103, 108, 84, 70]),
+    [`${f}/web/dist/models/tower.glb`]: TOWER,
     // what each picture is of and that it was made for this topic (skills/discovery-lesson-maker/references/topic-assets.md)
-    [`${f}/research/assets.json`]: strToU8(JSON.stringify({ topic: '台北101', items: [{ file: 'web/dist/models/tower.glb', sha256: createHash('sha256').update(new Uint8Array([103, 108, 84, 70])).digest('hex'), role: 'hero', depicts: '台北101大楼和阻尼球', made_for: '台北101', origin: 'modeled', how: 'Blender 按公开图纸建模', license: '自制' }] })),
+    [`${f}/research/assets.json`]: strToU8(JSON.stringify({ topic: '台北101', items: [{ file: 'web/dist/models/tower.glb', sha256: createHash('sha256').update(TOWER).digest('hex'), role: 'hero', depicts: '台北101大楼和阻尼球', made_for: '台北101', origin: 'modeled', how: 'Blender 按公开图纸建模', license: '自制', ...heroFields('structure', 508) }] })),
     [`${f}/web/src/main.mjs`]: strToU8('// source, not served'),
     [`${f}/README.md`]: strToU8('# 台北101\n\n说明'),
     [`${f}/课程设计.md`]: strToU8('# 课程设计'),
@@ -195,11 +198,11 @@ describe('探索课 packages', () => {
   });
   it('写啥主题就做啥图片: lists every picture as made for its topic, and never takes one copied from another lesson', async () => {
     const t = await login();
-    const model = (n: number) => new Uint8Array(4096).fill(n);
+    const model = (n: number) => new Uint8Array(4096).fill(n), hero = (n: number) => new Uint8Array(heroGlb([10, 2, 2], n));
     const hash = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
     const made = (o: { id: string; topic: string; folder: string; files: Record<string, Uint8Array>; items?: object[] }) => {
       const site = Object.fromEntries(Object.entries(o.files).map(([k, v]) => [`${o.folder}/web/dist/${k}`, v]));
-      const items = o.items ?? Object.entries(o.files).map(([k, v], i) => ({ file: `web/dist/${k}`, sha256: hash(v), role: i ? 'scene' : 'hero', depicts: i ? `${o.topic}的环境` : `${o.topic}（三维）`, made_for: o.topic, origin: 'modeled', how: '本次建模', license: '自制' }));
+      const items = o.items ?? Object.entries(o.files).map(([k, v], i) => ({ file: `web/dist/${k}`, sha256: hash(v), role: i ? 'scene' : 'hero', depicts: i ? `${o.topic}的环境` : `${o.topic}（三维）`, made_for: o.topic, origin: 'modeled', how: '本次建模', license: '自制', ...(i ? {} : heroFields('vehicle', 10)) }));
       return Buffer.from(zipSync({
         [`${o.folder}/exploration.json`]: strToU8(JSON.stringify({ format: 'adw-explore/1', id: o.id, version: '1.0', topic: o.topic, title: `${o.topic}探索课`, for_child: 'meimei' })),
         [`${o.folder}/web/dist/index.html`]: strToU8('<!doctype html><title>课</title>'),
@@ -207,20 +210,20 @@ describe('探索课 packages', () => {
         [`${o.folder}/research/assets.json`]: strToU8(JSON.stringify({ topic: o.topic, items })),
       }));
     };
-    const rocket = await upload(t, made({ id: 'X-ROCKET', topic: '火箭发射', folder: '火箭发射', files: { 'models/rocket.glb': model(1), 'textures/pad.jpg': model(2) } }));
+    const rocket = await upload(t, made({ id: 'X-ROCKET', topic: '火箭发射', folder: '火箭发射', files: { 'models/rocket.glb': hero(1), 'textures/pad.jpg': model(2) } }));
     expect(rocket.status, JSON.stringify(rocket.body)).toBe(201);
     expect(rocket.body.topic).toBe('火箭发射');
     expect(rocket.body.warnings.filter((w: string) => /画面|素材/.test(w) && !/对照图/.test(w))).toEqual([]); // (warnings about the bridge and docs aside)
     expect(rocket.body.assets).toEqual([expect.objectContaining({ role: 'hero', depicts: '火箭发射（三维）', origin: 'modeled' }), expect.objectContaining({ role: 'scene' })]);
     // the volcano lesson brings the rocket lesson's launch pad along: not taken, and it says from which lesson
-    const volcano = await upload(t, made({ id: 'X-VOLCANO', topic: '火山', folder: '火山', files: { 'models/volcano.glb': model(3), 'textures/ground.jpg': model(2) } }));
+    const volcano = await upload(t, made({ id: 'X-VOLCANO', topic: '火山', folder: '火山', files: { 'models/volcano.glb': hero(3), 'textures/ground.jpg': model(2) } }));
     expect(volcano.status).toBe(409);
     expect(volcano.body.error).toContain('和「火箭发射探索课」那节课的一模一样（textures/ground.jpg）');
     // another lesson on the same topic may share its own pictures; a new version of the same lesson too
-    expect((await upload(t, made({ id: 'X-ROCKET-2', topic: '火箭发射', folder: '火箭发射2', files: { 'models/rocket.glb': model(1) } }))).status).toBe(201);
+    expect((await upload(t, made({ id: 'X-ROCKET-2', topic: '火箭发射', folder: '火箭发射2', files: { 'models/rocket.glb': hero(1) } }))).status).toBe(201);
     // a package without the list, or with a picture made for something else, is told so on its card (made by the App's own maker, it is refused)
-    const bee = await upload(t, made({ id: 'X-BEE', topic: '蜜蜂', folder: '蜜蜂', files: { 'models/bee.glb': model(4), 'img/arm.png': model(5) },
-      items: [{ file: 'web/dist/models/bee.glb', sha256: hash(model(4)), role: 'hero', depicts: '意大利蜜蜂工蜂', made_for: '蜜蜂', origin: 'modeled', how: '本次建模', license: '自制' },
+    const bee = await upload(t, made({ id: 'X-BEE', topic: '蜜蜂', folder: '蜜蜂', files: { 'models/bee.glb': hero(4), 'img/arm.png': model(5) },
+      items: [{ file: 'web/dist/models/bee.glb', sha256: hash(hero(4)), role: 'hero', depicts: '意大利蜜蜂工蜂', made_for: '蜜蜂', origin: 'scan', how: '标本扫描后修整', license: 'CC0', ...heroFields('organism', 10) },
         { file: 'web/dist/img/arm.png', sha256: hash(model(5)), role: 'picture', depicts: '机械臂摆齿轮', made_for: '机器人工厂', origin: 'rendered', how: '旧场景截图', license: '自制' }] }));
     expect(bee.status).toBe(201);
     expect(bee.body.warnings.join()).toContain('这些素材不是为「蜜蜂」做的');

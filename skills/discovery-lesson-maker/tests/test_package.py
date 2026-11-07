@@ -11,10 +11,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 from check_package import check
 from family_flow import all_lines, line_file
+sys.path.insert(0, str(ROOT / 'tests'))
+from glb_fixture import glb
 
 BRIDGE = (ROOT / 'assets/web/adw-host.mjs').read_text(encoding='utf-8')
 FAMILY = "const FORMAT='adw-family/1';"
 FLOW = json.loads((ROOT / 'examples/lesson-flow.example.json').read_text(encoding='utf-8'))
+BRIDGE_GLB = glb(10000, (1172.0, 208.0, 40.0))
 MANIFEST = {'format': 'adw-explore/1', 'id': 'X-BRIDGE', 'version': '1.0', 'title': '大桥', 'grade': 4,
             'entry': 'web/dist/index.html'}
 
@@ -26,7 +29,8 @@ class PackageTests(unittest.TestCase):
         self.write('exploration.json', json.dumps(MANIFEST, ensure_ascii=False))
         self.write('web/dist/index.html', '<!doctype html><title>大桥</title><script type="module" src="./assets/index.js"></script>')
         self.write('web/dist/assets/index.js', BRIDGE + FAMILY + "\nfetch('./models/bridge.glb');")
-        self.write('web/dist/models/bridge.glb', 'glTF')
+        (self.root / 'web/dist/models').mkdir(parents=True, exist_ok=True)
+        (self.root / 'web/dist/models/bridge.glb').write_bytes(BRIDGE_GLB)
         self.write('web/dist/lesson-flow.json', json.dumps(FLOW, ensure_ascii=False))
         for lang, text, _ in all_lines(FLOW):
             self.write('web/dist/' + line_file(lang, text), 'm4a')
@@ -36,8 +40,9 @@ class PackageTests(unittest.TestCase):
         # 主题和素材清单（references/topic-assets.md）：大桥这节课的主角是大桥
         self.write('exploration.json', json.dumps({**MANIFEST, 'topic': '大桥'}, ensure_ascii=False))
         self.write('research/assets.json', json.dumps({'topic': '大桥', 'items': [
-            {'file': 'web/dist/models/bridge.glb', 'sha256': hashlib.sha256(b'glTF').hexdigest(), 'role': 'hero', 'depicts': '斜拉大桥',
-             'made_for': '大桥', 'origin': 'modeled', 'how': 'Blender 按公开图纸建模', 'license': '自制'}]}, ensure_ascii=False))
+            {'file': 'web/dist/models/bridge.glb', 'sha256': hashlib.sha256(BRIDGE_GLB).hexdigest(), 'role': 'hero', 'depicts': '斜拉大桥',
+             'made_for': '大桥', 'origin': 'modeled', 'how': 'Blender 按公开图纸建模', 'license': '自制', 'class': 'structure',
+             'real_size_m': {'length': 1172}, 'reference_photos': [{'source': 'https://example.org/p1', 'angle': a} for a in ('远景', '塔顶', '桥面')]}]}, ensure_ascii=False))
 
     def tearDown(self):
         self.temp.cleanup()

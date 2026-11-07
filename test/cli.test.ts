@@ -46,10 +46,12 @@ describe('theme rotation', () => {
     const worm = run('gege', [io('IO-0003', 'gege', '螳螂虾', '近期最喜欢'), io('IO-0010', 'gege', '博比特虫', '家长指定')]);
     expect(worm.theme).toMatchObject({ name: '博比特虫', interest_refs: ['IO-0010'], subject: { name: '博比特虫', kind: 'organism' } });
     expect(worm.theme.subject!.asset_id).toBe(run('gege', [io('IO-0011', 'gege', '博比特虫', '家长指定')]).theme.subject!.asset_id); // one id per subject
-    // 妹妹's robot-arm lesson for multiplication gets the robot factory, not blocks
+    // 妹妹's robot-arm lesson: the code-built robot factory is off (parent: 像动画片, gaps G1), so the arm is its own subject,
+    // never put on blocks or in the old scene; the App makes it an 探索课 with a CAD or scanned arm (hero-production.md)
     const arm = run('meimei', [io('IO-0006', 'gege', '机器人', '喜欢'), io('IO-0012', 'meimei', '工厂里的机械臂', '家长指定')], [], 'ArrayMultiplier');
-    expect(arm.theme).toMatchObject({ id: 'robot_factory', skin: 'robot_factory', interest_refs: ['IO-0012'] });
-    expect(run('meimei', [io('IO-0013', 'meimei', '机器人工厂', '家长指定')], [], 'ArrayMultiplier').theme.skin).toBe('robot_factory');
+    expect(arm.theme).toMatchObject({ name: '工厂里的机械臂', interest_refs: ['IO-0012'] });
+    expect(arm.theme.skin).not.toBe('robot_factory');
+    expect(run('meimei', [io('IO-0013', 'meimei', '机器人工厂', '家长指定')], [], 'ArrayMultiplier').theme.skin).not.toBe('robot_factory');
     // a robot is not a robot arm (the parent: “机器人” is a whole humanoid robot): it is its own subject, for either component
     expect(run('meimei', [io('IO-0012', 'meimei', '机器人', '家长指定')], [], 'ArrayMultiplier').theme).toMatchObject({ name: '机器人', subject: { kind: 'object' } });
     expect(run('meimei', [io('IO-0012', 'meimei', '机器人', '家长指定')]).theme).toMatchObject({ name: '机器人', subject: { kind: 'object' } });

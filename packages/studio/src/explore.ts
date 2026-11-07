@@ -48,9 +48,10 @@ ${declined ? `- 家长没采用过的课和原因：${declined}。不要重犯�
 - 至少 3 个孩子用手指亲手改变三维场景的实验（拖、转、推、组装、放、描），切镜头、下拉框、滑条不算。
 - 一半以上的题是数学题（"math": true），至少一道数学题是动手题。lesson-flow.json 写 grade ${c.grade}；${c.grade <= 2 ? '二年级每步讲解最多 2 句' : '每步讲解最多 3 句'}。
 - wish.options 写 2–4 个从这节课延伸出去的下一课主题，课末给孩子点选。
-- 主角是真三维、环境像那个真实的地方；只用免费素材和本机工具，要花钱的写进 课程设计.md 等家长决定。
+- 主角按 ./skill/references/hero-production.md 为「${a.topic}」现做，做到能当真看：先定类别（class），收 ≥3 张不同角度的真实照片和真实尺寸，再按类别从扫描或博物馆、厂家 CAD、依据照片生成里找（动物和人不能手工或程序建模；任何主角都不能在代码里用几何体拼，不能拿别的课和 App 的模型改改当新的），修整成真实尺寸、真实贴图的 .glb，用 \`python3 ./skill/scripts/hero_check.py\` 自查。最后让一个没参与制作的看图模型盲看 3 个角度（照片和画面打乱成 A/B），原话记进 visual_gate.blind_review；说像动画片或玩具就返工再看。做不出合格主角就不交课，把缺什么写进 课程设计.md。
+- 环境像那个真实的地方；只用免费素材和本机工具，要花钱的（比如收费的图生 3D）写进 课程设计.md 等家长决定。
 - 画面按 references/photoreal-pipeline.md：先查真实尺寸（单位米，带来源）再建模，画面里放孩子熟悉的尺度参照；“看”的步骤写 media: render，给同一模型的光线追踪图（scripts/render_stills.py）；有实验或动手题的步骤写 media: realtime，用实时三维。
-- 写题目之前先做画面对照图 evidence/visual-gate.jpg（同机位的真实照片、实时网页截图、有“看”的步骤时再加预渲染图），按假感毛病表挑毛病、返工，写进 lesson-flow.json 的 visual_gate（views、dimensions、self_review），并放在 验收结果.md 第一段。家长要先看这张图才能发布；没有它，App 不收这节课。
+- 写题目之前先做画面对照图 evidence/visual-gate.jpg（同机位的真实照片、实时网页截图、有“看”的步骤时再加预渲染图），按假感毛病表挑毛病、返工，写进 lesson-flow.json 的 visual_gate（views、dimensions、self_review、blind_review），并放在 验收结果.md 第一段。家长要先看这张图才能发布；没有它，App 不收这节课。
 
 ## 交付
 - 在当前目录做出课程包文件夹 package/，里面要有：

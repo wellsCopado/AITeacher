@@ -15,7 +15,7 @@ export function png(w: number, h: number, rgb: [number, number, number]) {
   return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(rows)), chunk('IEND', Buffer.alloc(0))]);
 }
 
-export function boxGlb(size: [number, number, number], o: { textures?: boolean; texSize?: number } = {}) {
+export function boxGlb(size: [number, number, number], o: { textures?: boolean; texSize?: number; triangles?: number; tint?: number } = {}) {
   const [hx, hy, hz] = size.map(s => s / 2);
   const faces: [number[], number[], number[]][] = [ // normal, u axis, v axis
     [[1, 0, 0], [0, 0, -1], [0, 1, 0]], [[-1, 0, 0], [0, 0, 1], [0, 1, 0]], [[0, 1, 0], [1, 0, 0], [0, 0, -1]],
@@ -29,13 +29,15 @@ export function boxGlb(size: [number, number, number], o: { textures?: boolean; 
     }
     idx.push(f * 4, f * 4 + 1, f * 4 + 2, f * 4, f * 4 + 2, f * 4 + 3);
   });
+  // more triangles over the same corners: the hero gate counts triangles, it doesn't look at shapes
+  while (o.triangles && idx.length < o.triangles * 3) idx.push(...idx.slice(0, Math.min(idx.length, o.triangles * 3 - idx.length)));
   const parts: Buffer[] = [], views: { buffer: 0; byteOffset: number; byteLength: number; target?: number }[] = [];
   let off = 0;
   const add = (b: Buffer, target?: number) => { const pad = (4 - (b.length % 4)) % 4; views.push({ buffer: 0, byteOffset: off, byteLength: b.length, ...(target ? { target } : {}) }); parts.push(b, Buffer.alloc(pad)); off += b.length + pad; return views.length - 1; };
   const f32 = (a: number[]) => Buffer.from(new Float32Array(a).buffer), u16 = (a: number[]) => Buffer.from(new Uint16Array(a).buffer);
   const vP = add(f32(pos), 34962), vN = add(f32(nor), 34962), vT = add(f32(uv), 34962), vI = add(u16(idx), 34963);
   const t = o.texSize ?? 8;
-  const imgs = o.textures ? [png(t, t, [120, 110, 95]), png(t, t, [128, 128, 255]), png(t, t, [255, 180, 0])].map(b => add(b)) : [];
+  const imgs = o.textures ? [png(t, t, [120, 110, (o.tint ?? 95) & 255]), png(t, t, [128, 128, 255]), png(t, t, [255, 180, 0])].map(b => add(b)) : [];
   const json = {
     asset: { version: '2.0', generator: 'adw test fixture' }, scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0 }],
     meshes: [{ primitives: [{ attributes: { POSITION: 0, NORMAL: 1, TEXCOORD_0: 2 }, indices: 3, material: 0 }] }],
@@ -43,7 +45,7 @@ export function boxGlb(size: [number, number, number], o: { textures?: boolean; 
       { bufferView: vP, componentType: 5126, count: 24, type: 'VEC3', min: [-hx, -hy, -hz], max: [hx, hy, hz] },
       { bufferView: vN, componentType: 5126, count: 24, type: 'VEC3' },
       { bufferView: vT, componentType: 5126, count: 24, type: 'VEC2' },
-      { bufferView: vI, componentType: 5123, count: 36, type: 'SCALAR' },
+      { bufferView: vI, componentType: 5123, count: idx.length, type: 'SCALAR' },
     ],
     materials: [o.textures
       ? { name: 'steel', pbrMetallicRoughness: { baseColorTexture: { index: 0 }, metallicRoughnessTexture: { index: 2 } }, normalTexture: { index: 1 }, occlusionTexture: { index: 2 } }
@@ -56,3 +58,14 @@ export function boxGlb(size: [number, number, number], o: { textures?: boolean; 
   const ch = (len: number, type: number) => { const b = Buffer.alloc(8); b.writeUInt32LE(len, 0); b.writeUInt32LE(type, 4); return b; };
   return Buffer.concat([head, ch(js.length + jpad.length, 0x4e4f534a), js, jpad, ch(bin.length, 0x004e4942), bin]);
 }
+
+/**
+ * A hero that passes the 探索课 hero gate's file checks (enough triangles, 1024 px textures, normal map, real size):
+ * only for testing the App's rules, it proves nothing about looks. tint makes each one's bytes different.
+ */
+export const heroGlb = (size: [number, number, number], tint = 0) => boxGlb(size, { textures: true, texSize: 1024, triangles: 20000, tint });
+/** The fields a hero's line in research/assets.json needs besides file, sha256 and role (hero-production.md). */
+export const heroFields = (cls: string, meters: number) => ({
+  class: cls, real_size_m: meters, source_url: 'https://example.org/source', generator: 'Hunyuan3D-2.1',
+  reference_photos: ['正面', '侧面', '俯视'].map(angle => ({ source: `https://example.org/${angle}.jpg`, angle })),
+});

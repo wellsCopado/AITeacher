@@ -51,5 +51,12 @@
                { "name": "deck", "media": "realtime", "file": "evidence/realtime-deck.png" } ],
     "dimensions": [ { "what": "主跨", "meters": 602, "source": "https://example.org/bridge-facts" },
                     { "what": "主塔高", "meters": 208, "source": "https://example.org/bridge-facts" } ],
-    "self_review": "主塔和拉索的比例和照片一致；桥面沥青偏新，已加脏污贴图；远处楼群是简化体块，已压暗并加雾。" }
+    "self_review": "主塔和拉索的比例和照片一致；桥面沥青偏新，已加脏污贴图；远处楼群是简化体块，已压暗并加雾。",
+    "blind_review": [
+      { "view": "overview", "subject": "hero", "media": "render", "photo": "research/ref-bridge-overview.jpg", "ours": "evidence/render-overview.png",
+        "reviewer": "另一个看图模型（没参与制作）", "same_thing": true, "verdict": "photo", "flaws": [] },
+      { "view": "tower-close", "subject": "hero", "media": "render", "photo": "research/ref-bridge-tower.jpg", "ours": "evidence/render-tower.png",
+        "reviewer": "另一个看图模型（没参与制作）", "same_thing": true, "verdict": "photo", "flaws": [] },
+      { "view": "deck", "subject": "scene", "media": "realtime", "photo": "research/ref-bridge-deck.jpg", "ours": "evidence/realtime-deck.png",
+        "reviewer": "另一个看图模型（没参与制作）", "same_thing": true, "verdict": "cg", "flaws": ["桥面沥青偏新", "远处楼群偏灰"] } ] }
 }

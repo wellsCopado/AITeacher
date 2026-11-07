@@ -3,6 +3,7 @@
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
+import { deflateSync } from 'node:zlib';
 
 const args = process.argv.slice(2);
 const env = process.env;
@@ -48,18 +49,25 @@ process.stdin.on('end', () => {
     // the topic it was asked for, its hero made for it and on the asset list (references/topic-assets.md);
     // a file assets-copied in its home leaves in a picture taken from elsewhere, unlisted; assets-reused names a file it copies in
     const topic = /主题：「(.+?)」/.exec(prompt)?.[1] ?? '', hero = topic === '蜜蜂' ? 'hive' : 'hero';
-    const model = Buffer.concat([Buffer.from('glTF'), Buffer.alloc(2048, createHash('md5').update(topic).digest())]); // one topic, one model
+    // one topic, one model: a hero that passes the file checks (20 000 triangles, 1024 px textures, real size 10 m);
+    // a file cartoon-hero in its home hands in what the parent turned down: a few flat-coloured blocks
+    const cartoon = existsSync(join(home, 'cartoon-hero'));
+    const model = heroGlb(createHash('md5').update(topic).digest()[0], cartoon);
     put('exploration.json', JSON.stringify({ format: 'adw-explore/1', id, version: '1.0', for_child: kid, grade: 4, topic, title: topic === '蜜蜂' ? '蜜蜂的六边形巢房' : `${topic}探索课`, concept: '角的度量', subjects: ['数学', '科学'], minutes: 25, summary: '转动三维蜂巢，量六边形的角。', entry: 'web/dist/index.html' }));
     put('web/dist/index.html', `<!doctype html><title>${topic}</title><script type="module" src="./assets/index.js"></script>`);
     // the family's lesson rules and the visual gate (references/family-profile.md); a file no-family in its home leaves them out
     const family = !existsSync(join(home, 'no-family'));
     put('web/dist/assets/index.js', `const BRIDGE = 'adw-explore/1'; ${family ? "const FAMILY = 'adw-family/1'; " : ''}fetch('./models/${hero}.glb');`);
     if (family) {
-      put('web/dist/lesson-flow.json', JSON.stringify({ format: 'adw-family/1', visual_gate: { sheet: 'evidence/visual-gate.jpg' } }));
+      // the blind look (references/hero-production.md): photo and picture shuffled, judged by a model that didn't make it
+      const blind = existsSync(join(home, 'no-blind')) ? [] : ['正面', '侧面', '近景'].map(view => ({ view, subject: 'hero', media: 'render', photo: `research/ref-${view}.jpg`, ours: `evidence/${view}.png`, reviewer: '另一个看图模型', same_thing: true, verdict: 'photo', flaws: [] }));
+      put('web/dist/lesson-flow.json', JSON.stringify({ format: 'adw-family/1', visual_gate: { sheet: 'evidence/visual-gate.jpg', blind_review: blind } }));
       put('evidence/visual-gate.jpg', Buffer.from([0xff, 0xd8, 0xff, 0xe0]));
     }
     put(`web/dist/models/${hero}.glb`, model);
-    const items = [{ file: `web/dist/models/${hero}.glb`, sha256: createHash('sha256').update(model).digest('hex'), role: 'hero', depicts: `${topic}（三维模型）`, made_for: topic, origin: 'modeled', how: 'Blender 本次建模', license: '自制' }];
+    const items = [{ file: `web/dist/models/${hero}.glb`, sha256: createHash('sha256').update(model).digest('hex'), role: 'hero', depicts: `${topic}（三维模型）`, made_for: topic,
+      origin: cartoon ? 'modeled' : 'scan', how: cartoon ? 'Blender 照着照片拼' : '实物扫描后修整', license: 'CC0', source_url: 'https://example.org/scan', class: cartoon ? 'organism' : 'object', real_size_m: 10,
+      reference_photos: ['正面', '侧面', '俯视'].map(angle => ({ source: `https://example.org/${angle}.jpg`, angle })) }];
     if (existsSync(join(home, 'assets-copied'))) put('web/dist/img/robot-arm.png', Buffer.alloc(4096, 7));
     if (existsSync(join(home, 'assets-reused'))) {
       const old = readFileSync(readFileSync(join(home, 'assets-reused'), 'utf8').trim());
@@ -90,3 +98,30 @@ process.stdin.on('end', () => {
   writeFileSync(out, text);
   process.exit(0);
 });
+
+/** A test hero .glb: a 10 m box drawn 20 000 times over with 1024 px colour and normal maps (or, cartoon, 12 flat triangles). */
+function heroGlb(tint, cartoon) {
+  const crcT = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+  const crc = b => { let c = 0xffffffff; for (const x of b) c = crcT[(c ^ x) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+  const chunk = (t, d) => { const l = Buffer.alloc(4); l.writeUInt32BE(d.length); const td = Buffer.concat([Buffer.from(t), d]), c = Buffer.alloc(4); c.writeUInt32BE(crc(td)); return Buffer.concat([l, td, c]); };
+  const png = (w, rgb) => { const h = Buffer.alloc(13); h.writeUInt32BE(w, 0); h.writeUInt32BE(w, 4); h[8] = 8; h[9] = 2;
+    const row = Buffer.from([0, ...Array.from({ length: w }, () => rgb).flat()]);
+    return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', h), chunk('IDAT', deflateSync(Buffer.concat(Array(w).fill(row)))), chunk('IEND', Buffer.alloc(0))]); };
+  const pos = [0, 0, 0, 10, 0, 0, 10, 10, 0, 0, 10, 10], uv = [0, 0, 1, 0, 1, 1, 0, 1];
+  const tris = cartoon ? 12 : 20000, idx = Array.from({ length: tris * 3 }, (_, i) => [0, 1, 2, 0, 2, 3][i % 6]);
+  const parts = [], views = []; let off = 0;
+  const add = b => { const pad = (4 - b.length % 4) % 4; views.push({ buffer: 0, byteOffset: off, byteLength: b.length }); parts.push(b, Buffer.alloc(pad)); off += b.length + pad; return views.length - 1; };
+  const vP = add(Buffer.from(new Float32Array(pos).buffer)), vT = add(Buffer.from(new Float32Array(uv).buffer)), vI = add(Buffer.from(new Uint16Array(idx).buffer));
+  const imgs = cartoon ? [] : [add(png(1024, [120, 110, tint])), add(png(1024, [128, 128, 255]))];
+  const json = { asset: { version: '2.0' }, scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0 }],
+    meshes: [{ primitives: [{ attributes: cartoon ? { POSITION: 0 } : { POSITION: 0, TEXCOORD_0: 1 }, indices: 2, material: 0 }] }],
+    accessors: [{ bufferView: vP, componentType: 5126, count: 4, type: 'VEC3', min: [0, 0, 0], max: [10, 10, 10] },
+      { bufferView: vT, componentType: 5126, count: 4, type: 'VEC2' }, { bufferView: vI, componentType: 5123, count: idx.length, type: 'SCALAR' }],
+    materials: [cartoon ? { pbrMetallicRoughness: { baseColorFactor: [1, 0.8, 0, 1] } } : { pbrMetallicRoughness: { baseColorTexture: { index: 0 } }, normalTexture: { index: 1 } }],
+    ...(cartoon ? {} : { textures: [{ source: 0 }, { source: 1 }], images: imgs.map(bufferView => ({ bufferView, mimeType: 'image/png' })) }),
+    bufferViews: views, buffers: [{ byteLength: off }] };
+  const js = Buffer.from(JSON.stringify(json)), jpad = Buffer.alloc((4 - js.length % 4) % 4, 0x20), bin = Buffer.concat(parts);
+  const head = Buffer.alloc(12); head.write('glTF', 0); head.writeUInt32LE(2, 4); head.writeUInt32LE(28 + js.length + jpad.length + bin.length, 8);
+  const ch = (len, type) => { const b = Buffer.alloc(8); b.writeUInt32LE(len, 0); b.writeUInt32LE(type, 4); return b; };
+  return Buffer.concat([head, ch(js.length + jpad.length, 0x4e4f534a), js, jpad, ch(bin.length, 0x004e4942), bin]);
+}

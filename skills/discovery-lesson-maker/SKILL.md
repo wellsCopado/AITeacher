@@ -2,7 +2,7 @@
 name: discovery-lesson-maker
 description: 用户给一个命题，自动研究、收集组装素材、制作可操作的写实三维和动画，并从儿童兴趣切入设计融合语文、英文、数学、科学与自信情绪支持的探索课。包含自然语音与现有App接入；用于制课或改进粗糙课程，非静态图册或固定话术模板。
 metadata:
-  version: '2.8.0'
+  version: '2.9.0'
 ---
 
 # 写实三维探索课制作
@@ -17,6 +17,7 @@ metadata:
 - 数学优先：主问题和一半以上的题用本年级的数学回答，至少一道数学题在三维场景里亲手做。
 - 孩子看到、听到的每句话写进 `lesson-flow.json` 并录音；写给孩子的话短、不带审稿腔，二年级每步讲解最多 2 句、四年级最多 3 句。
 - 至少 3 个孩子亲手改变三维场景的实验；课末给 2–4 个下一课主题让孩子点选。
+- 主角三维按 [主角三维](references/hero-production.md) 为这个主题现做：先定类别、收 ≥3 张不同角度的真实照片，再从扫描、厂家 CAD、依据照片生成里找（动物和人不能手工或程序建模，任何主角都不能在代码里用几何体拼），按真实尺寸、真实贴图修整，最后让没参与制作的审看人盲看。做不出合格主角就不交课。
 - 做整课之前先过画面对照图；家长要先看对照图才能发布。
 - `scripts/check_package.py` 按家庭档案检查，有 errors 不算做完；App 自己做的课没按家庭档案做，导入时直接拒收。
 
@@ -38,7 +39,7 @@ metadata:
 ## 工作方式：先把核心体验做对，再扩成一课
 
 1. **主题、宿主与证据。** 用一句话固定“看什么、要理解什么”。接入已有App时读取实际内容样例、Schema、组件能力和原生校验入口。用户授权独立本地Web预览时直接制作可操作课程，并单独标记原App兼容性待验证；不因没有部署地址把任务降成教案。查原始研究、博物馆/机构资料、制造商资料及真实运动参考。见 [研究和素材](references/evidence-assets.md) 与 [接入契约](references/host-integration.md)。
-2. **制作合格主角与动作。** 按实际用途选择扫描/专业资产、CAD、参考生成或建模路线，先建立真实对象的比例、关节/承力路径、外壳与连接边界，再完成曲面修整、材质、部件/骨骼和接触运动，最后看全角度。代码自编只说明来源，不说明具备实物结构和写实质量。见 [资产制作流程](references/asset-production.md) 与 [画面与动画](references/visual-animation.md)。
+2. **制作合格主角与动作。** 按 [主角三维](references/hero-production.md) 的七步：定类别 → 收真实照片和尺寸 → 按类别选来源（扫描/专业资产、CAD、依据照片生成，机器和建筑才可以按图纸建模）→ 修整 → 登记 → 盲看 → 做不出就不交。先建立真实对象的比例、关节/承力路径、外壳与连接边界，再完成曲面修整、材质、部件/骨骼和接触运动，最后看全角度。代码自编只说明来源，不说明具备实物结构和写实质量。见 [资产制作流程](references/asset-production.md) 与 [画面与动画](references/visual-animation.md)。
    在扩课前先完成一个实际运行的视觉样段：同真实参考对照整体轮廓、关键部位近景和有尺度参照的观察位置。先核对主角身份，再核对画面是否达到本轮要求的真实感；不合格时只返工这段资产/材质/环境/相机，暂停扩课和配音。模型能加载、节点齐全不能越过这一步。制作方法与返工分诊见 [写实画面](references/visual-animation.md#写实样段先于整课)。
 3. **导演一次值得探索的经历。** 找孩子可能提出的问题和一个能亲眼发现的关键转折，让操作产生证据，再形成解释。把语言、英文、数学与科学自然编织进去；用真实进步和可选择的帮助支持信心。见 [精巧课程设计](references/experience-design.md) 和 [教学与挑战](references/teaching-challenges.md)。
 4. **制作课程。** 按学习目标组织观察、预测、操作、解释和迁移，输出宿主实际支持的格式。沿用已确认的语言、流程和学情配置：AI 探索世界这个家庭按[家庭档案](references/family-profile.md)（一中三英、每步计时、到时自动下一步、数学优先）；只有没配置过的别的用户才默认中文、可暂停回看、无强制倒计时和英语门槛。见 [教学与挑战](references/teaching-challenges.md)。
@@ -72,7 +73,8 @@ metadata:
 - [家庭档案](references/family-profile.md)、`assets/web/adw-family.mjs`（上课流程，复制进源码原样用）、`examples/lesson-flow.example.json`（`lesson-flow.json` 的完整示例）、`scripts/make_family_audio.py <web/public> --engine azure`（给每句话配播音级云端语音；没有密钥才用 Mac 声音）：给 AI 探索世界这个家庭做课时都要用。
 - [写实画面的通用做法](references/photoreal-pipeline.md)：任何主题都适用。“看”用光线追踪预渲染、“动手”用实时三维；按真实尺寸建模和放尺度参照；扫描素材从哪拿（含网络受限时的办法）；假感毛病表。配套 `scripts/pbr_from_color.py`（只有颜色图时补法线和粗糙度、出无缝水面法线）、`scripts/render_stills.py`（按共用机位表 `views.json` 用 Blender Cycles 出图）、`scripts/shoot_views.mjs`（同一机位表截实时网页）。
 - `assets/web/adw-host.mjs`：AI 探索世界 App 的进度接口（adw-explore/1）。课要放进这个App时复制进源码原样使用：页面载入、任务进度、暂停都告诉App，每个孩子一份本机记录。用法和课程包格式见 [AI 探索世界 App 参考](references/app-reference.md)。
-- `scripts/check_package.py <课程包目录或.zip>`：交给 AI 探索世界 App 之前的预检，规则和App导入时相同（结构、`exploration.json` 和它的 `topic`、构建、相对路径、外网依赖、进度接口、大小、密钥文件；素材清单由 `scripts/topic_assets.py` 查，见 [主题与素材](references/topic-assets.md)）。只做静态检查，不运行网页；过了仍要在App里预览。
+- `scripts/hero_check.py <模型.glb> --class <类别> --size <米>`：做主角时随手查真实尺寸、面数和贴图（H4–H6）；类别、来源、照片和盲看（H1–H3、H7）由 `check_package.py` 一起查。规则见 [主角三维](references/hero-production.md)。
+- `scripts/check_package.py <课程包目录或.zip>`：交给 AI 探索世界 App 之前的预检，规则和App导入时相同（结构、`exploration.json` 和它的 `topic`、构建、相对路径、外网依赖、进度接口、大小、密钥文件；素材清单由 `scripts/topic_assets.py` 查，见 [主题与素材](references/topic-assets.md)；主角由 `scripts/hero_check.py` 查，见 [主角三维](references/hero-production.md)）。只做静态检查，不运行网页；过了仍要在App里预览。
 - `assets/web/physical-viewer.mjs`：可选的渐进光照观察适配器；交互/动作保留快速预览，报告真实渲染状态与回退原因。仅在几何、材质与参考已核对、目标设备支持时选用。依赖、调用和限制见[网页物理光照](references/web-lighting.md)，不强制所有主题使用光追。
 - [实际试课、退回与回修](references/field-trials.md)：以前退回过的课和它们的原因，回修同类问题时查；不是任何主题的质量保证，平时做课不用读。
 - `scripts/render_asset_diagnostics.py`：通过Blender输出同机位材质/素模视图和指定部件近景，用来发现玩具比例、连接缺口和表面掩饰。它不会给写实打分，也不能代替最终Web。用法见[真实对象重建](references/real-object-reconstruction.md#可运行的制作辅助工具)。

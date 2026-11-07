@@ -13,7 +13,7 @@
 | reef 珊瑚礁样方调查 | PerimeterArea | 螳螂虾、珊瑚礁、珊瑚、海底 | 已有 |
 | garden 花园围栏与铺砖 | PerimeterArea | 花园、院子、栅栏、围栏、地砖 | 已有（也是中性题材） |
 | blocks 积木方块 | ArrayMultiplier | 积木 | 已有（中性题材） |
-| robot_factory 机器人工厂 | ArrayMultiplier | 机器人工厂、机械臂、齿轮、工厂 | 已有，写实版制作中，替换前不发布 |
+| robot_factory 机器人工厂 | ArrayMultiplier | 机器人工厂、机械臂、齿轮、工厂 | 已下线（2026-11-07，代码拼的机械臂像动画片）：这些主题做探索课，主角按 `discovery-lesson-maker/references/hero-production.md` 用厂家 CAD |
 
 主题能不能用某个场景，系统这样判断（`scenesShowing`）：
 
@@ -23,7 +23,7 @@
 | 主题 | 用哪个场景 |
 | --- | --- |
 | 螳螂虾、孔雀螳螂虾、螳螂虾和海底 | reef |
-| 工厂里的机械臂、机器人工厂 | robot_factory |
+| 工厂里的机械臂、机器人工厂 | 无（robot_factory 已下线）→ 探索课 |
 | 积木 | blocks |
 | 火箭发射、蜜蜂、火山、蟋蟀、博比特虫、金鱼、大桥 | 没有：做成探索课 |
 | 花园里的蜜蜂 | 没有：花园画着，蜜蜂没画，做成探索课 |

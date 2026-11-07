@@ -32,6 +32,8 @@
 4. 至少 3 张不同角度的真实照片做摄影测量或图生 3D，再修整。收费工具写进“需要家长决定”。
 5. 照着有尺寸的参考在 Blender 里手工建模（建筑、桥、机械可以；动物、人不走这条）。
 
+主角走哪条、要交什么证据、怎么盲看，按 [主角三维](hero-production.md)；检查器会按主角的类别拒收不合格的路线。
+
 网络受限时（云端环境常见，Poly Haven、ambientCG 官网可能打不开）：
 
 - Blender：`pip install bpy` 装 Blender 的 Python 版本（5.x），能无界面建模和用 Cycles 出图。`import bpy` 要在 `import bmesh` 前面。
