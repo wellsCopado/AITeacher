@@ -2,6 +2,11 @@ node_modules/
 dist/
 *.log
 preview.html
+!apps/pad/public/preview.html
 e2e-shots/
 apps/*/dist/
 data/
+content/homework/
+content/reteach.json
+build/
+__pycache__/

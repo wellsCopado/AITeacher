@@ -1,1 +1,1 @@
-{ "name": "AI 探索世界", "short_name": "探索世界", "start_url": "/pad/", "scope": "/pad/", "display": "standalone", "background_color": "#0e1a20", "theme_color": "#0e1a20", "lang": "zh-CN" }
+{"name": "AI 探索世界", "short_name": "探索世界", "start_url": "/pad/", "scope": "/pad/", "display": "fullscreen", "background_color": "#0e1a20", "theme_color": "#0e1a20", "lang": "zh-CN", "orientation": "landscape", "icons": [{"src": "icon-180.png", "sizes": "180x180", "type": "image/png"}, {"src": "icon-512.png", "sizes": "512x512", "type": "image/png"}]}

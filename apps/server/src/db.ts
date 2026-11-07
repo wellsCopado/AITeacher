@@ -1,14 +1,18 @@
 // SQLite storage for the family server. Every row carries tenant_id so a commercial build can isolate tenants.
 import { DatabaseSync } from 'node:sqlite';
-import type { InterestObservation, LessonSpec } from '../../../packages/schema/src/index.js';
+import type {
+  CheckedItem, FeedbackItem, HomeworkUpload, InterestObservation, LearningJudgment, LessonSpec, ParentCard, ReteachTicket,
+} from '../../../packages/schema/src/index.js';
 
 const SCHEMA = `
 create table if not exists children (id text primary key, tenant_id text not null, name text not null, grade integer not null);
 create table if not exists lessons (
   lesson_id text not null, version text not null, tenant_id text not null, for_child text not null, title text not null,
-  content_hash text not null, published_at text not null, spec text not null, primary key (lesson_id, version));
+  content_hash text not null, published_at text not null, spec text not null, kind text not null default 'spec', primary key (lesson_id, version));
 create table if not exists schedule (tenant_id text not null, date text not null, child text not null, lesson_key text not null,
   primary key (tenant_id, date, child, lesson_key));
+create table if not exists schedule_days (tenant_id text not null, date text not null, child text not null, mode text not null,
+  primary key (tenant_id, date, child));
 create table if not exists grants (id integer primary key autoincrement, tenant_id text not null, child text not null,
   lesson_key text not null, expires_on text not null, granted_by text not null, created_at text not null);
 create table if not exists sessions (key text primary key, tenant_id text not null, child text not null, lesson_key text not null,
@@ -20,11 +24,56 @@ create table if not exists interests (id text primary key, tenant_id text not nu
 create table if not exists tokens (hash text primary key, tenant_id text not null, role text not null, label text not null, created_at text not null);
 create table if not exists pairing (code text primary key, tenant_id text not null, created_at text not null, label text, token text);
 create index if not exists events_session on events(session_key);
+create table if not exists homework (id text primary key, tenant_id text not null, child text not null, date text not null, note text,
+  photos text not null, status text not null, ai_consent integer not null default 0, recognized_by text, created_at text not null);
+create table if not exists hw_items (homework_id text not null, no text not null, pos integer not null, data text not null, primary key (homework_id, no));
+create table if not exists judgments (id text primary key, tenant_id text not null, child text not null, homework_ref text not null, data text not null,
+  status text not null, created_at text not null, confirmed_at text, card text, card_used integer not null default 0);
+create table if not exists tickets (id text primary key, tenant_id text not null, child text not null, concept_id text not null, judgment_ref text not null,
+  attempt integer not null, status text not null, lesson_ref text, mechanism text, created_at text not null, updated_at text not null);
+create table if not exists drafts (key text not null, tenant_id text not null, for_child text not null, title text not null, spec text not null,
+  status text not null, note text, submitted_by text not null, submitted_at text not null, primary key (tenant_id, key));
+create table if not exists feedback (id text primary key, tenant_id text not null, child text not null, source text not null, said text not null,
+  context text, kind text not null, ref text, created_at text not null);
+create table if not exists media (id text primary key, tenant_id text not null, asset_id text not null, kind text not null, origin text not null default '实拍', mime text not null,
+  file text not null, key text not null, credit text not null, license text not null, source_url text, caption text, length_cm real,
+  added_by text not null, created_at text not null, confirmed integer not null default 1, refs text);
+create table if not exists settings (tenant_id text not null, k text not null, v text not null, primary key (tenant_id, k));
+create table if not exists explore_drafts (key text not null, tenant_id text not null, for_child text not null, title text not null, meta text not null,
+  status text not null, note text, imported_by text not null, imported_at text not null, primary key (tenant_id, key));
+create table if not exists preps (id text primary key, tenant_id text not null, child text not null, interest_id text not null, said text,
+  topic text not null, status text not null, wished_on text not null, lesson_from text, lesson_ref text, subject text, log text not null default '[]',
+  created_at text not null, updated_at text not null);
 `;
 
-export type Role = 'parent' | 'device';
+/** parent: the PIN holder; device: a paired Pad; agent: an AI assistant the parent let in (it can only hand lessons in for review). */
+export type Role = 'parent' | 'device' | 'agent';
 export interface SessionRow { key: string; child: string; lesson_key: string; started_on: string; updated_at: string; finished: number }
+export interface JudgmentRow { id: string; child: string; homework_ref: string; status: '草稿' | '已确认'; created_at: string; confirmed_at: string | null; judgment: LearningJudgment; card: ParentCard | null; card_used: number }
+export interface MediaRow {
+  id: string; asset_id: string; kind: 'photo' | 'video' | 'model' | 'cutout'; origin: string; mime: string; file: string; key: string; credit: string; license: string;
+  source_url: string | null; caption: string | null; length_cm: number | null; added_by: string; created_at: string;
+  /** 0 until the parent confirms it (pictures from AI assistants); children only see confirmed media. */
+  confirmed: number;
+  /** JSON list of the real photos an AI picture was made from. */
+  refs: string | null;
+}
+/**
+ * 下一课准备单: what a child said they want next, turned into the next lesson's topic and prepared ahead.
+ * 等你确认主题: the words name no topic we know, so the parent says it (until then nothing leaves the house);
+ * 准备中: queued, oldest first; 已安排: a lesson was written for it; 已跳过: the parent set it aside.
+ */
+export interface PrepRow {
+  id: string; child: string; interest_id: string; said: string | null; topic: string; status: '等你确认主题' | '准备中' | '已安排' | '已跳过';
+  wished_on: string; lesson_from: string | null; lesson_ref: string | null;
+  /** What has to be made when no ready scene shows the topic (the animal, the robot), else null. */
+  subject: { name: string; asset_id: string; kind: 'organism' | 'object' } | null;
+  log: { at: string; msg: string }[]; created_at: string; updated_at: string;
+}
 export interface EventIn { id: string; at: string; type: string; [k: string]: unknown }
+/** What the schedule, the Pad and the records need to know about any lesson, whichever kind it is. */
+export interface Entry { key: string; kind: 'spec' | 'explore'; for_child: string; title: string; concept: string }
+export type ExploreStatus = '待审核' | '已退回' | '不采用';
 
 export class Store {
   readonly db: DatabaseSync;
@@ -32,6 +81,14 @@ export class Store {
     this.db = new DatabaseSync(path);
     this.db.exec('pragma journal_mode = wal; pragma foreign_keys = on;');
     this.db.exec(SCHEMA);
+    // media.origin came after the first media release
+    const cols = this.all<{ name: string }>('pragma table_info(media)').map(c => c.name);
+    if (!cols.includes('origin')) this.db.exec("alter table media add column origin text not null default '实拍'");
+    // pictures an AI assistant sends wait for the parent's confirmation; earlier ones were all added by the parent
+    if (!cols.includes('confirmed')) this.db.exec('alter table media add column confirmed integer not null default 1');
+    if (!cols.includes('refs')) this.db.exec('alter table media add column refs text');
+    // 探索课 (whole web lessons imported as packages) share the lessons table with LessonSpec lessons
+    if (!this.all<{ name: string }>('pragma table_info(lessons)').some(c => c.name === 'kind')) this.db.exec("alter table lessons add column kind text not null default 'spec'");
   }
   private all<T>(sql: string, ...p: (string | number | null)[]): T[] { return this.db.prepare(sql).all(...p) as T[]; }
   private get<T>(sql: string, ...p: (string | number | null)[]): T | undefined { return this.db.prepare(sql).get(...p) as T | undefined; }
@@ -53,24 +110,51 @@ export class Store {
     this.run('insert into lessons (lesson_id, version, tenant_id, for_child, title, content_hash, published_at, spec) values (?,?,?,?,?,?,?,?)',
       sp.lesson_id, sp.version, this.tenant, sp.for_child, sp.title, sp.content_hash!, sp.published_at!, JSON.stringify(sp));
   }
+  /** A LessonSpec lesson (an 探索课 is not one: see exploration()). */
   lesson(key: string): LessonSpec | undefined {
     const [id, ver] = key.split('@');
-    const r = this.get<{ spec: string }>('select spec from lessons where tenant_id=? and lesson_id=? and version=?', this.tenant, id, ver ?? '');
+    const r = this.get<{ spec: string }>("select spec from lessons where tenant_id=? and lesson_id=? and version=? and kind='spec'", this.tenant, id, ver ?? '');
     return r ? JSON.parse(r.spec) : undefined;
   }
   lessons() {
-    return this.all<{ lesson_id: string; version: string; for_child: string; title: string; content_hash: string; published_at: string }>(
-      'select lesson_id, version, for_child, title, content_hash, published_at from lessons where tenant_id=? order by published_at desc', this.tenant)
+    return this.all<{ lesson_id: string; version: string; for_child: string; title: string; content_hash: string; published_at: string; kind: 'spec' | 'explore' }>(
+      'select lesson_id, version, for_child, title, content_hash, published_at, kind from lessons where tenant_id=? order by published_at desc', this.tenant)
       .map(r => ({ key: `${r.lesson_id}@${r.version}`, ...r }));
   }
+  addExploration<T extends { lesson_id: string; version: string; for_child: string; title: string; sha256: string; published_at: string }>(x: T) {
+    this.run("insert into lessons (lesson_id, version, tenant_id, for_child, title, content_hash, published_at, spec, kind) values (?,?,?,?,?,?,?,?,'explore')",
+      x.lesson_id, x.version, this.tenant, x.for_child, x.title, x.sha256, x.published_at, JSON.stringify(x));
+  }
+  exploration<T>(key: string): T | undefined {
+    const [id, ver] = key.split('@');
+    const r = this.get<{ spec: string }>("select spec from lessons where tenant_id=? and lesson_id=? and version=? and kind='explore'", this.tenant, id, ver ?? '');
+    return r ? JSON.parse(r.spec) : undefined;
+  }
+  /** Any published lesson, LessonSpec or 探索课. */
+  entry(key: string): Entry | undefined {
+    const [id, ver] = key.split('@');
+    const r = this.get<{ spec: string; kind: 'spec' | 'explore'; for_child: string; title: string }>('select spec, kind, for_child, title from lessons where tenant_id=? and lesson_id=? and version=?', this.tenant, id, ver ?? '');
+    if (!r) return undefined;
+    const sp = JSON.parse(r.spec) as { primary_concept?: { name: string }; concept?: string };
+    return { key, kind: r.kind, for_child: r.for_child, title: r.title, concept: (r.kind === 'spec' ? sp.primary_concept?.name : sp.concept) ?? '' };
+  }
 
-  // schedule and grants (FR55, BL13)
-  setSchedule(date: string, child: string, keys: string[]) {
+  // schedule and grants (FR55, BL13). A day is 'manual' once the parent set it (even to nothing), 'auto' when the
+  // server picked the next lesson itself; a day with neither is still open for the automatic pick.
+  setSchedule(date: string, child: string, keys: string[], mode: 'manual' | 'auto' = 'manual') {
     this.tx(() => {
       this.run('delete from schedule where tenant_id=? and date=? and child=?', this.tenant, date, child);
       for (const k of keys) this.run('insert into schedule (tenant_id, date, child, lesson_key) values (?,?,?,?)', this.tenant, date, child, k);
+      this.run('insert into schedule_days (tenant_id, date, child, mode) values (?,?,?,?) on conflict(tenant_id, date, child) do update set mode=excluded.mode', this.tenant, date, child, mode);
     });
   }
+  clearSchedule(date: string, child: string) {
+    this.tx(() => {
+      this.run('delete from schedule where tenant_id=? and date=? and child=?', this.tenant, date, child);
+      this.run('delete from schedule_days where tenant_id=? and date=? and child=?', this.tenant, date, child);
+    });
+  }
+  dayMode(date: string, child: string) { return this.get<{ mode: 'manual' | 'auto' }>('select mode from schedule_days where tenant_id=? and date=? and child=?', this.tenant, date, child)?.mode; }
   scheduled(date: string, child: string) { return this.all<{ lesson_key: string }>('select lesson_key from schedule where tenant_id=? and date=? and child=?', this.tenant, date, child).map(r => r.lesson_key); }
   scheduleRange(from: string, to: string) { return this.all<{ date: string; child: string; lesson_key: string }>('select date, child, lesson_key from schedule where tenant_id=? and date between ? and ? order by date', this.tenant, from, to); }
   addGrant(child: string, key: string, expiresOn: string, by: string, now: string) {
@@ -118,16 +202,217 @@ export class Store {
       rec.id, this.tenant, rec.child, rec.topic, rec.source, rec.said ?? null, rec.observed_on, rec.state, rec.lesson_ref ?? null, now);
     return rec;
   }
+  /** The parent named a topic for this child's next lesson: it replaces any earlier one that hasn't been used. */
+  directTopic(child: string, topic: string, month: string, now: string): InterestObservation {
+    this.run("update interests set state='喜欢' where tenant_id=? and child=? and state='家长指定'", this.tenant, child);
+    return this.addInterest({ child, topic, source: '家长报告', said: null, observed_on: month, state: '家长指定', lesson_ref: null }, now);
+  }
+  /** A parent-named topic got its lesson: it stays one of the child's interests. */
+  topicUsed(id: string, lessonKey: string) { this.run("update interests set state='喜欢', lesson_ref=? where tenant_id=? and id=? and state='家长指定'", lessonKey, this.tenant, id); }
+
+  /** What lessons are about and must show (博比特虫, 机器人…), from drafts and published lessons. */
+  subjects(): { asset_id: string; name: string; kind: 'organism' | 'object' }[] {
+    const all = [...this.drafts().filter(d => d.status !== '不采用').map(d => this.draft(d.key)), ...this.lessons().map(l => this.lesson(l.key))];
+    const seen = new Map<string, { asset_id: string; name: string; kind: 'organism' | 'object' }>();
+    for (const sp of all) { const s = sp?.theme.subject; if (s && !seen.has(s.asset_id)) seen.set(s.asset_id, { ...s }); }
+    // what a prep list is getting ready ahead of its lesson
+    for (const p of this.preps()) if (p.subject && p.status === '准备中' && !seen.has(p.subject.asset_id)) seen.set(p.subject.asset_id, { ...p.subject });
+    return [...seen.values()];
+  }
+
+  // next-lesson prep lists (pipeline P0)
+  preps(child?: string): PrepRow[] {
+    return this.all<Omit<PrepRow, 'subject' | 'log'> & { subject: string | null; log: string }>(
+      `select id, child, interest_id, said, topic, status, wished_on, lesson_from, lesson_ref, subject, log, created_at, updated_at from preps where tenant_id=? ${child ? 'and child=?' : ''} order by created_at, id`,
+      ...(child ? [this.tenant, child] : [this.tenant])).map(r => ({ ...r, subject: r.subject ? JSON.parse(r.subject) : null, log: JSON.parse(r.log) }));
+  }
+  prep(id: string) { return this.preps().find(p => p.id === id); }
+  addPrep(x: Pick<PrepRow, 'child' | 'interest_id' | 'said' | 'topic' | 'status' | 'wished_on' | 'lesson_from' | 'subject'>, now: string): PrepRow {
+    const max = this.get<{ n: number | null }>("select max(cast(substr(id, 3) as integer)) as n from preps where tenant_id=?", this.tenant)?.n ?? 0;
+    const id = `W-${String(max + 1).padStart(4, '0')}`;
+    this.run('insert into preps (id, tenant_id, child, interest_id, said, topic, status, wished_on, lesson_from, lesson_ref, subject, log, created_at, updated_at) values (?,?,?,?,?,?,?,?,?,null,?,?,?,?)',
+      id, this.tenant, x.child, x.interest_id, x.said, x.topic, x.status, x.wished_on, x.lesson_from, x.subject ? JSON.stringify(x.subject) : null, '[]', now, now);
+    return this.prep(id)!;
+  }
+  updatePrep(id: string, x: Partial<Pick<PrepRow, 'topic' | 'status' | 'lesson_ref' | 'subject'>>, now: string) {
+    const p = this.prep(id);
+    if (!p) return;
+    const n = { ...p, ...x };
+    this.run('update preps set topic=?, status=?, lesson_ref=?, subject=?, updated_at=? where tenant_id=? and id=?', n.topic, n.status, n.lesson_ref, n.subject ? JSON.stringify(n.subject) : null, now, this.tenant, id);
+  }
+  /** One line of what happened to a prep list, for the parent (the last 20 are kept). */
+  logPrep(id: string, msg: string, now: string) {
+    const p = this.prep(id);
+    if (p) this.run('update preps set log=?, updated_at=? where tenant_id=? and id=?', JSON.stringify([...p.log, { at: now, msg }].slice(-20)), now, this.tenant, id);
+  }
+  /** A next-lesson wish was used or set aside: it stays one of the child's interests. */
+  wishDone(child: string, topic: string) { this.run("update interests set state='喜欢' where tenant_id=? and child=? and topic=? and state='下一课心愿'", this.tenant, child, topic); }
+  /** The lesson written for a wish was not taken: the wish is a next-lesson wish again. */
+  wishAgain(interestId: string) { this.run("update interests set state='下一课心愿' where tenant_id=? and id=? and state='喜欢'", this.tenant, interestId); }
+  setInterestTopic(id: string, topic: string) { this.run('update interests set topic=? where tenant_id=? and id=?', topic, this.tenant, id); }
 
   // auth
   addToken(hash: string, role: Role, label: string, now: string) { this.run('insert into tokens (hash, tenant_id, role, label, created_at) values (?,?,?,?,?)', hash, this.tenant, role, label, now); }
   token(hash: string) { return this.get<{ role: Role; label: string }>('select role, label from tokens where tenant_id=? and hash=?', this.tenant, hash); }
   devices() { return this.all<{ label: string; created_at: string }>("select label, created_at from tokens where tenant_id=? and role='device' order by created_at", this.tenant); }
   revokeDevice(label: string) { this.run("delete from tokens where tenant_id=? and role='device' and label=?", this.tenant, label); }
+  agents() { return this.all<{ label: string; created_at: string }>("select label, created_at from tokens where tenant_id=? and role='agent' order by created_at", this.tenant); }
+  revokeAgent(label: string) { this.run("delete from tokens where tenant_id=? and role='agent' and label=?", this.tenant, label); }
   startPairing(code: string, now: string) { this.run('insert into pairing (code, tenant_id, created_at) values (?,?,?)', code, this.tenant, now); }
   pairing(code: string) { return this.get<{ code: string; created_at: string; label: string | null; token: string | null }>('select code, created_at, label, token from pairing where tenant_id=? and code=?', this.tenant, code); }
   approvePairing(code: string, label: string, token: string) { this.run('update pairing set label=?, token=? where tenant_id=? and code=?', label, token, this.tenant, code); }
   expirePairings(before: string) { this.run('delete from pairing where tenant_id=? and created_at<?', this.tenant, before); }
   interestCount() { return this.get<{ n: number }>('select count(*) as n from interests where tenant_id=?', this.tenant)!.n; }
   endPairing(code: string) { this.run('delete from pairing where tenant_id=? and code=?', this.tenant, code); }
+
+  // ids like HW-0001, per tenant and prefix
+  private nextId(table: string, prefix: string) {
+    const n = this.get<{ n: number | null }>(`select max(cast(substr(id, ${prefix.length + 2}) as integer)) as n from ${table} where tenant_id=?`, this.tenant)?.n ?? 0;
+    return `${prefix}-${String(n + 1).padStart(4, '0')}`;
+  }
+
+  // homework (Spec §10)
+  addHomework(h: Omit<HomeworkUpload, 'id' | 'status' | 'created_at'>, now: string): HomeworkUpload {
+    const id = this.nextId('homework', 'HW');
+    this.run('insert into homework (id, tenant_id, child, date, note, photos, status, ai_consent, created_at) values (?,?,?,?,?,?,?,?,?)', id, this.tenant, h.child, h.date, h.note, JSON.stringify(h.photos), '待识别', h.ai_consent ? 1 : 0, now);
+    return this.homework(id)!;
+  }
+  homework(id: string): HomeworkUpload | undefined {
+    const r = this.get<HomeworkUpload & { photos: string }>('select id, child, date, note, photos, status, ai_consent, created_at from homework where tenant_id=? and id=?', this.tenant, id);
+    return r ? { ...r, photos: JSON.parse(r.photos), ai_consent: !!r.ai_consent } : undefined;
+  }
+  homeworks(child?: string): HomeworkUpload[] {
+    return this.all<HomeworkUpload & { photos: string }>(`select id, child, date, note, photos, status, ai_consent, created_at from homework where tenant_id=? ${child ? 'and child=?' : ''} order by date desc, id desc`, ...(child ? [this.tenant, child] : [this.tenant]))
+      .map(r => ({ ...r, photos: JSON.parse(r.photos), ai_consent: !!r.ai_consent }));
+  }
+  setHomeworkStatus(id: string, status: HomeworkUpload['status']) { this.run('update homework set status=? where tenant_id=? and id=?', status, this.tenant, id); }
+  setItems(id: string, items: CheckedItem[], by: string) {
+    this.tx(() => {
+      this.run('delete from hw_items where homework_id=?', id);
+      items.forEach((it, pos) => this.run('insert into hw_items (homework_id, no, pos, data) values (?,?,?,?)', id, it.no, pos, JSON.stringify(it)));
+      this.run('update homework set recognized_by=? where tenant_id=? and id=?', by, this.tenant, id);
+    });
+  }
+  items(id: string): CheckedItem[] { return this.all<{ data: string }>('select data from hw_items where homework_id=? order by pos', id).map(r => JSON.parse(r.data)); }
+  updateItem(id: string, item: CheckedItem) { this.run('update hw_items set data=? where homework_id=? and no=?', JSON.stringify(item), id, item.no); }
+
+  // judgments
+  addJudgment(j: LearningJudgment, now: string): string {
+    const id = this.nextId('judgments', 'LJ');
+    this.run('insert into judgments (id, tenant_id, child, homework_ref, data, status, created_at) values (?,?,?,?,?,?,?)', id, this.tenant, j.child, j.homework_ref, JSON.stringify({ ...j, id }), '草稿', now);
+    return id;
+  }
+  private judgmentRow = (r: { id: string; child: string; homework_ref: string; status: '草稿' | '已确认'; created_at: string; confirmed_at: string | null; data: string; card: string | null; card_used: number }): JudgmentRow =>
+    ({ id: r.id, child: r.child, homework_ref: r.homework_ref, status: r.status, created_at: r.created_at, confirmed_at: r.confirmed_at, judgment: JSON.parse(r.data), card: r.card ? JSON.parse(r.card) : null, card_used: r.card_used });
+  judgment(id: string) {
+    const r = this.get<Parameters<Store['judgmentRow']>[0]>('select id, child, homework_ref, status, created_at, confirmed_at, data, card, card_used from judgments where tenant_id=? and id=?', this.tenant, id);
+    return r ? this.judgmentRow(r) : undefined;
+  }
+  judgments(child?: string): JudgmentRow[] {
+    return this.all<Parameters<Store['judgmentRow']>[0]>(`select id, child, homework_ref, status, created_at, confirmed_at, data, card, card_used from judgments where tenant_id=? ${child ? 'and child=?' : ''} order by id`, ...(child ? [this.tenant, child] : [this.tenant])).map(this.judgmentRow);
+  }
+  /** Replace a draft (the Skill may resubmit until the parent confirms). */
+  replaceJudgment(id: string, j: LearningJudgment) { this.run("update judgments set data=? where tenant_id=? and id=? and status='草稿'", JSON.stringify({ ...j, id }), this.tenant, id); }
+  confirmJudgment(id: string, now: string) { this.run("update judgments set status='已确认', confirmed_at=? where tenant_id=? and id=?", now, this.tenant, id); }
+  setCard(id: string, card: ParentCard) { this.run('update judgments set card=? where tenant_id=? and id=?', JSON.stringify(card), this.tenant, id); }
+  setCardUsed(id: string, used: boolean) { this.run('update judgments set card_used=? where tenant_id=? and id=?', used ? 1 : 0, this.tenant, id); }
+
+  // reteach tickets
+  addTicket(t: Omit<ReteachTicket, 'id' | 'created_at' | 'lesson_ref' | 'mechanism'>, now: string): ReteachTicket {
+    const id = this.nextId('tickets', 'RT');
+    this.run('insert into tickets (id, tenant_id, child, concept_id, judgment_ref, attempt, status, created_at, updated_at) values (?,?,?,?,?,?,?,?,?)', id, this.tenant, t.child, t.concept_id, t.judgment_ref, t.attempt, t.status, now, now);
+    return this.tickets().find(x => x.id === id)!;
+  }
+  tickets(child?: string): ReteachTicket[] {
+    return this.all<ReteachTicket>(`select id, child, concept_id, judgment_ref, attempt, status, lesson_ref, mechanism, created_at from tickets where tenant_id=? ${child ? 'and child=?' : ''} order by id`, ...(child ? [this.tenant, child] : [this.tenant]));
+  }
+  updateTicket(id: string, f: { status: ReteachTicket['status']; lesson_ref?: string; mechanism?: string }, now: string) {
+    this.run('update tickets set status=?, lesson_ref=coalesce(?, lesson_ref), mechanism=coalesce(?, mechanism), updated_at=? where tenant_id=? and id=?', f.status, f.lesson_ref ?? null, f.mechanism ?? null, now, this.tenant, id);
+  }
+
+  // feedback kept by source (BL08)
+  addFeedback(f: Omit<FeedbackItem, 'id' | 'created_at'>, now: string): FeedbackItem {
+    const id = this.nextId('feedback', 'FB');
+    this.run('insert into feedback (id, tenant_id, child, source, said, context, kind, ref, created_at) values (?,?,?,?,?,?,?,?,?)', id, this.tenant, f.child, f.source, f.said, f.context, f.kind, f.ref, now);
+    return { ...f, id, created_at: now };
+  }
+  feedback(child?: string): FeedbackItem[] {
+    return this.all<FeedbackItem>(`select id, child, source, said, context, kind, ref, created_at from feedback where tenant_id=? ${child ? 'and child=?' : ''} order by id`, ...(child ? [this.tenant, child] : [this.tenant]));
+  }
+
+  // real photos, videos and scans of organisms (BL14), shown until a photoreal model is in the component
+  addMedia(m: Omit<MediaRow, 'id' | 'created_at'>, now: string): MediaRow {
+    const id = this.nextId('media', 'MD');
+    this.run('insert into media (id, tenant_id, asset_id, kind, origin, mime, file, key, credit, license, source_url, caption, length_cm, added_by, created_at, confirmed, refs) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      id, this.tenant, m.asset_id, m.kind, m.origin, m.mime, m.file, m.key, m.credit, m.license, m.source_url, m.caption, m.length_cm, m.added_by, now, m.confirmed, m.refs);
+    return this.media(id)!;
+  }
+  media(id: string) { return this.get<MediaRow>('select * from media where tenant_id=? and id=?', this.tenant, id); }
+  mediaFor(asset?: string) { return this.all<MediaRow>(`select * from media where tenant_id=? ${asset ? 'and asset_id=?' : ''} order by id`, ...(asset ? [this.tenant, asset] : [this.tenant])); }
+  deleteMedia(id: string) { this.run('delete from media where tenant_id=? and id=?', this.tenant, id); }
+  confirmMedia(id: string) { this.run('update media set confirmed=1 where tenant_id=? and id=?', this.tenant, id); }
+
+  // family settings (e.g. which voice reads the lessons)
+  setting(k: string) { return this.get<{ v: string }>('select v from settings where tenant_id=? and k=?', this.tenant, k)?.v; }
+  setSetting(k: string, v: string) { this.run('insert into settings (tenant_id, k, v) values (?,?,?) on conflict(tenant_id, k) do update set v=excluded.v', this.tenant, k, v); }
+
+  /** BL11: everything stored about one child, and deleting it. Lessons and schedule for the child stay unless asked. */
+  exportChild(child: string) {
+    const sessions = this.sessions(child);
+    return {
+      child: this.children().find(c => c.id === child), interests: this.interests(child), preps: this.preps(child),
+      sessions: sessions.map(s => ({ ...s, events: this.events(s.key) })),
+      homework: this.homeworks(child).map(h => ({ ...h, items: this.items(h.id) })),
+      judgments: this.judgments(child), tickets: this.tickets(child), feedback: this.feedback(child),
+      schedule: this.all('select date, lesson_key from schedule where tenant_id=? and child=?', this.tenant, child),
+      grants: this.all('select lesson_key, expires_on, granted_by, created_at from grants where tenant_id=? and child=?', this.tenant, child),
+    };
+  }
+  deleteChildData(child: string): string[] {
+    const hw = this.homeworks(child).map(h => h.id);
+    this.tx(() => {
+      for (const s of this.sessions(child)) this.run('delete from events where tenant_id=? and session_key=?', this.tenant, s.key);
+      for (const id of hw) this.run('delete from hw_items where homework_id=?', id);
+      for (const t of ['sessions', 'interests', 'preps', 'homework', 'judgments', 'tickets', 'feedback', 'schedule', 'grants']) this.run(`delete from ${t} where tenant_id=? and child=?`, this.tenant, child);
+    });
+    return hw;
+  }
+
+  // lessons waiting for the parent's review (stage 6 in the parent app)
+  upsertDraft(sp: LessonSpec, by: string, now: string) {
+    const key = `${sp.lesson_id}@${sp.version}`;
+    this.run(`insert into drafts (key, tenant_id, for_child, title, spec, status, note, submitted_by, submitted_at) values (?,?,?,?,?,'待审核',null,?,?)
+      on conflict(tenant_id, key) do update set for_child=excluded.for_child, title=excluded.title, spec=excluded.spec, status='待审核', note=null, submitted_by=excluded.submitted_by, submitted_at=excluded.submitted_at`,
+      key, this.tenant, sp.for_child, sp.title, JSON.stringify(sp), by, now);
+    return key;
+  }
+  drafts() {
+    return this.all<{ key: string; for_child: string; title: string; status: '待审核' | '已退回' | '不采用'; note: string | null; submitted_by: string; submitted_at: string }>(
+      'select key, for_child, title, status, note, submitted_by, submitted_at from drafts where tenant_id=? order by submitted_at', this.tenant);
+  }
+  draft(key: string): LessonSpec | undefined {
+    const r = this.get<{ spec: string }>('select spec from drafts where tenant_id=? and key=?', this.tenant, key);
+    return r ? JSON.parse(r.spec) : undefined;
+  }
+  rejectDraft(key: string, note: string) { this.run("update drafts set status='已退回', note=? where tenant_id=? and key=?", note, this.tenant, key); }
+  /** The parent doesn't want this lesson at all; the reason (may be empty) is kept for later lesson writing. */
+  discardDraft(key: string, reason: string) { this.run("update drafts set status='不采用', note=? where tenant_id=? and key=?", reason || null, this.tenant, key); }
+  restoreDraft(key: string) { this.run("update drafts set status='待审核', note=null where tenant_id=? and key=? and status='不采用'", this.tenant, key); }
+  deleteDraft(key: string) { this.run('delete from drafts where tenant_id=? and key=?', this.tenant, key); }
+
+  // 探索课 packages the parent imported, waiting for review
+  upsertExploreDraft<T extends { lesson_id: string; version: string; for_child: string; title: string }>(x: T, by: string, now: string) {
+    const key = `${x.lesson_id}@${x.version}`;
+    this.run(`insert into explore_drafts (key, tenant_id, for_child, title, meta, status, note, imported_by, imported_at) values (?,?,?,?,?,'待审核',null,?,?)
+      on conflict(tenant_id, key) do update set for_child=excluded.for_child, title=excluded.title, meta=excluded.meta, status='待审核', note=null, imported_by=excluded.imported_by, imported_at=excluded.imported_at`,
+      key, this.tenant, x.for_child, x.title, JSON.stringify(x), by, now);
+    return key;
+  }
+  exploreDrafts<T>() {
+    return this.all<{ key: string; status: ExploreStatus; note: string | null; imported_by: string; imported_at: string; meta: string }>(
+      'select key, status, note, imported_by, imported_at, meta from explore_drafts where tenant_id=? order by imported_at', this.tenant)
+      .map(({ meta, ...r }) => ({ ...r, meta: JSON.parse(meta) as T }));
+  }
+  setExploreStatus(key: string, status: ExploreStatus, note: string | null) { this.run('update explore_drafts set status=?, note=? where tenant_id=? and key=?', status, note, this.tenant, key); }
+  deleteExploreDraft(key: string) { this.run('delete from explore_drafts where tenant_id=? and key=?', this.tenant, key); }
 }

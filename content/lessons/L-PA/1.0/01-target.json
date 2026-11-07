@@ -38,7 +38,7 @@
     ],
     "language": {
       "default": "zh",
-      "cycle_enabled": false
+      "cycle_enabled": true
     },
     "recent_judgment_ref": null,
     "est_minutes": [

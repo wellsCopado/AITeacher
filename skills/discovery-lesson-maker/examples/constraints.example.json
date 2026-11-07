@@ -1,0 +1,23 @@
+{
+  "buildConstraints": [
+    {
+      "questionId": "build",
+      "hostRequiresUnique": true,
+      "constraints": [
+        {"left": {"op": "mul", "args": [2, {"op": "add", "args": [{"param": "a"}, {"param": "b"}]}]}, "op": "eq", "right": 16},
+        {"left": {"op": "mul", "args": [{"param": "a"}, {"param": "b"}]}, "op": "eq", "right": 15},
+        {"left": {"param": "a"}, "op": "gt", "right": {"param": "b"}}
+      ]
+    },
+    {
+      "questionId": "build",
+      "variant": "twin",
+      "hostRequiresUnique": true,
+      "constraints": [
+        {"left": {"op": "mul", "args": [2, {"op": "add", "args": [{"param": "a"}, {"param": "b"}]}]}, "op": "eq", "right": 14},
+        {"left": {"op": "mul", "args": [{"param": "a"}, {"param": "b"}]}, "op": "eq", "right": 12},
+        {"left": {"param": "a"}, "op": "gt", "right": {"param": "b"}}
+      ]
+    }
+  ]
+}

@@ -1,4 +1,21 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>家长端 · AI 探索世界</title><link rel="stylesheet" href="parent.css"></head>
-<body><div id="app"></div><script type="module" src="app.js"></script></body></html>
+<body><div id="app"></div>
+<script>
+// If the app can't start (old browser, blocked script), say so on screen instead of leaving a blank page.
+(function () {
+  var errs = [];
+  addEventListener('error', function (e) { errs.push((e.message || (e.target && (e.target.src || e.target.href)) || '加载失败') + ''); }, true);
+  addEventListener('unhandledrejection', function (e) { errs.push(String(e.reason && e.reason.message || e.reason)); });
+  setTimeout(function () {
+    var app = document.getElementById('app');
+    if (!app || app.children.length) return;
+    var ua = navigator.userAgent;
+    app.innerHTML = '<div style="max-width:640px;margin:15vh auto;padding:20px;font:16px/1.6 system-ui,sans-serif">' +
+      '<h2>页面没能启动</h2><p>请把这一页截图发给 Claude。</p>' +
+      '<p style="color:#a33">' + (errs.length ? errs.join('<br>').replace(/</g, '&lt;') : '没有捕获到错误信息（可能是浏览器版本太旧，或脚本被拦截）') + '</p>' +
+      '<p style="color:#777;font-size:13px">' + ua.replace(/</g, '&lt;') + '</p></div>';
+  }, 5000);
+})();
+</script><script type="module" src="app.js"></script></body></html>

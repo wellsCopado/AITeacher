@@ -169,7 +169,7 @@
         },
         "skin": {
           "type": "string",
-          "description": "组件主题皮肤，如 reef、garden、blocks"
+          "description": "组件主题皮肤，如 reef、garden、blocks、robot_factory"
         },
         "interest_refs": {
           "type": "array",
@@ -186,6 +186,32 @@
         },
         "no_husbandry": {
           "const": true
+        },
+        "subject": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "asset_id",
+            "kind"
+          ],
+          "description": "主题讲的那个东西（动物、机器人……），课里必须看得到它的写实画面或 3D，不能只出现在文字里",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "asset_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "kind": {
+              "enum": [
+                "organism",
+                "object"
+              ]
+            }
+          }
         }
       }
     },
@@ -551,6 +577,190 @@
               "type": "string"
             },
             "minItems": 2
+          },
+          "worked_example": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "steps"
+            ],
+            "description": "孩子同一道题错 3 次后，Pad 一步一步演示怎么做（每步配字幕和朗读），最后一步说出答案。",
+            "properties": {
+              "steps": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 5,
+                "items": {
+                  "type": "string",
+                  "minLength": 2,
+                  "maxLength": 80
+                }
+              }
+            }
+          },
+          "twin": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "prompt",
+              "answers"
+            ],
+            "description": "演示之后让孩子自己做一次的同类题：同一个方法，换数字或换情境。",
+            "properties": {
+              "prompt": {
+                "type": "string"
+              },
+              "answers": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "field",
+                    "value"
+                  ],
+                  "properties": {
+                    "field": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": [
+                        "number",
+                        "string"
+                      ]
+                    },
+                    "unit": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "options": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 2
+              },
+              "task": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "type",
+                  "start",
+                  "controls"
+                ],
+                "description": "动手操作题：孩子在 3D 场景里拖角上的把手或点按钮，把场景摆成答案要求的样子（answers 的 field 就是 controls 里的参数）。",
+                "properties": {
+                  "type": {
+                    "enum": [
+                      "build"
+                    ]
+                  },
+                  "start": {
+                    "type": "object",
+                    "description": "开始时场景的大小参数，例如 {\"rows\": 1, \"cols\": 4}",
+                    "additionalProperties": {
+                      "type": "integer"
+                    }
+                  },
+                  "controls": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "孩子能改的参数，例如 [\"rows\"]"
+                  }
+                }
+              },
+              "picture": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "params"
+                ],
+                "description": "题目的配图：用这节课的 3D 场景按这些数摆出来（不播动画）。params 用组件的参数名，例如 {\"a\": 6, \"b\": 4} 或 {\"rows\": 3, \"cols\": 4}；只写题目里给出的数，不要把答案摆出来。动手题不写（场景从 task.start 开始）。",
+                "properties": {
+                  "params": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "additionalProperties": {
+                      "type": "integer"
+                    }
+                  },
+                  "view": {
+                    "enum": [
+                      "overview",
+                      "top",
+                      "side"
+                    ],
+                    "description": "相机：overview 斜看全景（默认）、top 正上方俯视、side 侧面平视"
+                  }
+                }
+              }
+            }
+          },
+          "task": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "start",
+              "controls"
+            ],
+            "description": "动手操作题：孩子在 3D 场景里拖角上的把手或点按钮，把场景摆成答案要求的样子（answers 的 field 就是 controls 里的参数）。",
+            "properties": {
+              "type": {
+                "enum": [
+                  "build"
+                ]
+              },
+              "start": {
+                "type": "object",
+                "description": "开始时场景的大小参数，例如 {\"rows\": 1, \"cols\": 4}",
+                "additionalProperties": {
+                  "type": "integer"
+                }
+              },
+              "controls": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                },
+                "description": "孩子能改的参数，例如 [\"rows\"]"
+              }
+            }
+          },
+          "picture": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "params"
+            ],
+            "description": "题目的配图：用这节课的 3D 场景按这些数摆出来（不播动画）。params 用组件的参数名，例如 {\"a\": 6, \"b\": 4} 或 {\"rows\": 3, \"cols\": 4}；只写题目里给出的数，不要把答案摆出来。动手题不写（场景从 task.start 开始）。",
+            "properties": {
+              "params": {
+                "type": "object",
+                "minProperties": 1,
+                "additionalProperties": {
+                  "type": "integer"
+                }
+              },
+              "view": {
+                "enum": [
+                  "overview",
+                  "top",
+                  "side"
+                ],
+                "description": "相机：overview 斜看全景（默认）、top 正上方俯视、side 侧面平视"
+              }
+            }
           }
         }
       }
@@ -877,6 +1087,58 @@
         },
         "note": {
           "type": "string"
+        }
+      }
+    },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "steps": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "explain": {
+              "type": "integer",
+              "minimum": 20,
+              "maximum": 900
+            },
+            "demo": {
+              "type": "integer",
+              "minimum": 20,
+              "maximum": 900
+            },
+            "challenge": {
+              "type": "integer",
+              "minimum": 20,
+              "maximum": 900
+            },
+            "chat": {
+              "type": "integer",
+              "minimum": 20,
+              "maximum": 900
+            }
+          }
+        }
+      }
+    },
+    "encouragement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "persist"
+      ],
+      "description": "孩子答错时给他坚持下去的理由，最好和这节课的主题相连。",
+      "properties": {
+        "persist": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 5,
+          "items": {
+            "type": "string",
+            "minLength": 4,
+            "maxLength": 60
+          }
         }
       }
     }
