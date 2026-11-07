@@ -214,6 +214,12 @@ export function studioRoutes(app: FastifyInstance, d: Deps) {
       if (!ownScene(prep!.topic)) return startExplore({ child, topic: prep!.topic, prep: prep!.id, why: `按${d.wishes.label(child)}${dateText(prep!.wished_on)}的心愿准备。${notShown(prep!.topic)}：按它自己的样子做成探索课` });
     }
     if (topic && !b.revise && !ownScene(topic)) return startExplore({ child, topic, wish: b.wish, why: `${notShown(topic)}：按「${topic}」自己的样子做成探索课` });
+    // a request in the parent's own words whose topic can't be read: never let the model pick an old scene for it and
+    // tie the two together (“宇宙探索准备：机器人把零件摆整齐”, 2026-11-07). The parent names the topic, or it isn't written.
+    // (a request only about how hard or which maths, “难一点”, keeps the child's own interest as the topic)
+    const onlyHow = (w: string) => !w.replace(/数学|面积|周长|乘法|除法|加法|减法|口诀|计算|应用题|难|简单|容易|一点|一些|点|些|再|更|稍微|知识点?|题目?|新课|下一|课程?|一节|一个|写|出|做|来|给|哥哥|妹妹|的|吧|呢|啊|[\s\p{P}\d]/gu, '');
+    if (!topic && !b.revise && !b.prep && b.wish && !String(b.wish).includes(BRIEF_HEADER) && !onlyHow(String(b.wish)))
+      fail(400, '从你写的要求里看不出这节课的主题：在「主题」框写上（例如：宇宙、蜜蜂），就按这个主题自己的样子做，不会套用现成的场景');
     if ([...jobs.values()].some(j => j.status === 'running' && j.kind !== 'explore')) fail(409, '上一节课还在写，写完再开始下一节');
     const m = pick(b.model);
     const directed = topic && !b.revise && store.hasChild(child) ? store.directTopic(child, topic, iso().slice(0, 7), iso()) : null;

@@ -349,6 +349,11 @@ describe('server: models, AI lesson writer, MCP for agents', () => {
     const arm2 = await req('POST', '/v1/studio/generate', p, { child: 'gege', wish: brief });
     expect(arm2.status).toBe(400);
     expect(arm2.body.error).toContain('按「工厂里的机械臂」自己的样子做成探索课');
+    // 2026-11-07 “宇宙探索准备：机器人把零件摆整齐”: a request whose topic can't be read is not handed to the model to
+    // pick an old scene for; the parent is asked for the topic. Only a request about difficulty keeps the child's interest
+    const space = await req('POST', '/v1/studio/generate', p, { child: 'gege', wish: '宇宙探索，乘法，哥哥用' });
+    expect(space.status).toBe(400);
+    expect(space.body.error).toContain('看不出这节课的主题');
   });
 
   it('never puts a topic into a scene that does not depict it: the cricket of 11-04, the rocket of 11-05, from every way in', async () => {
@@ -614,6 +619,12 @@ describe('ChatGPT through Codex on the home computer, all from the parent app', 
     expect(rocket.log[0].msg).toContain('「火箭发射」没有现成的 3D 场景');
     expect(runs().at(-1)!.prompt).toContain('2 年级');
     expect(runs().at(-1)!.prompt).toContain('第四单元 表内乘法（一）');
+    // 2026-11-07 宇宙探索 came out as the robot-arm factory: never-made topics, in the box or in a sentence, each get their own
+    // 探索课 whose hero has to pass the hero gate (hero-production.md), never an old scene
+    for (const [t, how] of [['宇宙探索', { topic: '宇宙探索' }], ['深海潜水器', { wish: '写一个深海潜水器的课程' }], ['长城', { wish: '主题：长城' }]] as const) {
+      await made(await req('POST', '/v1/studio/generate', p, { child: 'gege', ...how }), t, 'gege');
+      expect(runs().at(-1)!.prompt).toContain('references/hero-production.md');
+    }
     // 哥哥 + a one-line request
     await made(await req('POST', '/v1/studio/generate', p, { child: 'gege', wish: '写一个蜜蜂的课程' }), '蜜蜂', 'gege');
     // an agreed plan
@@ -659,7 +670,7 @@ describe('ChatGPT through Codex on the home computer, all from the parent app', 
     expect(unseen.status).toBe('failed');
     expect(unseen.error).toContain('盲看');
     rmSync(join(home, 'no-blind'));
-    expect((await req('GET', '/v1/explore', p)).body.map((x: { topic: string }) => x.topic).sort()).toEqual(['火山', '火山', '火箭发射', '蜜蜂', '蝴蝶'].sort());
+    expect((await req('GET', '/v1/explore', p)).body.map((x: { topic: string }) => x.topic).sort()).toEqual(['宇宙探索', '深海潜水器', '长城', '火山', '火山', '火箭发射', '蜜蜂', '蝴蝶'].sort());
   });
 
   it('plans the lesson in a chat in the parent app and hands the agreed plan to another model to write', async () => {
