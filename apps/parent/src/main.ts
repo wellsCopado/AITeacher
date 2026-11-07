@@ -437,10 +437,10 @@ const VIEWS: Record<Tab, () => Promise<void>> = {
 
   async 设备与数据() {
     const list = await api<{ label: string; created_at: string }[]>('/v1/devices');
-    const tts = await api<{ available: boolean; current: Record<'zh' | 'en', string> | null; options: VoiceOption[] }>('/v1/tts/voices').catch(() => null);
+    const [tts, engine] = await Promise.all([api<VoicesInfo>('/v1/tts/voices').catch(() => null), api<EngineInfo>('/v1/tts/engine').catch(() => null)]);
     const [models, agents, server] = await Promise.all([modelsCard(ctx()), agentsCard(ctx()), api<ServerInfo>('/v1/server-info').catch(() => null)]);
     view().innerHTML = `${tabletCard(server)}<div class="card"><h3>添加孩子的平板</h3><p class="muted">平板 App 第一次打开时（iPad 是在 Safari 里打开 /pad/ 时），屏幕会显示 6 位配对码。</p>
-      <form id="pair" class="row"><input name="code" inputmode="numeric" placeholder="配对码" maxlength="7" required><input name="label" placeholder="设备名，例如：哥哥的平板" maxlength="40"><button class="btn primary">批准</button></form></div>${voiceCard(tts)}
+      <form id="pair" class="row"><input name="code" inputmode="numeric" placeholder="配对码" maxlength="7" required><input name="label" placeholder="设备名，例如：哥哥的平板" maxlength="40"><button class="btn primary">批准</button></form></div>${voiceCard(tts, engine)}
       <div class="card"><h3>已配对的设备</h3><ul>${list.map(d => `<li>${esc(d.label)} · ${esc(d.created_at.slice(0, 10))} <button class="btn revoke" data-l="${esc(d.label)}">移除</button></li>`).join('') || '<li class="muted">没有</li>'}</ul></div>
       ${models}${agents}
       ${dataSection(ctx())}`;
@@ -472,42 +472,94 @@ function tabletCard(info: ServerInfo | null) {
     <p class="small muted">${info.apk ? `安装包版本 ${esc(info.apk.version ?? '')}。` : '安装包还没放到这台 Mac 上：点菜单「AI 探索世界 → 检查更新」后再扫。'}iPad 装不了安卓安装包，iPad 用 Safari 打开 http://${esc(host)}:${info.port}/pad/ 再“添加到主屏幕”。</p></div></div></div>`;
 }
 
-// ---- 朗读声音: which Mac voice reads the lessons; hear one before choosing it ----
-interface VoiceOption { name: string; locale: string; lang: 'zh' | 'en'; quality: 'premium' | 'enhanced' | 'standard' | 'system' }
-const QUALITY_LABEL = { premium: '高级 · 最像真人', enhanced: '增强', standard: '普通', system: '' };
-const SAMPLE = { zh: '你好！今天我们去珊瑚礁，看看螳螂虾的家有多大。', en: 'Hello! Today we visit the coral reef to see how big the mantis shrimp’s home is.' };
-function voiceCard(t: { available: boolean; current: Record<'zh' | 'en', string> | null; options: VoiceOption[] } | null) {
-  if (!t?.available || !t.current) return `<div class="card"><h3>朗读声音</h3><p class="muted">服务器不在 Mac 上运行，Pad 会用 iPad 自带的声音朗读。</p></div>`;
+// ---- 朗读声音: where the voice comes from (this Mac, or a cloud announcer voice) and which voice; hear before saving ----
+interface VoiceOption { name: string; locale: string; lang: 'zh' | 'en'; quality: 'neural' | 'premium' | 'enhanced' | 'standard' | 'system' }
+interface VoicesInfo { available: boolean; engine: string | null; current: Record<'zh' | 'en', string> | null; options: VoiceOption[]; error?: string | null }
+type Provider = 'azure' | 'volcengine' | 'openai';
+interface EngineInfo {
+  engine: string | null; mac: boolean; error: string | null;
+  cloud: { provider: Provider; region?: string; appid?: string; cluster?: string; base_url?: string; model?: string; style?: string; voices: Record<'zh' | 'en', string>; has_key: boolean; key_tail: string | null } | null;
+  providers: { id: Provider; label: string; defaults: Record<'zh' | 'en', string>; voices: { name: string; lang: 'zh' | 'en'; note: string }[] }[];
+}
+const QUALITY_LABEL = { neural: '', premium: '高级 · 最像真人', enhanced: '增强', standard: '普通', system: '' };
+const SAMPLE = { zh: '你好！今天我们去珊瑚礁，看看螳螂虾的家有多大。它的家长 3.5 米，宽 2 米，面积是多少平方米呢？', en: 'Hello! Today we visit the coral reef to see how big the mantis shrimp’s home is.' };
+const ENGINE_HELP: Record<Provider, string> = {
+  azure: '在 portal.azure.com 创建“语音服务”（Speech），定价层选 F0 免费（每月 50 万字），把“密钥 1”和“区域”（如 eastasia）填进来。',
+  volcengine: '在火山引擎控制台开通“豆包语音 · 语音合成”，把 AppID 和 Access Token 填进来；声音名填控制台里已开通音色的 voice_type。',
+  openai: '填 OpenAI（或兼容服务）的 API Key；ChatGPT Plus 订阅不包含 API 额度，需要在 platform.openai.com 单独充值。',
+};
+function voiceCard(t: VoicesInfo | null, e: EngineInfo | null) {
+  const cur = e?.cloud?.provider ?? 'mac';
+  const src = e ? `<div class="enginepick"><label>声音来源
+      <select id="vengine">${e.mac || cur === 'mac' ? `<option value="mac" ${cur === 'mac' ? 'selected' : ''}>这台 Mac 自带的声音（免费，偏机械）</option>` : ''}
+      ${e.providers.map(p => `<option value="${p.id}" ${cur === p.id ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}</select></label>
+    <div id="vcloud" ${cur === 'mac' ? 'hidden' : ''}>
+      <p class="muted small" id="vhelp">${cur === 'mac' ? '' : esc(ENGINE_HELP[cur])}</p>
+      <div class="row"><input id="vkey" type="password" autocomplete="off" placeholder="${e.cloud?.has_key ? `已保存（…${esc(e.cloud.key_tail)}），不改就留空` : '密钥 / Access Token'}">
+      <input id="vregion" placeholder="Azure 区域，如 eastasia" value="${esc(e.cloud?.region ?? '')}" data-for="azure">
+      <input id="vappid" placeholder="火山 AppID" value="${esc(e.cloud?.appid ?? '')}" data-for="volcengine">
+      <input id="vcluster" placeholder="火山 cluster（默认 volcano_tts）" value="${esc(e.cloud?.cluster ?? '')}" data-for="volcengine">
+      <input id="vbase" placeholder="接口地址（默认 OpenAI）" value="${esc(e.cloud?.base_url ?? '')}" data-for="openai">
+      <input id="vmodel" placeholder="模型（默认 gpt-4o-mini-tts）" value="${esc(e.cloud?.model ?? '')}" data-for="openai"></div>
+      <div class="row"><input id="vstyle" placeholder="说话风格（可空。Azure 例：gentle 或 newscast）" value="${esc(e.cloud?.style ?? '')}"></div>
+      <div class="row"><button class="btn" type="button" id="vconnect">连接并保存声音来源</button></div>
+    </div>
+    ${e.error ? `<p class="small warn">云端语音上次出错，已临时改用 Mac 的声音：${esc(e.error)}</p>` : ''}</div>` : '';
+  if (!t?.available || !t.current) return `<div class="card" id="voices"><h3>朗读声音</h3>${src}<p class="muted">还没有可用的朗读声音：服务器不在 Mac 上运行时，接一个云端语音，或者 Pad 会用平板自带的声音朗读。</p></div>`;
+  const cloud = t.engine && t.engine !== 'mac';
+  const notes = new Map((e?.providers.find(p => p.id === t.engine)?.voices ?? []).map(v => [`${v.lang}|${v.name}`, v.note]));
   const pick = (lang: 'zh' | 'en') => {
-    const opts: VoiceOption[] = [...t.options.filter(o => o.lang === lang), { name: 'system', locale: '', lang, quality: 'system' }];
+    const opts: VoiceOption[] = [...t.options.filter(o => o.lang === lang), ...(cloud ? [] : [{ name: 'system', locale: '', lang, quality: 'system' as const }])];
+    const label = (o: VoiceOption) => o.name === 'system' ? 'Mac 系统朗读声音（可在 Mac 设置里选 Siri 声音）' : `${esc(o.name)}${notes.get(`${lang}|${o.name}`) ? ` · ${esc(notes.get(`${lang}|${o.name}`))}` : QUALITY_LABEL[o.quality] ? ` · ${QUALITY_LABEL[o.quality]}` : ''}`;
     return `<label class="voicepick">${lang === 'zh' ? '中文' : '英文'}
-      <select data-lang="${lang}">${opts.map(o => `<option value="${esc(o.name)}" ${o.name === t.current![lang] ? 'selected' : ''}>${o.name === 'system' ? 'Mac 系统朗读声音（可在 Mac 设置里选 Siri 声音）' : `${esc(o.name)}${QUALITY_LABEL[o.quality] ? ` · ${QUALITY_LABEL[o.quality]}` : ''}`}</option>`).join('')}</select>
+      <select data-lang="${lang}">${opts.map(o => `<option value="${esc(o.name)}" ${o.name === t.current![lang] ? 'selected' : ''}>${label(o)}</option>`).join('')}</select>
       <button class="btn" type="button" data-try="${lang}">▶ 试听</button></label>`;
   };
-  const natural = t.options.some(o => o.quality === 'premium' || o.quality === 'enhanced');
+  const natural = cloud || t.options.some(o => o.quality === 'premium' || o.quality === 'enhanced');
   return `<div class="card" id="voices"><h3>朗读声音</h3>
-    <p class="muted">孩子上课时听到的声音。选好后点“试听”，满意再保存。</p>
+    <p class="muted">孩子上课时听到的声音。选好后点“试听”，满意再保存。想要播音员一样的声音，声音来源选“微软 Azure 神经语音”。</p>
+    ${src}
     ${pick('zh')}${pick('en')}
     <div class="row"><button class="btn primary" id="vsave" type="button">保存</button></div>
-    ${natural ? '' : '<p class="muted small">这台 Mac 还没有“高级 / 增强”声音，听起来会比较机械。下载方法：系统设置 → 辅助功能 → 朗读内容 → 系统声音 → 管理声音，中文选 Lilian（高级）或婷婷（增强），英文选 Ava（高级）或 Zoe（高级），下载完重启服务。</p>'}
+    ${natural ? '' : '<p class="muted small">这台 Mac 还没有“高级 / 增强”声音，听起来会比较机械。下载方法：系统设置 → 辅助功能 → 朗读内容 → 系统声音 → 管理声音，中文选 Lilian（高级）或婷婷（增强），英文选 Ava（高级）或 Zoe（高级），下载完重启服务。更好的办法是上面接云端神经语音。</p>'}
   </div>`;
 }
 function wireVoices() {
   const box = document.getElementById('voices'); if (!box) return;
-  const sel = (lang: string) => box.querySelector<HTMLSelectElement>(`select[data-lang="${lang}"]`)!;
+  const sel = (lang: string) => box.querySelector<HTMLSelectElement>(`select[data-lang="${lang}"]`);
+  const val = (id: string) => (document.getElementById(id) as HTMLInputElement | null)?.value.trim() ?? '';
+  const eng = document.getElementById('vengine') as HTMLSelectElement | null;
+  const showFields = () => {
+    const p = eng?.value ?? 'mac';
+    const c = document.getElementById('vcloud'); if (c) c.hidden = p === 'mac';
+    const h = document.getElementById('vhelp'); if (h) h.textContent = p === 'mac' ? '' : ENGINE_HELP[p as Provider];
+    box.querySelectorAll<HTMLInputElement>('[data-for]').forEach(i => { i.hidden = i.dataset.for !== p; });
+  };
+  if (eng) { showFields(); eng.onchange = () => { showFields(); if (eng.value === 'mac') void connect(); }; }
+  const connect = guard(async () => {
+    const p = eng!.value;
+    await api('/v1/tts/engine', { method: 'PUT', body: JSON.stringify(p === 'mac' ? { provider: 'mac' } : {
+      provider: p, api_key: val('vkey'), region: val('vregion'), appid: val('vappid'), cluster: val('vcluster'), base_url: val('vbase'), model: val('vmodel'), style: val('vstyle'),
+    }) });
+    toast(p === 'mac' ? '改用这台 Mac 的声音' : '已连上，点“试听”听听看');
+    await VIEWS.设备与数据();
+  });
+  const btn = document.getElementById('vconnect'); if (btn) btn.onclick = connect;
   let playing: HTMLAudioElement | null = null;
   box.querySelectorAll<HTMLButtonElement>('[data-try]').forEach(b => b.onclick = guard(async () => {
     const lang = b.dataset.try as 'zh' | 'en';
     b.disabled = true; b.textContent = '生成中…';
     try {
-      const r = await fetch(`/v1/tts?lang=${lang}&voice=${encodeURIComponent(sel(lang).value)}&text=${encodeURIComponent(SAMPLE[lang])}`, { headers: { authorization: `Bearer ${token}` } });
+      const r = await fetch(`/v1/tts?lang=${lang}&voice=${encodeURIComponent(sel(lang)!.value)}&text=${encodeURIComponent(SAMPLE[lang])}`, { headers: { authorization: `Bearer ${token}` } });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? '试听失败');
+      if (r.headers.get('x-voice-engine') === 'mac' && eng && eng.value !== 'mac') toast('云端语音没连上，这次是 Mac 的声音。检查密钥和区域。');
       playing?.pause();
       playing = new Audio(URL.createObjectURL(await r.blob())); await playing.play();
     } finally { b.disabled = false; b.textContent = '▶ 试听'; }
   }));
-  (document.getElementById('vsave') as HTMLButtonElement).onclick = guard(async () => {
-    await api('/v1/tts/voices', { method: 'PUT', body: JSON.stringify({ zh: sel('zh').value, en: sel('en').value }) });
+  const save = document.getElementById('vsave');
+  if (save) save.onclick = guard(async () => {
+    await api('/v1/tts/voices', { method: 'PUT', body: JSON.stringify({ zh: sel('zh')!.value, en: sel('en')!.value }) });
     toast('已保存，Pad 下一句开始用新的声音');
   });
 }

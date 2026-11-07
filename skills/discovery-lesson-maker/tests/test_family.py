@@ -8,6 +8,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 from family_flow import all_lines, check_flow, child_lines, line_file, stray_chinese
+from make_family_audio import speakable
 
 FLOW = json.loads((ROOT / 'examples/lesson-flow.example.json').read_text(encoding='utf-8'))
 
@@ -152,6 +153,16 @@ def _fnv(text):
 
 
 FNV_ZH_QIAO = _fnv('zh|桥')
+
+
+class SpeakableTests(unittest.TestCase):
+    """配音前的清理规则和服务器 voice-cloud.ts 的 speakable() 一致（test/server.test.ts 里同样三句）。"""
+
+    def test_same_as_server(self):
+        self.assertEqual(speakable('太棒了！！！🎉 你找到了~'), '太棒了！ 你找到了')
+        self.assertEqual(speakable('我们来想一想……答案是多少？？'), '我们来想一想，答案是多少？')
+        self.assertEqual(speakable('Wow!!! Great job...'), 'Wow! Great job')
+
 
 if __name__ == '__main__':
     unittest.main()

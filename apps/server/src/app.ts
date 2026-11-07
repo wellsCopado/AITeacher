@@ -18,6 +18,9 @@ import { wishBook } from './wishes.js';
 import { exploreRoutes } from './explore.js';
 import type { CodexOpts } from '../../../packages/studio/src/codex.js';
 import { macSay, SYSTEM_VOICE, type Lang, type Synth } from './tts.js';
+import { CLOUD_DEFAULTS, CLOUD_VOICES, ENGINE_LABEL, PROVIDERS, checkCloudConfig, cloudSynth, lineBySegments, type CloudConfig, type CloudSynth, type Provider } from './voice-cloud.js';
+
+const CLOUD_KEY = 'voice.cloud';
 
 export { shanghaiDate, TZ } from './http.js';
 
@@ -428,42 +431,98 @@ export async function buildApp(o: AppOptions) {
 
   homeworkRoutes(app, { store, root: o.root, dataDir: o.dataDir ?? join(dirname(o.dbPath), 'homework'), today, iso, parent, childParam, pin: o.pin });
   // ---- narration audio (Spec: sound on the Pad) ----
-  const tts = o.tts === undefined ? macSay() : o.tts;
-  // Which voice reads: the parent's choice in the app, else ADW_VOICE_ZH / ADW_VOICE_EN, else the most natural one found.
-  const known = (lang: Lang, name: unknown): name is string => typeof name === 'string' && (name === SYSTEM_VOICE || !tts?.list || tts.list.some(v => v.lang === lang && v.name === name));
-  if (tts) for (const lang of ['zh', 'en'] as Lang[]) {
+  // The Mac's own voices are the free fallback; a cloud neural voice (Azure / 火山 / OpenAI), when the parent
+  // set one up, reads instead because it sounds like a trained announcer. If the cloud fails, the Mac reads.
+  const mac = o.tts === undefined ? macSay() : o.tts;
+  const loadCloud = (): CloudConfig | null => { try { return JSON.parse(store.setting(CLOUD_KEY) ?? 'null'); } catch { return null; } };
+  let cloud: CloudSynth | null = null, cloudError: string | null = null;
+  const useCloud = (c: CloudConfig | null) => { cloud = c ? cloudSynth(c, o.fetchImpl) : null; cloudError = null; };
+  useCloud(loadCloud());
+  const active = (): Synth | null => cloud ?? mac;
+  const engineName = () => (cloud ? cloud.provider : mac ? 'mac' : null);
+  // Which Mac voice reads: the parent's choice in the app, else ADW_VOICE_ZH / ADW_VOICE_EN, else the most natural one found.
+  const known = (lang: Lang, name: unknown): name is string => {
+    const t = active();
+    if (typeof name !== 'string') return false;
+    if (t === cloud) return /^[\w.\-()\u4e00-\u9fff ]{1,80}$/.test(name);
+    return name === SYSTEM_VOICE || !t?.list || t.list.some(v => v.lang === lang && v.name === name);
+  };
+  if (mac) for (const lang of ['zh', 'en'] as Lang[]) {
     const want = store.setting(`voice.${lang}`) ?? process.env[`ADW_VOICE_${lang.toUpperCase()}`];
-    if (want && known(lang, want)) tts.voices[lang] = want;
+    if (want && (want === SYSTEM_VOICE || !mac.list || mac.list.some(v => v.lang === lang && v.name === want))) mac.voices[lang] = want;
   }
-  app.decorate('ttsVoices', tts?.voices ?? null);
+  app.decorate('ttsVoices', active()?.voices ?? null);
+  app.decorate('ttsEngine', engineName());
   const ttsDir = join(dirname(o.dbPath), 'tts');
   const making = new Map<string, Promise<Buffer>>();
-  app.get('/v1/tts/info', anyone, async () => ({ available: !!tts, voices: tts?.voices ?? null }));
+  app.get('/v1/tts/info', anyone, async () => ({ available: !!active(), voices: active()?.voices ?? null, engine: engineName() }));
   // The parent picks the voices (and can hear one before choosing it).
-  app.get('/v1/tts/voices', parent, async () => ({ available: !!tts, current: tts?.voices ?? null, options: tts?.list ?? [] }));
+  app.get('/v1/tts/voices', parent, async () => ({ available: !!active(), engine: engineName(), current: active()?.voices ?? null, options: active()?.list ?? [], error: cloudError }));
   app.put('/v1/tts/voices', parent, async (req) => {
-    if (!tts) fail(501, '这台服务器不能生成语音（需要在 Mac 上运行）');
+    const t = active();
+    if (!t) fail(501, '这台服务器不能生成语音（需要在 Mac 上运行，或在下面接一个云端语音）');
     const b = (req.body ?? {}) as Partial<Record<Lang, string>>;
-    for (const lang of ['zh', 'en'] as Lang[]) if (b[lang] !== undefined && !known(lang, b[lang])) fail(400, `这台 Mac 上没有这个${lang === 'zh' ? '中文' : '英文'}声音`);
-    for (const lang of ['zh', 'en'] as Lang[]) if (b[lang]) { tts!.voices[lang] = b[lang]!; store.setSetting(`voice.${lang}`, b[lang]!); }
-    return { current: tts!.voices };
+    for (const lang of ['zh', 'en'] as Lang[]) if (b[lang] !== undefined && !known(lang, b[lang])) fail(400, t === cloud ? '声音名称不对' : `这台 Mac 上没有这个${lang === 'zh' ? '中文' : '英文'}声音`);
+    for (const lang of ['zh', 'en'] as Lang[]) if (b[lang]) {
+      t!.voices[lang] = b[lang]!;
+      if (t === cloud) { const c = loadCloud()!; c.voices = { ...c.voices, [lang]: b[lang]! }; store.setSetting(CLOUD_KEY, JSON.stringify(c)); }
+      else store.setSetting(`voice.${lang}`, b[lang]!);
+    }
+    return { current: t!.voices };
+  });
+  // Which engine reads. The key stays on this server; the app only ever sees its last 4 characters.
+  const maskedCloud = () => { const c = loadCloud(); if (!c) return null; const { api_key, ...rest } = c; return { ...rest, has_key: !!api_key, key_tail: api_key ? api_key.slice(-4) : null }; };
+  app.get('/v1/tts/engine', parent, async () => ({
+    engine: engineName(), mac: !!mac, cloud: maskedCloud(), error: cloudError,
+    providers: PROVIDERS.map(p => ({ id: p, label: ENGINE_LABEL[p], defaults: CLOUD_DEFAULTS[p], voices: CLOUD_VOICES[p] })),
+  }));
+  app.put('/v1/tts/engine', parent, async (req) => {
+    const b = (req.body ?? {}) as Omit<Partial<CloudConfig>, 'provider'> & { provider?: string };
+    if (b.provider === 'mac') { store.setSetting(CLOUD_KEY, 'null'); useCloud(null); return { engine: engineName(), cloud: null }; }
+    const keep = loadCloud();
+    const key = typeof b.api_key === 'string' && b.api_key.trim() ? b.api_key.trim() : keep?.provider === b.provider ? keep?.api_key : undefined;
+    const pick = (k: keyof CloudConfig) => { const v = (b as Record<string, unknown>)[k]; return typeof v === 'string' && v.trim() ? v.trim() : undefined; };
+    const c: CloudConfig = {
+      provider: b.provider as Provider, api_key: key ?? '',
+      ...(pick('region') ? { region: pick('region') } : {}), ...(pick('appid') ? { appid: pick('appid') } : {}), ...(pick('cluster') ? { cluster: pick('cluster') } : {}),
+      ...(pick('base_url') ? { base_url: pick('base_url') } : {}), ...(pick('model') ? { model: pick('model') } : {}), ...(pick('style') ? { style: pick('style') } : {}),
+      voices: { ...(PROVIDERS.includes(b.provider as Provider) ? CLOUD_DEFAULTS[b.provider as Provider] : { zh: '', en: '' }), ...(keep && keep.provider === b.provider ? keep.voices : {}), ...(b.voices ?? {}) },
+    };
+    const bad = checkCloudConfig(c);
+    if (bad) fail(400, bad);
+    store.setSetting(CLOUD_KEY, JSON.stringify(c)); useCloud(c);
+    return { engine: engineName(), cloud: maskedCloud() };
   });
   app.get('/v1/tts', anyone, async (req, reply) => {
-    const q = req.query as { lang?: string; text?: string; voice?: string };
+    const q = req.query as { lang?: string; text?: string; voice?: string; whole?: string };
     const lang: Lang = q.lang === 'en' ? 'en' : q.lang === 'zh' ? 'zh' : fail(400, '语言只能是 zh 或 en');
     const text = String(q.text ?? '').trim();
     if (!text || text.length > 600) fail(400, '朗读的文字要在 600 字以内');
-    if (!tts) fail(501, '这台服务器不能生成语音（需要在 Mac 上运行）');
+    const t = active();
+    if (!t) fail(501, '这台服务器不能生成语音（需要在 Mac 上运行）');
     if (q.voice !== undefined && !known(lang, q.voice)) fail(400, '没有这个声音');
-    const voice = q.voice ?? tts!.voices[lang];
-    const key = sha(`${voice}|${lang}|${text}`).slice(0, 32), file = join(ttsDir, `${key}.wav`);
+    // whole=1: the Pad sends a whole line, mixed Chinese and English included, and gets one clip back.
+    const whole = q.whole === '1';
+    const voice = q.voice ?? t!.voices[lang];
+    const make = (s: Synth) => whole && !q.voice
+      ? (s === cloud ? cloud!.makeLine(text, lang) : lineBySegments(s, text, lang))
+      : s.make(text, lang, s === t ? voice : undefined);
+    const key = sha(`${engineName()}|${whole ? `${t!.voices.zh}+${t!.voices.en}` : voice}|${lang}|${whole ? 'line' : ''}|${text}`).slice(0, 32), file = join(ttsDir, `${key}.wav`);
     let buf: Buffer;
     if (existsSync(file)) buf = readFileSync(file);
     else {
-      if (!making.has(key)) making.set(key, tts!.make(text, lang, voice).then(b => { mkdirSync(ttsDir, { recursive: true }); writeFileSync(file, b); return b; }).finally(() => making.delete(key)));
-      buf = await making.get(key)!;
+      if (!making.has(key)) making.set(key, make(t!).then(b => { mkdirSync(ttsDir, { recursive: true }); writeFileSync(file, b); cloudError = null; return b; }).finally(() => making.delete(key)));
+      try { buf = await making.get(key)!; }
+      catch (e) {
+        // A cloud voice that fails (no network, key used up) must not leave the lesson silent: the Mac reads it, uncached.
+        if (t !== cloud || !mac) throw e;
+        cloudError = `${new Date().toISOString().slice(0, 16)} ${(e as Error).message}`.slice(0, 300);
+        req.log.warn({ err: e }, 'cloud voice failed, Mac voice reads instead');
+        buf = await (whole && !q.voice ? lineBySegments(mac, text, lang) : mac.make(text, lang));
+        return reply.header('cache-control', 'no-store').header('x-voice-engine', 'mac').type('audio/wav').send(buf);
+      }
     }
-    return reply.header('cache-control', 'private, max-age=2592000').type('audio/wav').send(buf);
+    return reply.header('cache-control', 'private, max-age=2592000').header('x-voice-engine', engineName() ?? '').type('audio/wav').send(buf);
   });
 
   appRoutes(app, { root: o.root, parent });

@@ -150,7 +150,7 @@ lesson.answer('span', { ok: world.state.span === 30, good: '桥墩位置放对�
 
 - [ ] 用的是 `adw-family.mjs`，没有另写计时和夸奖。
 - [ ] `lesson-flow.json` 通过 `check_package.py`，没有 errors（含数学优先、按年级的句数、课末心愿选项）。
-- [ ] `python3 scripts/make_family_audio.py <web/public>` 录好了全部声音，并亲耳听过几句。
+- [ ] `python3 scripts/make_family_audio.py <web/public> --engine azure` 录好了全部声音（没有云端密钥才用 `--engine mac`，并写明），按 [语音制作](voice-direction.md) 的听检验收听过 8 句，没有一句“有 AI 味”。
 - [ ] 3 个以上实验，孩子真能用手指在平板上做。
 - [ ] 对照图里有实时截图（有“看”的步骤时还有预渲染图），真实尺寸带来源，自评按假感毛病表逐条看过。
 - [ ] 从头到尾走一遍：故意答错 3 次，看演示和同类题；等一步超时，看是否自动进下一步；点休息再继续。

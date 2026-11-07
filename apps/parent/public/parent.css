@@ -62,3 +62,4 @@ table{width:100%;border-collapse:collapse;background:var(--surface);border-radiu
 .xdoc pre{white-space:pre-wrap}
 #ximport{flex-wrap:wrap;gap:10px;align-items:center}
 #xmake{margin-top:14px;padding-top:10px;border-top:1px solid var(--line)}#xmake h4{margin:0 0 4px}
+.enginepick{margin:6px 0 10px}.enginepick select{min-width:300px;max-width:100%}.enginepick input{min-width:200px}p.warn{color:#9a6400}

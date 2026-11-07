@@ -25,7 +25,8 @@ export const readingTime = (text: string) => {
 };
 
 /** Fetches narration audio (a WAV file) made by the family server's voice. */
-export type FetchAudio = (text: string, lang: Lang) => Promise<ArrayBuffer>;
+/** `whole: true` when the server reads a whole mixed-language line as one clip (`/v1/tts?whole=1`). */
+export type FetchAudio = ((text: string, lang: Lang) => Promise<ArrayBuffer>) & { whole?: boolean };
 
 /** A short silent WAV, played inside the first tap so iPad lets the same audio element play later. */
 function silentWav() {
@@ -54,7 +55,11 @@ export interface Voice {
   readonly source: 'server' | 'device' | 'none';
 }
 
-export function createVoice(scale = 1, fetchAudio?: FetchAudio): Voice {
+/**
+ * wholeLines: the server reads a whole line (mixed Chinese and English included) as one clip. One clip per line
+ * keeps the voice's own sentence melody; stitching short runs with gaps is what made lines sound robotic.
+ */
+export function createVoice(scale = 1, fetchAudio?: FetchAudio, opts: { wholeLines?: boolean } = {}): Voice {
   // Server voice first: it plays through an <audio> element, which iPad treats as media (it plays even with
   // the mute switch on). The browser's own speech engine is the fallback.
   const el = typeof Audio !== 'undefined' ? new Audio() : null;
@@ -167,7 +172,7 @@ export function createVoice(scale = 1, fetchAudio?: FetchAudio): Voice {
     if (serverOk && el) {
       try {
         if (synth?.speaking) synth.cancel();
-        const bufs = parts.map(r => clip(r.text, r.lang));
+        const bufs = (opts.wholeLines ?? fetchAudio?.whole) ? [clip(text, lang)] : parts.map(r => clip(r.text, r.lang));
         for (const b of bufs) { const buf = await b; if (my !== gen) return; await playClip(buf, my); }
         return;
       } catch (e) {

@@ -101,6 +101,22 @@ describe('each rule catches its failure', () => {
     const sp2 = clone(base); sp2.encouragement = { persist: ['加油！', '螳螂虾的洞也是一点一点挖出来的。'] };
     expect(failed(sp2)).toContain('V18');
   });
+  it('V28 lines the child hears are written to be read aloud, not looked at', () => {
+    expect(failed(base)).not.toContain('V28');
+    const issues = (sp: LessonSpec) => validate(sp, ctx()).results.find(r => r.id === "V28")!.issues.map(i => i.msg).join(' | ');
+    const sp = clone(base);
+    sp.intro.paragraphs[0] = '太棒了！！！我们出发吧~';
+    sp.challenges[0].hints = ['想一想……长是 3.5m，宽是 1/4 那么多'];
+    const msg = issues(sp);
+    expect(msg).toContain('连用了几个');
+    expect(msg).toContain('~ 或表情');
+    expect(msg).toContain('省略号');
+    expect(msg).toContain('单位或分数');
+    expect(validate(sp, ctx()).results.find(r => r.id === "V28")!.level).toBe('warn');
+    // English narration and answer expressions are left alone
+    const sp2 = clone(base); sp2.challenges[0].answers = [{ ...sp2.challenges[0].answers[0] }];
+    expect(issues(sp2)).toBe('');
+  });
   /** L-PA with a hands-on first question (size the survey area 5 × 3 m) and choice questions after it. */
   const handsOn = () => {
     const sp = clone(base);
