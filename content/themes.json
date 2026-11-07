@@ -1,12 +1,13 @@
 {
   "skins": {
-    "reef": { "name": "珊瑚礁样方调查", "component": "PerimeterArea", "status": "已有" },
-    "garden": { "name": "花园围栏与铺砖", "component": "PerimeterArea", "status": "已有" },
-    "blocks": { "name": "积木方块", "component": "ArrayMultiplier", "status": "已有" },
-    "insect_meadow": { "name": "草地昆虫样方调查", "component": "PerimeterArea", "status": "待开发" },
-    "tower_floor": { "name": "高楼楼层平面", "component": "PerimeterArea", "status": "待开发" },
-    "tunnel_walkway": { "name": "隧道检修通道", "component": "PerimeterArea", "status": "待开发" },
-    "robot_vacuum": { "name": "扫地机器人清扫", "component": "PerimeterArea", "status": "待开发" }
+    "reef": {"name": "珊瑚礁样方调查", "component": "PerimeterArea", "habitat": "sea", "status": "已有", "depicts": ["螳螂虾", "珊瑚礁", "珊瑚", "海底"], "words": ["卷尺", "样方", "PVC", "tape", "quadrat"], "shows": "珊瑚礁边的沙底：黄色卷尺沿调查区拉一圈（周长），白色 PVC 样方框 1 米 × 1 米一格一格铺满（面积），沙里有洞，课的主角是海里的动物时它在洞口出现"},
+    "garden": {"name": "花园围栏与铺砖", "component": "PerimeterArea", "habitat": "yard", "status": "已有", "depicts": ["花园", "院子", "栅栏", "围栏", "地砖"], "words": ["测距轮", "地砖", "石板", "栅栏", "measuring wheel", "paving"], "shows": "院子里一块围着木栅栏的土地（每 1 米一根桩）：测距轮沿栅栏走一圈（周长），1 米见方的石板地砖一块一块铺满（面积）。场景里没有动物模型：陆地动物在孩子点开讲它的热点时用实拍照片和视频出现"},
+    "blocks": {"name": "积木方块", "component": "ArrayMultiplier", "habitat": "none", "status": "已有", "depicts": ["积木"], "words": ["积木", "blocks"], "shows": "木托盘上一行一行摆积木方块，能转 90° 换个方向看。只有积木，没有别的东西，所以只用于没有主角的中性题材"},
+    "robot_factory": {"name": "机器人工厂：机械臂一行一行摆齿轮", "component": "ArrayMultiplier", "habitat": "factory", "status": "已有", "realism": "家长判定不够写实，写实版制作中，替换前这类课不发布", "depicts": ["机器人工厂", "机械臂", "齿轮", "工厂"], "words": ["机械臂", "齿轮", "转台", "robot arm", "gears"], "shows": "工厂里工业机械臂把齿轮一行一行摆进托盘，转台能转 90°"},
+    "insect_meadow": {"name": "草地昆虫样方调查", "component": "PerimeterArea", "habitat": "yard", "status": "待开发"},
+    "tower_floor": {"name": "高楼楼层平面", "component": "PerimeterArea", "habitat": "city", "status": "待开发"},
+    "tunnel_walkway": {"name": "隧道检修通道", "component": "PerimeterArea", "habitat": "city", "status": "待开发"},
+    "robot_vacuum": {"name": "扫地机器人清扫", "component": "PerimeterArea", "habitat": "home", "status": "待开发"}
   },
   "topics": {
     "螳螂虾": ["reef"],
@@ -16,7 +17,31 @@
     "小虫子": ["insect_meadow"],
     "高楼": ["tower_floor"],
     "大桥和隧道": ["tunnel_walkway"],
-    "机器人": ["robot_vacuum"]
+    "机器人": ["robot_factory", "robot_vacuum"],
+    "机械臂": ["robot_factory"],
+    "工厂": ["robot_factory"],
+    "齿轮": ["robot_factory"],
+    "蟋蟀": ["insect_meadow"],
+    "蚂蚁": ["insect_meadow"],
+    "蝴蝶": ["insect_meadow"],
+    "螳螂": ["insect_meadow"],
+    "甲虫": ["insect_meadow"],
+    "瓢虫": ["insect_meadow"],
+    "蜻蜓": ["insect_meadow"],
+    "蚂蚱": ["insect_meadow"],
+    "蝗虫": ["insect_meadow"]
   },
-  "neutral": { "PerimeterArea": "garden", "ArrayMultiplier": "blocks" }
+  "neutral": {"PerimeterArea": "garden", "ArrayMultiplier": "blocks"},
+  "habitats": {
+    "sea": {"name": "海里", "words": ["海", "珊瑚", "鲸", "鲨", "鳐", "水母", "章鱼", "乌贼", "鱿鱼", "墨鱼", "螳螂虾", "龙虾", "对虾", "虾", "蟹", "贝", "蚌", "牡蛎", "海星", "海胆", "海葵", "博比特虫", "鱼"]},
+    "fresh": {"name": "河湖池塘", "words": ["娃娃鱼", "金鱼", "锦鲤", "鲤鱼", "鲫鱼", "草鱼", "泥鳅", "蝌蚪", "青蛙", "小龙虾", "田螺", "河", "湖", "池塘", "溪"]},
+    "yard": {"name": "院子和草丛", "words": ["昆虫", "虫", "蟋蟀", "蝈蝈", "蚂蚁", "蚁", "蝴蝶", "蝶", "蛾", "螳螂", "甲虫", "瓢虫", "独角仙", "天牛", "蜻蜓", "蚂蚱", "蝗虫", "蝉", "知了", "蜜蜂", "蜂", "萤火虫", "蜗牛", "蚯蚓", "蜘蛛", "鼠妇", "西瓜虫", "蜈蚣", "刺猬", "壁虎", "麻雀", "喜鹊", "鸽子", "小鸟", "花", "草", "树", "种子", "院子", "花园", "猫", "狗", "兔", "仓鼠", "鸡"]},
+    "wild": {"name": "野外（森林、草原、沼泽……）", "words": ["狮子", "老虎", "豹", "大象", "长颈鹿", "斑马", "犀牛", "河马", "熊", "熊猫", "狼", "狐狸", "鹿", "猴", "猩猩", "袋鼠", "鳄鱼", "蛇", "蜥蜴", "鹰", "鸵鸟", "企鹅", "鲸头鹳", "恐龙", "猫头鹰", "狗熊", "森林", "草原", "沙漠", "沼泽", "雨林"]},
+    "factory": {"name": "工厂", "words": ["机械臂", "工厂", "齿轮"]},
+    "city": {"name": "城市", "words": ["上海", "高楼", "大厦", "中心", "大桥", "桥", "隧道", "楼", "塔"]},
+    "home": {"name": "家里", "words": ["扫地机"]},
+    "sky": {"name": "天上和太空", "words": ["火箭", "飞机", "卫星", "飞船", "太空", "星球", "月亮", "太阳"]},
+    "harbor": {"name": "港口和水面", "words": ["船", "港口", "码头"]}
+  },
+  "habitat_default": {"organism": "wild", "object": "yard"}
 }

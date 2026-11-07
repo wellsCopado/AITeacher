@@ -1,0 +1,18 @@
+{
+  "scope": "family",
+  "use": [
+    "T-sand-ripples",
+    "M-pvc-quadrat",
+    "M-survey-tape",
+    "H-park-daylight"
+  ],
+  "pending": [
+    {
+      "asset_id": "M-peacock-mantis-shrimp",
+      "kind": "organism",
+      "realism_required": "scan",
+      "status": "待采购：标本扫描、商用模型或依据照片 AI 生成",
+      "until_ready": "不展示该生物，只显示洞口和文字讲解"
+    }
+  ]
+}

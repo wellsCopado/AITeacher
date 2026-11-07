@@ -1,0 +1,526 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { buildApp, shanghaiDate } from '../apps/server/src/app.js';
+import { contentHash, REVIEW_CHECKLIST } from '../packages/cli/src/lib.js';
+import { Queue } from '../apps/pad/src/queue.js';
+import { summarize } from '../apps/parent/src/summary.js';
+import type { LessonSpec } from '../packages/schema/src/index.js';
+
+const root = join(import.meta.dirname, '..');
+const PIN = '2468';
+const spec = (lesson: string, version = '1.0') => JSON.parse(readFileSync(join(root, 'content', 'lessons', lesson, version, 'lessonspec.json'), 'utf8')) as LessonSpec;
+function freeze(sp: LessonSpec, at = '2026-10-24T08:00:00Z'): LessonSpec {
+  const f: LessonSpec = { ...sp, review_records: Object.entries(REVIEW_CHECKLIST).map(([category, checked]) => ({ category: category as '科学', reviewer: '家长', checked, at })), published_at: at };
+  f.content_hash = contentHash(f);
+  return f;
+}
+
+let clock = new Date('2026-10-24T02:00:00Z'); // 10:00 in Shanghai
+let app: Awaited<ReturnType<typeof buildApp>>;
+const req = async (method: string, url: string, token?: string, body?: unknown) => {
+  const r = await app.inject({ method: method as 'GET', url, headers: token ? { authorization: `Bearer ${token}` } : {}, ...(body === undefined ? {} : { payload: body as object }) });
+  return { status: r.statusCode, body: r.body ? JSON.parse(r.body) : null };
+};
+const login = async () => (await req('POST', '/v1/auth/login', undefined, { pin: PIN })).body.token as string;
+async function pair(parent: string, label = '哥哥的 iPad') {
+  const { code } = (await req('POST', '/v1/pair/start')).body;
+  expect((await req('GET', `/v1/pair/${code}`)).body.status).toBe('waiting');
+  expect((await req('POST', `/v1/pair/${code}/approve`, parent, { label })).status).toBe(200);
+  const got = (await req('GET', `/v1/pair/${code}`)).body;
+  expect(got.status).toBe('approved');
+  expect((await req('GET', `/v1/pair/${code}`)).status).toBe(404); // the token is handed out once
+  return got.token as string;
+}
+
+beforeEach(async () => {
+  clock = new Date('2026-10-24T02:00:00Z');
+  app = await buildApp({ root, dbPath: join(mkdtempSync(join(tmpdir(), 'adw-')), 'db.sqlite'), pin: PIN, now: () => clock });
+});
+afterEach(async () => { await app.close(); });
+
+describe('family server', () => {
+  it('uses the Shanghai date, not UTC', () => {
+    expect(shanghaiDate(new Date('2026-10-24T17:30:00Z'))).toBe('2026-10-25');
+  });
+
+  it('needs the PIN and locks after repeated failures', async () => {
+    expect((await req('GET', '/v1/lessons')).status).toBe(401);
+    for (let i = 0; i < 5; i++) expect((await req('POST', '/v1/auth/login', undefined, { pin: '0000' })).status).toBe(401);
+    expect((await req('POST', '/v1/auth/login', undefined, { pin: PIN })).status).toBe(429);
+  });
+
+  it('seeds children and interests from content/', async () => {
+    const t = await login();
+    expect((await req('GET', '/v1/children', t)).body.map((c: { id: string }) => c.id)).toEqual(['gege', 'meimei']);
+    const ints = (await req('GET', '/v1/interests?child=gege', t)).body;
+    expect(ints.some((x: { topic: string }) => x.topic === '螳螂虾')).toBe(true);
+    expect((await req('GET', '/v1/interests?child=meimei', t)).body).toEqual([]);
+  });
+
+  it('publishes only frozen, fully reviewed, valid lessons, and never overwrites a version', async () => {
+    const t = await login();
+    const sp = freeze(spec('L-PA'));
+    expect((await req('POST', '/v1/lessons', t, spec('L-PA'))).status).toBe(400);
+    expect((await req('POST', '/v1/lessons', t, { ...sp, title: '改过的标题' })).body.error).toMatch(/哈希/);
+    const partial = { ...sp, review_records: sp.review_records!.slice(0, 2) }; partial.content_hash = contentHash(partial);
+    expect((await req('POST', '/v1/lessons', t, partial)).body.error).toMatch(/审核未完成/);
+    expect((await req('POST', '/v1/lessons', t, sp)).status).toBe(201);
+    expect((await req('POST', '/v1/lessons', t, sp)).body.status).toBe('已存在');
+    const changed = freeze({ ...spec('L-PA'), parent_tip: '另一句' });
+    expect((await req('POST', '/v1/lessons', t, changed)).status).toBe(409);
+  });
+
+  it('re-validates on the server with its own interest records', async () => {
+    const t = await login();
+    // Give 妹妹's lesson a theme built on 哥哥's interest: V14 must refuse it.
+    const bad = spec('L-ARR');
+    bad.theme = { ...bad.theme, neutral: false, interest_refs: ['IO-0003'] };
+    const f = freeze(bad);
+    const r = await req('POST', '/v1/lessons', t, f);
+    expect(r.status).toBe(422);
+    expect(r.body.report.results.find((x: { id: string }) => x.id === 'V14').ok).toBe(false);
+  });
+
+  it('shows a child only the lessons scheduled today or granted, and only their own', async () => {
+    const t = await login();
+    expect((await req('PUT', '/v1/schedule/auto', t, { on: false })).body.auto).toBe(false); // the parent schedules by hand here
+    await req('POST', '/v1/lessons', t, freeze(spec('L-PA')));
+    await req('POST', '/v1/lessons', t, freeze(spec('L-ARR')));
+    const pad = await pair(t);
+    expect((await req('GET', '/v1/lessons', pad)).status).toBe(403);
+    expect((await req('GET', '/v1/today?child=gege', pad)).body.lessons).toEqual([]);
+    expect((await req('GET', '/v1/lessons/L-PA@1.0?child=gege', pad)).status).toBe(403);
+    expect((await req('PUT', '/v1/schedule', t, { date: '2026-10-24', child: 'gege', lessons: ['L-ARR@1.0'] })).status).toBe(400);
+    expect((await req('PUT', '/v1/schedule', t, { date: '2026-10-24', child: 'gege', lessons: ['L-PA@1.0'] })).status).toBe(200);
+    expect((await req('GET', '/v1/today?child=gege', pad)).body.lessons.map((l: { key: string }) => l.key)).toEqual(['L-PA@1.0']);
+    expect((await req('GET', '/v1/lessons/L-PA@1.0?child=gege', pad)).body.lesson_id).toBe('L-PA');
+    expect((await req('GET', '/v1/lessons/L-PA@1.0?child=meimei', pad)).status).toBe(403);
+    clock = new Date('2026-10-24T16:30:00Z'); // 00:30 next day in Shanghai
+    expect((await req('GET', '/v1/today?child=gege', pad)).body.lessons).toEqual([]);
+    // A 3-day grant covers today and the next two days.
+    expect((await req('POST', '/v1/grants', t, { child: 'meimei', lesson: 'L-ARR@1.0', days: 3 })).body.expires_on).toBe('2026-10-27');
+    expect((await req('POST', '/v1/grants', t, { child: 'meimei', lesson: 'L-ARR@1.0', days: 30 })).status).toBe(400);
+    expect((await req('GET', '/v1/today?child=meimei', pad)).body.lessons[0].reason).toBe('临时授权');
+    clock = new Date('2026-10-27T15:00:00Z');
+    expect((await req('GET', '/v1/today?child=meimei', pad)).body.lessons).toHaveLength(1);
+    clock = new Date('2026-10-27T16:30:00Z');
+    expect((await req('GET', '/v1/today?child=meimei', pad)).body.lessons).toEqual([]);
+  });
+
+  it('schedules one unfinished lesson a day by itself, and the parent can change or cancel any day', async () => {
+    const t = await login();
+    const pad = await pair(t);
+    const todayKeys = async (child = 'gege') => (await req('GET', `/v1/today?child=${child}`, pad)).body.lessons.map((l: { key: string }) => l.key);
+    expect(await todayKeys()).toEqual([]); // nothing published yet
+    await req('POST', '/v1/lessons', t, freeze(spec('L-PA')));
+    expect(await todayKeys()).toEqual(['L-PA@1.0']);
+    expect(await todayKeys('meimei')).toEqual([]); // never a sibling's lesson
+    let plan = (await req('GET', '/v1/schedule/plan?days=3', t)).body;
+    expect(plan.auto).toBe(true);
+    expect(plan.days[0].kids.find((k: { child: string }) => k.child === 'gege')).toMatchObject({ mode: 'auto', lessons: [{ key: 'L-PA@1.0', finished: false }] });
+    expect(plan.days[1].kids.find((k: { child: string }) => k.child === 'gege').mode).toBe('none'); // only one lesson, assumed done today
+
+    // The parent cancels today; that day stays theirs, and can be handed back.
+    await req('PUT', '/v1/schedule', t, { date: '2026-10-24', child: 'gege', lessons: [] });
+    expect(await todayKeys()).toEqual([]);
+    expect((await req('DELETE', '/v1/schedule/2026-10-24/gege', t)).status).toBe(200);
+    expect(await todayKeys()).toEqual(['L-PA@1.0']);
+
+    // Finished today: still today's lesson; tomorrow the next unfinished one, or nothing when all are done.
+    await req('POST', '/v1/sessions/sess-0000009/events', pad, { child: 'gege', lesson: 'L-PA@1.0', events: [{ id: 'ev-00000091', at: '2026-10-24T02:10:00Z', type: 'lesson_end', solved: [] }] });
+    expect(await todayKeys()).toEqual(['L-PA@1.0']);
+    clock = new Date('2026-10-24T16:30:00Z');
+    expect(await todayKeys()).toEqual([]);
+    plan = (await req('GET', '/v1/schedule/plan?days=2', t)).body;
+    expect(plan.days[0].kids.find((k: { child: string }) => k.child === 'gege').mode).toBe('none');
+
+    // Turned off: nothing is picked by itself any more.
+    await req('PUT', '/v1/schedule/auto', t, { on: false });
+    await req('POST', '/v1/lessons', t, freeze(spec('L-ARR')));
+    expect(await todayKeys('meimei')).toEqual([]);
+    await req('PUT', '/v1/schedule/auto', t, { on: true });
+    expect(await todayKeys('meimei')).toEqual(['L-ARR@1.0']);
+  });
+
+  it('lets the tablet app find this server and download itself, and shows the parent the address', async () => {
+    expect((await req('GET', '/v1/hello')).body).toMatchObject({ app: 'ai-discovery-world' }); // no sign-in: asked before pairing
+    expect((await req('GET', '/v1/server-info')).status).toBe(401);
+    const info = (await req('GET', '/v1/server-info', await login())).body;
+    expect(info.addresses).toEqual(expect.any(Array));
+    const shipped = existsSync(join(root, 'apps', 'android', 'release', 'ai-discovery-world-pad.apk'));
+    expect(!!info.apk).toBe(shipped);
+    const page = await app.inject({ method: 'GET', url: '/app/' });
+    expect(page.body).toContain(shipped ? '下载安装包（安卓平板）' : '还没有放到这台 Mac 上');
+    expect(page.body).toContain('iPad 装不了安卓安装包');
+    const apk = await app.inject({ method: 'GET', url: '/app/ai-discovery-world-pad.apk' });
+    expect(apk.statusCode).toBe(shipped ? 200 : 404);
+    if (shipped) expect(apk.headers['content-type']).toBe('application/vnd.android.package-archive');
+  });
+
+  it('puts a newer version of a lesson in the old one\'s place, and never schedules a lesson already learned', async () => {
+    const t = await login();
+    const pad = await pair(t);
+    const todayKeys = async () => (await req('GET', '/v1/today?child=gege', pad)).body.lessons.map((l: { key: string }) => l.key);
+    expect((await req('POST', '/v1/lessons', t, freeze(spec('L-PA')))).status).toBe(201);
+    expect((await req('POST', '/v1/lessons', t, freeze(spec('L-PA', '1.1'), '2026-10-24T09:00:00Z'))).status).toBe(201);
+    expect(await todayKeys()).toEqual(['L-PA@1.1']);
+    await req('POST', '/v1/sessions/sess-0000011/events', pad, { child: 'gege', lesson: 'L-PA@1.1', events: [{ id: 'ev-00000111', at: '2026-10-24T02:10:00Z', type: 'lesson_end', solved: [] }] });
+    clock = new Date('2026-10-24T16:30:00Z');
+    expect(await todayKeys()).toEqual([]); // 1.0 is the same lesson, already learned
+  });
+
+  it('stores events idempotently and turns a next-lesson wish into the child\'s own interest', async () => {
+    const t = await login();
+    await req('POST', '/v1/lessons', t, freeze(spec('L-PA')));
+    const pad = await pair(t);
+    const events = [
+      { id: 'ev-00000001', at: '2026-10-24T02:01:00Z', type: 'step', step: '说明' },
+      { id: 'ev-00000002', at: '2026-10-24T02:05:00Z', type: 'answer', challenge: 'c1', correct: true, hints: 1 },
+      { id: 'ev-00000003', at: '2026-10-24T02:09:00Z', type: 'next_lesson_wish', question: 'wish', answer: '机器人', source: '孩子自述' },
+      { id: 'ev-00000004', at: '2026-10-24T02:10:00Z', type: 'lesson_end', solved: ['c1'] },
+    ];
+    const body = { child: 'gege', lesson: 'L-PA@1.0', events };
+    expect((await req('POST', '/v1/sessions/sess-0000001/events', pad, body)).body).toEqual({ accepted: 4, duplicates: 0 });
+    expect((await req('POST', '/v1/sessions/sess-0000001/events', pad, body)).body).toEqual({ accepted: 0, duplicates: 4 });
+    expect((await req('POST', '/v1/sessions/sess-0000001/events', pad, { ...body, lesson: 'L-ARR@1.0' })).status).toBe(404);
+    expect((await req('POST', '/v1/sessions/sess-0000001/events', pad, { ...body, child: 'meimei' })).status).toBe(400);
+    const wishes = (await req('GET', '/v1/interests?child=gege', t)).body.filter((x: { state: string }) => x.state === '下一课心愿');
+    expect(wishes).toHaveLength(1);
+    expect(wishes[0]).toMatchObject({ topic: '机器人', source: '孩子自述', lesson_ref: 'L-PA@1.0', observed_on: '2026-10' });
+    const sessions = (await req('GET', '/v1/sessions', t)).body;
+    expect(sessions[0]).toMatchObject({ key: 'sess-0000001', child: 'gege', finished: 1, events: 4 });
+    expect((await req('GET', '/v1/today?child=gege', pad)).body.lessons).toEqual([]); // not scheduled, so not shown even though played
+    const evs = (await req('GET', '/v1/sessions/sess-0000001/events', t)).body;
+    expect(evs.map((e: { type: string }) => e.type)).toEqual(['step', 'answer', 'next_lesson_wish', 'lesson_end']);
+    expect(summarize(evs)).toContain('下一课想学：“机器人”');
+    expect((await req('GET', '/v1/sessions/sess-0000001/events', pad)).status).toBe(403);
+    // three misses, the step-by-step demo, then the similar question done alone
+    const at = '2026-10-24T02:05:00Z', miss = { id: 'x', at, type: 'answer', challenge: 'c2', correct: false, hints: 1 };
+    const exited = summarize([{ id: 'a', at: '2026-10-26T10:00:00Z', type: 'start' }, { id: 'b', at: '2026-10-26T10:04:00Z', type: 'lesson_exit', step: '互动演示' }, { id: 'c', at: '2026-10-26T15:00:00Z', type: 'start', resumed_at: '互动演示' }, { id: 'd', at: '2026-10-26T15:03:00Z', type: 'step', step: '挑战' }]);
+    expect(exited).toContain('用了大约 7 分钟');
+    expect(exited).toContain('中途退出 1 次（在「互动演示」）');
+    const helped = summarize([miss, miss, miss, { id: 'w', at, type: 'worked_example', challenge: 'c2' }, { id: 't', at, type: 'answer', challenge: 'c2', twin: true, correct: true }]);
+    expect(helped).toContain('挑战 c2：试了 3 次，还没做对，用了 1 级提示，看了一遍分步演示，同类题自己做对了。');
+  });
+
+  it('turns every wish into a prep list at once: the topic, queued oldest first, words it can\'t place wait for the parent', async () => {
+    const t = await login();
+    await req('POST', '/v1/lessons', t, freeze(spec('L-PA')));
+    const pad = await pair(t);
+    let n = 0;
+    const wish = (answer: string, at = '2026-10-24T02:09:00Z') => req('POST', `/v1/sessions/sess-wish-${++n}/events`, pad,
+      { child: 'gege', lesson: 'L-PA@1.0', events: [{ id: `ev-wish-000${n}`, at, type: 'next_lesson_wish', question: 'wish', answer, source: '孩子自述' }] });
+    await wish('我想看螳螂虾打架');
+    await wish('还是机器人');
+    await wish('恐龙化石');
+    await wish('螳螂虾！');
+    await wish('晚上一直叫的那个');
+    let preps = (await req('GET', '/v1/preps', t)).body;
+    expect(preps.map((p: { topic: string; status: string }) => [p.topic, p.status])).toEqual([['螳螂虾', '准备中'], ['机器人', '准备中'], ['恐龙化石', '等你确认主题'], ['晚上一直叫的那个', '等你确认主题']]);
+    expect(preps[0]).toMatchObject({ child: 'gege', said: '我想看螳螂虾打架', wished: '10月24日', lesson_from: 'L-PA@1.0', subject: null, scenes: [{ name: '珊瑚礁样方调查' }], ready: true });
+    expect(preps[0].log.map((l: { msg: string }) => l.msg).join('\n')).toContain('又说了一次想学「螳螂虾」'); // the same wish again joins its list
+    // 写啥主题就做啥图片: the robot arm's scene doesn't depict a robot (a whole humanoid one), so 机器人 is made as an 探索课
+    expect(preps[1]).toMatchObject({ scenes: [], explore: true, subject: { name: '机器人' }, ready: false });
+    expect(preps[1].log.at(-1).msg).toContain('做成探索课');
+    expect(preps[2].log[0].msg).toContain('确认前不会发给任何模型');
+    // the interest keeps the topic, the words stay with it on this server
+    expect((await req('GET', '/v1/interests?child=gege', t)).body.find((x: { said: string }) => x.said === '我想看螳螂虾打架')).toMatchObject({ topic: '螳螂虾', state: '下一课心愿' });
+
+    // the parent names the words' topic in one tap, or sets a wish aside
+    const cricket = (await req('POST', `/v1/preps/${preps[3].id}/topic`, t, { topic: '蟋蟀' })).body;
+    // no ready scene is a cricket's or a dinosaur's: each gets its own scene and pictures as an 探索课, never the garden's fence and tiles
+    expect(cricket).toMatchObject({ topic: '蟋蟀', status: '准备中', explore: true, subject: { name: '蟋蟀', kind: 'organism' }, ready: false });
+    expect(cricket.log.at(-1).msg).toContain('按「蟋蟀」自己的样子建场景、做每一张图，做成探索课');
+    const dino = (await req('POST', `/v1/preps/${preps[2].id}/topic`, t, { topic: '恐龙' })).body;
+    expect(dino).toMatchObject({ topic: '恐龙', status: '准备中', explore: true, ready: false });
+    expect(dino.log.at(-1).msg).toContain('探索课');
+    expect((await req('POST', `/v1/preps/${preps[1].id}/skip`, t)).status).toBe(200);
+    preps = (await req('GET', '/v1/preps', t)).body;
+    expect(preps.map((p: { status: string }) => p.status)).toEqual(['准备中', '已跳过', '准备中', '准备中']);
+    expect((await req('GET', '/v1/interests?child=gege', t)).body.find((x: { topic: string; source: string }) => x.topic === '机器人' && x.source === '孩子自述').state).toBe('喜欢');
+    // the parent can write a wish down too
+    await req('POST', '/v1/interests', t, { child: 'meimei', topic: '海洋动物', state: '下一课心愿', said: '想看海里的鱼' });
+    expect((await req('GET', '/v1/preps', t)).body.at(-1)).toMatchObject({ child: 'meimei', topic: '海洋动物', said: '想看海里的鱼', status: '准备中' });
+    expect((await req('GET', '/v1/preps', pad)).status).toBe(403);
+  });
+
+  it('dates a late-synced session by its first event', async () => {
+    const t = await login();
+    await req('POST', '/v1/lessons', t, freeze(spec('L-PA')));
+    clock = new Date('2026-10-26T02:00:00Z');
+    await req('POST', '/v1/sessions/sess-late-01/events', t, { child: 'gege', lesson: 'L-PA@1.0', events: [{ id: 'late-0000001', at: '2026-10-24T13:00:00Z', type: 'step' }] });
+    expect((await req('GET', '/v1/sessions', t)).body[0].started_on).toBe('2026-10-24');
+  });
+
+  it('revoking a device ends its access', async () => {
+    const t = await login();
+    const pad = await pair(t, 'Pad A');
+    expect((await req('GET', '/v1/children', pad)).status).toBe(200);
+    expect((await req('GET', '/v1/devices', t)).body.map((d: { label: string }) => d.label)).toEqual(['Pad A']);
+    await req('DELETE', `/v1/devices/${encodeURIComponent('Pad A')}`, t);
+    expect((await req('GET', '/v1/children', pad)).status).toBe(401);
+  });
+});
+
+describe('lesson review in the parent app', () => {
+  it('lists unpublished lessons for review, publishes only with all four reviews ticked, and takes rejections', async () => {
+    const t = await login();
+    const drafts = (await req('GET', '/v1/drafts', t)).body;
+    expect(drafts.map((d: { key: string }) => d.key).sort()).toEqual(['L-ARR@1.0', 'L-PA@1.0', 'L-PA@1.1']);
+    const arr = drafts.find((d: { key: string }) => d.key === 'L-ARR@1.0');
+    expect(arr.ok).toBe(true);
+    expect(arr.issues.some((i: { rule: string; level: string }) => i.rule === 'V12' && i.level === 'warn')).toBe(true);
+    expect((await req('GET', '/v1/drafts/L-PA@1.0', t)).body.title).toMatch(/螳螂虾/);
+    const list = (await req('GET', '/v1/review-checklist', t)).body as Record<string, string[]>;
+    const partial = { ...list, 安全: list['安全'].slice(0, 1) };
+    expect((await req('POST', '/v1/drafts/L-PA@1.0/approve', t, { checked: partial })).body.error).toMatch(/安全/);
+    const ok = await req('POST', '/v1/drafts/L-PA@1.0/approve', t, { checked: list });
+    expect(ok.status).toBe(201);
+    const sp = (await req('GET', '/v1/lessons/L-PA@1.0', t)).body;
+    expect(sp.review_records).toHaveLength(4);
+    expect(contentHash(sp)).toBe(sp.content_hash);
+    const arrDraft = async () => (await req('GET', '/v1/drafts', t)).body.find((d: { key: string }) => d.key === 'L-ARR@1.0');
+    expect((await req('GET', '/v1/drafts', t)).body.map((d: { key: string }) => d.key).sort()).toEqual(['L-ARR@1.0', 'L-PA@1.1']);
+    expect((await req('POST', '/v1/drafts/L-ARR@1.0/reject', t, { note: '' })).status).toBe(400);
+    await req('POST', '/v1/drafts/L-ARR@1.0/reject', t, { note: '题目再简单一点' });
+    expect(await arrDraft()).toMatchObject({ status: '已退回', note: '题目再简单一点' });
+    // The Skill resubmits after changes; it goes back to 待审核.
+    expect((await req('POST', '/v1/drafts', t, spec('L-ARR'))).status).toBe(201);
+    expect(await arrDraft()).toMatchObject({ status: '待审核', note: null });
+    // a new lesson handed in now must follow the question-type and picture rules
+    const fills = { ...spec('L-ARR'), lesson_id: 'L-ARR-9' };
+    const refused = await req('POST', '/v1/drafts', t, fills);
+    expect(refused.status).toBe(422);
+    expect(refused.body.report.results.filter((r: { ok: boolean; level: string }) => !r.ok && r.level === 'error').map((r: { id: string }) => r.id)).toEqual(['V20', 'V23']);
+    expect((await req('POST', '/v1/drafts', t, spec('L-PA'))).status).toBe(409); // already published
+
+    // the parent can also say no outright: it leaves the review list, can't be handed in again, and can be put back
+    expect((await req('POST', '/v1/drafts/L-ARR@1.0/discard', t, { reason: '太像上次那节了' })).body).toMatchObject({ ok: true, wishes_back: [] });
+    expect(await arrDraft()).toMatchObject({ status: '不采用', note: '太像上次那节了' });
+    expect((await req('POST', '/v1/drafts/L-ARR@1.0/discard', t, {})).status).toBe(409);
+    expect((await req('POST', '/v1/drafts', t, spec('L-ARR'))).status).toBe(409);
+    expect((await req('POST', '/v1/drafts/L-ARR@1.0/restore', t)).status).toBe(200);
+    expect(await arrDraft()).toMatchObject({ status: '待审核', note: null });
+    expect((await req('POST', '/v1/drafts/L-ARR@1.0/restore', t)).status).toBe(409);
+  });
+});
+
+describe('Pad offline queue', () => {
+  const mem = () => { const m = new Map<string, string>(); return { get: (k: string) => m.get(k) ?? null, set: (k: string, v: string) => void m.set(k, v) }; };
+  it('keeps events while the server is unreachable and sends each once it is back', async () => {
+    const kv = mem();
+    let up = false; const sent: string[] = [];
+    const q = new Queue(kv, async b => { if (!up) throw new Error('offline'); sent.push(...b.events.map(e => e.id)); }, 2);
+    const meta = { session: 's1', child: 'gege', lesson: 'L-PA@1.0' };
+    for (let i = 1; i <= 3; i++) q.push(meta, { id: `e${i}`, at: new Date().toISOString(), type: 'step' });
+    await expect(q.flush()).rejects.toThrow('offline');
+    expect(q.pending()).toBe(3);
+    up = true;
+    await q.flush();
+    expect(sent).toEqual(['e1', 'e2', 'e3']);
+    expect(q.pending()).toBe(0);
+    // A survives-reload check: a new Queue over the same storage sees the same state.
+    q.push(meta, { id: 'e4', at: new Date().toISOString(), type: 'lesson_end' });
+    expect(new Queue(kv, async () => {}).pending()).toBe(1);
+  });
+});
+
+describe('organism media', () => {
+  it('takes real photos or videos with credit and licence, and serves video in ranges for iPad Safari', async () => {
+    const parent = await login();
+    const pad = await pair(parent);
+    const data = Buffer.from('0123456789abcdef').toString('base64');
+    const add = (body: object, tok = parent) => req('POST', '/v1/organisms/M-peacock-mantis-shrimp/media', tok, { mime: 'video/mp4', data, credit: '拍摄者', license: 'CC BY 4.0', real: true, ...body });
+    expect((await add({ real: false })).status).toBe(400);
+    expect((await add({ license: '' })).status).toBe(400);
+    expect((await add({ mime: 'image/gif' })).status).toBe(400);
+    expect((await add({}, pad)).status).toBe(403);
+    expect((await req('POST', '/v1/organisms/M-not-there/media', parent, {})).status).toBe(404);
+    const m = (await add({ caption: '出击', length_cm: 16 })).body;
+    expect(m).toMatchObject({ kind: 'video', length_cm: 16, credit: '拍摄者' });
+    const listed = (await req('GET', '/v1/media', pad)).body as { id: string; builtin?: boolean; url: string; kind: string }[];
+    expect(listed.filter(x => !x.builtin).map(x => x.id)).toEqual([m.id]);
+    // pictures that ship with the program, including the cut-out used in the 3D scene
+    const cut = listed.find(x => x.builtin && x.kind === 'cutout')!;
+    const img = await app.inject({ method: 'GET', url: cut.url });
+    expect(img.statusCode).toBe(200);
+    expect(img.headers['content-type']).toBe('image/webp');
+    expect((await app.inject({ method: 'GET', url: '/organism-assets/M-peacock-mantis-shrimp/..%2F..%2Fchildren.json' })).statusCode).toBe(404);
+
+    const full = await app.inject({ method: 'GET', url: m.url });
+    expect(full.statusCode).toBe(200);
+    expect(full.headers['accept-ranges']).toBe('bytes');
+    const part = await app.inject({ method: 'GET', url: m.url, headers: { range: 'bytes=2-5' } });
+    expect(part.statusCode).toBe(206);
+    expect(part.headers['content-range']).toBe('bytes 2-5/16');
+    expect(part.body).toBe('2345');
+    expect((await app.inject({ method: 'GET', url: m.url, headers: { range: 'bytes=-4' } })).body).toBe('cdef');
+    expect((await app.inject({ method: 'GET', url: `/v1/media/${m.id}/wrongkey` })).statusCode).toBe(404);
+
+    expect((await req('DELETE', `/v1/media/${m.id}`, parent)).status).toBe(200);
+    expect((await req('GET', '/v1/media', pad)).body.filter((x: { builtin?: boolean }) => !x.builtin)).toEqual([]);
+  });
+});
+
+/** A tiny 24 kHz 16-bit mono WAV with n samples. */
+function wav(n: number) {
+  const b = Buffer.alloc(44 + n * 2);
+  b.write('RIFF', 0, 'ascii'); b.writeUInt32LE(36 + n * 2, 4); b.write('WAVE', 8, 'ascii'); b.write('fmt ', 12, 'ascii'); b.writeUInt32LE(16, 16);
+  b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22); b.writeUInt32LE(24000, 24); b.writeUInt32LE(48000, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34);
+  b.write('data', 36, 'ascii'); b.writeUInt32LE(n * 2, 40);
+  return b;
+}
+describe('narration audio', () => {
+  it('picks the Mac voices from `say -v ?`', async () => {
+    const { pickVoices } = await import('../apps/server/src/tts.js');
+    const list = 'Alex                en_US    # Most people recognize me by my voice.\nMeijia              zh_TW    # 你好，我叫美佳。\nSamantha            en_US    # Hello, my name is Samantha.\nTingting            zh_CN    # 你好，我叫婷婷。\n';
+    expect(pickVoices(list)).toEqual({ zh: 'Tingting', en: 'Samantha' });
+    expect(pickVoices('Alex                en_US    # hi\n')).toBeNull();
+  });
+  it('prefers the most human-sounding voices (Premium, then Enhanced) and never joke voices', async () => {
+    const { pickVoices, listVoices } = await import('../apps/server/src/tts.js');
+    const list = ['Albert              en_US    # Hello', 'Samantha            en_US    # Hello', 'Ava (Premium)       en_US    # Hello', 'Daniel (Enhanced)   en_GB    # Hello',
+      'Tingting            zh_CN    # 你好', 'Tingting (Enhanced) zh_CN    # 你好', 'Lilian (Premium)    zh_CN    # 你好', 'Sinji               zh_HK    # 你好', 'Eddy (中文（中国大陆）) zh_CN    # 你好'].join('\n');
+    expect(pickVoices(list)).toEqual({ zh: 'Lilian (Premium)', en: 'Ava (Premium)' });
+    const vs = listVoices(list);
+    expect(vs.some(v => v.name === 'Albert' || v.name.startsWith('Eddy') || v.name === 'Sinji')).toBe(false);
+    expect(vs.find(v => v.name === 'Tingting (Enhanced)')?.quality).toBe('enhanced');
+  });
+  it('lets the parent hear and choose the voice, and keeps the choice', async () => {
+    await app.close();
+    const made: string[] = [];
+    const dbPath = join(mkdtempSync(join(tmpdir(), 'adw-')), 'db.sqlite');
+    const synth = () => ({ voices: { zh: 'Tingting', en: 'Samantha' }, list: [
+      { name: 'Lilian (Premium)', locale: 'zh_CN', lang: 'zh' as const, quality: 'premium' as const }, { name: 'Tingting', locale: 'zh_CN', lang: 'zh' as const, quality: 'standard' as const },
+      { name: 'Samantha', locale: 'en_US', lang: 'en' as const, quality: 'standard' as const }],
+      make: async (t: string, l: 'zh' | 'en', v?: string) => { made.push(`${v}:${t}`); return Buffer.from('RIFF....WAVE'); } });
+    app = await buildApp({ root, dbPath, pin: PIN, now: () => clock, tts: synth() });
+    const parent = await login(), pad = await pair(parent);
+    expect((await req('GET', '/v1/tts/voices', pad)).status).toBe(403);
+    const v = (await req('GET', '/v1/tts/voices', parent)).body;
+    expect(v.current).toEqual({ zh: 'Tingting', en: 'Samantha' });
+    expect(v.options.map((o: { name: string }) => o.name)).toContain('Lilian (Premium)');
+    // preview a voice before choosing it
+    const hear = await app.inject({ method: 'GET', url: `/v1/tts?lang=zh&voice=${encodeURIComponent('Lilian (Premium)')}&text=${encodeURIComponent('试听')}`, headers: { authorization: `Bearer ${parent}` } });
+    expect(hear.statusCode).toBe(200);
+    expect(made).toEqual(['Lilian (Premium):试听']);
+    expect((await app.inject({ method: 'GET', url: '/v1/tts?lang=zh&voice=Nobody&text=x', headers: { authorization: `Bearer ${parent}` } })).statusCode).toBe(400);
+    expect((await req('PUT', '/v1/tts/voices', parent, { zh: 'Nobody' })).status).toBe(400);
+    expect((await req('PUT', '/v1/tts/voices', parent, { zh: 'Lilian (Premium)' })).body.current).toEqual({ zh: 'Lilian (Premium)', en: 'Samantha' });
+    await app.inject({ method: 'GET', url: `/v1/tts?lang=zh&text=${encodeURIComponent('你好')}`, headers: { authorization: `Bearer ${pad}` } });
+    expect(made.at(-1)).toBe('Lilian (Premium):你好');
+    // the choice survives a restart
+    await app.close();
+    app = await buildApp({ root, dbPath, pin: PIN, now: () => clock, tts: synth() });
+    expect((await req('GET', '/v1/tts/info', await login())).body.voices).toEqual({ zh: 'Lilian (Premium)', en: 'Samantha' });
+  });
+  it('makes each line once on the server and hands the Pad a WAV', async () => {
+    await app.close();
+    const made: string[] = [];
+    app = await buildApp({ root, dbPath: join(mkdtempSync(join(tmpdir(), 'adw-')), 'db.sqlite'), pin: PIN, now: () => clock,
+      tts: { voices: { zh: 'Tingting', en: 'Samantha' }, make: async (t, l) => { made.push(`${l}:${t}`); return Buffer.from('RIFF....WAVE'); } } });
+    const pad = await pair(await login());
+    const get = (q: string, tok?: string) => app.inject({ method: 'GET', url: `/v1/tts?${q}`, headers: tok ? { authorization: `Bearer ${tok}` } : {} });
+    expect((await get('lang=zh&text=你好')).statusCode).toBe(401);
+    const r = await get(`lang=zh&text=${encodeURIComponent('你好')}`, pad);
+    expect(r.statusCode).toBe(200);
+    expect(r.headers['content-type']).toBe('audio/wav');
+    await get(`lang=zh&text=${encodeURIComponent('你好')}`, pad);
+    expect(made).toEqual(['zh:你好']);
+    expect((await get('lang=fr&text=x', pad)).statusCode).toBe(400);
+    expect((await req('GET', '/v1/tts/info', pad)).body).toEqual({ available: true, voices: { zh: 'Tingting', en: 'Samantha' }, engine: 'mac' });
+  });
+  it('reads a whole mixed Chinese/English line as one clip (whole=1)', async () => {
+    await app.close();
+    const { joinWav } = await import('../apps/server/src/voice-cloud.js');
+    const made: string[] = [];
+    app = await buildApp({ root, dbPath: join(mkdtempSync(join(tmpdir(), 'adw-')), 'db.sqlite'), pin: PIN, now: () => clock,
+      tts: { voices: { zh: 'Tingting', en: 'Samantha' }, make: async (t, l) => { made.push(`${l}:${t}`); return wav(100); } } });
+    const pad = await pair(await login());
+    const r = await app.inject({ method: 'GET', url: `/v1/tts?lang=zh&whole=1&text=${encodeURIComponent('周长 perimeter 是一圈的长度。')}`, headers: { authorization: `Bearer ${pad}` } });
+    expect(r.statusCode).toBe(200);
+    expect(made).toEqual(['zh:周长', 'en:perimeter', 'zh:是一圈的长度。']);
+    expect(r.rawPayload.length).toBeGreaterThan(300);
+    expect(joinWav([wav(10)]).length).toBe(wav(10).length);
+  });
+  it('uses a cloud announcer voice the parent connects, keeps the key secret, and falls back to the Mac', async () => {
+    await app.close();
+    const calls: { url: string; init: RequestInit }[] = [];
+    let down = false;
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      calls.push({ url: String(url), init });
+      if (down) return new Response('quota', { status: 429 });
+      return new Response(wav(50), { status: 200 });
+    }) as unknown as typeof fetch;
+    const mac: string[] = [];
+    const dbPath = join(mkdtempSync(join(tmpdir(), 'adw-')), 'db.sqlite');
+    const build = () => buildApp({ root, dbPath, pin: PIN, now: () => clock, fetchImpl,
+      tts: { voices: { zh: 'Tingting', en: 'Samantha' }, make: async (t, l) => { mac.push(`${l}:${t}`); return wav(20); } } });
+    app = await build();
+    const parent = await login(), pad = await pair(parent);
+    expect((await req('PUT', '/v1/tts/engine', pad, { provider: 'azure', api_key: 'k' })).status).toBe(403);
+    expect((await req('PUT', '/v1/tts/engine', parent, { provider: 'azure' })).status).toBe(400);
+    const put = await req('PUT', '/v1/tts/engine', parent, { provider: 'azure', api_key: 'secret-key-1234', region: 'eastasia' });
+    expect(put.status).toBe(200);
+    expect(JSON.stringify(put.body)).not.toContain('secret-key');
+    expect(put.body.cloud.key_tail).toBe('1234');
+    expect((await req('GET', '/v1/tts/info', pad)).body).toMatchObject({ engine: 'azure', voices: { zh: 'zh-CN-XiaoxiaoNeural', en: 'en-US-AvaNeural' } });
+    const text = '你好！！！螳螂虾 mantis shrimp 有多长~';
+    const r = await app.inject({ method: 'GET', url: `/v1/tts?lang=zh&whole=1&text=${encodeURIComponent(text)}`, headers: { authorization: `Bearer ${pad}` } });
+    expect(r.statusCode).toBe(200);
+    expect(r.headers['x-voice-engine']).toBe('azure');
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe('https://eastasia.tts.speech.microsoft.com/cognitiveservices/v1');
+    expect((calls[0].init.headers as Record<string, string>)['Ocp-Apim-Subscription-Key']).toBe('secret-key-1234');
+    const ssml = String(calls[0].init.body);
+    expect(ssml).toContain('<voice name="zh-CN-XiaoxiaoNeural">你好！螳螂虾</voice><voice name="en-US-AvaNeural">mantis shrimp</voice>');
+    expect(ssml).not.toContain('~');
+    expect(mac).toEqual([]);
+    // the parent changes the cloud voice; it is stored with the engine and survives a restart
+    expect((await req('PUT', '/v1/tts/voices', parent, { zh: 'zh-CN-YunyangNeural' })).body.current.zh).toBe('zh-CN-YunyangNeural');
+    await app.close(); app = await build();
+    expect((await req('GET', '/v1/tts/info', pad)).body.voices.zh).toBe('zh-CN-YunyangNeural');
+    // saving again without a key keeps the old one
+    expect((await req('PUT', '/v1/tts/engine', parent, { provider: 'azure', region: 'japaneast' })).status).toBe(200);
+    // the cloud is down: the Mac reads, nothing is cached, and the parent sees why
+    down = true;
+    const f = await app.inject({ method: 'GET', url: `/v1/tts?lang=zh&text=${encodeURIComponent('新的一句')}`, headers: { authorization: `Bearer ${pad}` } });
+    expect(f.statusCode).toBe(200);
+    expect(f.headers['x-voice-engine']).toBe('mac');
+    expect(mac).toEqual(['zh:新的一句']);
+    expect(calls.at(-1)!.url).toContain('japaneast');
+    expect((calls.at(-1)!.init.headers as Record<string, string>)['Ocp-Apim-Subscription-Key']).toBe('secret-key-1234');
+    expect((await req('GET', '/v1/tts/engine', parent)).body.error).toContain('429');
+    // back to the Mac voice
+    expect((await req('PUT', '/v1/tts/engine', parent, { provider: 'mac' })).body.engine).toBe('mac');
+  });
+  it('talks to 火山引擎 and OpenAI-compatible speech in their own formats', async () => {
+    const { cloudSynth } = await import('../apps/server/src/voice-cloud.js');
+    const calls: { url: string; body: Record<string, any> }[] = [];
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      calls.push({ url: String(url), body: JSON.parse(String(init.body)) });
+      return String(url).includes('bytedance') ? Response.json({ code: 3000, data: wav(10).toString('base64') }) : new Response(wav(10));
+    }) as unknown as typeof fetch;
+    const v = cloudSynth({ provider: 'volcengine', api_key: 'tok', appid: 'app1', voices: { zh: 'BV001_streaming', en: 'BV503_streaming' } }, fetchImpl);
+    expect((await v.make('你好！！', 'zh')).toString('ascii', 0, 4)).toBe('RIFF');
+    expect(calls[0].body).toMatchObject({ app: { appid: 'app1', token: 'tok', cluster: 'volcano_tts' }, audio: { voice_type: 'BV001_streaming', encoding: 'wav' }, request: { text: '你好！', operation: 'query' } });
+    const o = cloudSynth({ provider: 'openai', api_key: 'sk', voices: { zh: 'coral', en: 'ash' } }, fetchImpl);
+    await o.makeLine('面积 area', 'zh');
+    expect(calls.slice(1).map(c => c.url)).toEqual(['https://api.openai.com/v1/audio/speech', 'https://api.openai.com/v1/audio/speech']);
+    expect(calls.slice(1).map(c => [c.body.voice, c.body.input, c.body.response_format])).toEqual([['coral', '面积', 'wav'], ['ash', 'area', 'wav']]);
+  });
+  it('cleans text so a voice does not sound fake-excited', async () => {
+    const { speakable } = await import('../apps/server/src/voice-cloud.js');
+    expect(speakable('太棒了！！！🎉 你找到了~')).toBe('太棒了！ 你找到了');
+    expect(speakable('我们来想一想……答案是多少？？')).toBe('我们来想一想，答案是多少？');
+    expect(speakable('Wow!!! Great job...')).toBe('Wow! Great job');
+  });
+  it('says so when the server has no voice', async () => {
+    await app.close();
+    app = await buildApp({ root, dbPath: join(mkdtempSync(join(tmpdir(), 'adw-')), 'db.sqlite'), pin: PIN, now: () => clock, tts: null });
+    const pad = await pair(await login());
+    expect((await app.inject({ method: 'GET', url: '/v1/tts?lang=zh&text=x', headers: { authorization: `Bearer ${pad}` } })).statusCode).toBe(501);
+  });
+});

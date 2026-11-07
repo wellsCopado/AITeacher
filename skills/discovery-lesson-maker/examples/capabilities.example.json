@@ -1,0 +1,39 @@
+{
+  "profile": "family-app-math",
+  "componentId": "PerimeterArea",
+  "evidence": {
+    "source": "https://github.com/wellsCopado/AITeacher/blob/m4-homework-reteach/content/components.json",
+    "kind": "source-code-and-documentation",
+    "runtimeVerified": false,
+    "sourceBlobSha": "e3edefd643110c96bf15a77cb46d54653f4b01ea"
+  },
+  "params": {
+    "a": {
+      "label": "长",
+      "min": 1,
+      "max": 10,
+      "step": 1,
+      "unit": "米"
+    },
+    "b": {
+      "label": "宽",
+      "min": 1,
+      "max": 10,
+      "step": 1,
+      "unit": "米"
+    }
+  },
+  "handsOn": {
+    "build": {
+      "controls": [
+        "a",
+        "b"
+      ]
+    }
+  },
+  "views": [
+    "overview",
+    "top",
+    "side"
+  ]
+}

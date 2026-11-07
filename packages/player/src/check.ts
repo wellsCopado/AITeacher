@@ -17,12 +17,12 @@ export function checkAttempt(ch: Challenge, attempt: Attempt): CheckResult {
 }
 
 /** A factual sentence about what was right and what to look at again; no praise words, no scores. */
-export function describe(r: CheckResult): string {
+export function describe(r: CheckResult, redo = '再算一算'): string {
   if (r.correct) return '数和单位都对上了。';
   const parts: string[] = [];
   const wrongVal = r.fields.filter(f => !f.valueOk).map(f => f.label);
   const wrongUnit = r.fields.filter(f => f.valueOk && !f.unitOk).map(f => f.label);
-  if (wrongVal.length) parts.push(`${wrongVal.join('、')}的数再算一算`);
+  if (wrongVal.length) parts.push(`${wrongVal.join('、')}${redo === '再算一算' ? '的数' : ''}${redo}`);
   if (wrongUnit.length) parts.push(`${wrongUnit.join('、')}的数对了，单位再看一看`);
   return parts.join('；') + '。';
 }

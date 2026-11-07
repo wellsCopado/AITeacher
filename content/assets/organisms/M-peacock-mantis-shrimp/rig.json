@@ -1,0 +1,316 @@
+{
+ "size": [
+  1400,
+  618
+ ],
+ "grid": [
+  700,
+  309
+ ],
+ "mid": 280,
+ "body_px": [
+  252,
+  1379
+ ],
+ "parts": [
+  {
+   "key": "eyeA",
+   "name": "复眼",
+   "pivot": [
+    352,
+    205
+   ],
+   "parent": "head",
+   "explode": [
+    -60,
+    -150
+   ]
+  },
+  {
+   "key": "eyeB",
+   "name": "复眼",
+   "pivot": [
+    352,
+    252
+   ],
+   "parent": "head",
+   "explode": [
+    -60,
+    150
+   ]
+  },
+  {
+   "key": "scaleA",
+   "name": "触角鳞片",
+   "pivot": [
+    405,
+    128
+   ],
+   "parent": "head",
+   "explode": [
+    -40,
+    -120
+   ]
+  },
+  {
+   "key": "scaleB",
+   "name": "触角鳞片",
+   "pivot": [
+    400,
+    372
+   ],
+   "parent": "head",
+   "explode": [
+    -40,
+    120
+   ]
+  },
+  {
+   "key": "antA",
+   "name": "触角",
+   "pivot": [
+    258,
+    190
+   ],
+   "parent": "head",
+   "explode": [
+    -150,
+    -60
+   ]
+  },
+  {
+   "key": "antB",
+   "name": "触角",
+   "pivot": [
+    250,
+    322
+   ],
+   "parent": "head",
+   "explode": [
+    -150,
+    60
+   ]
+  },
+  {
+   "key": "clawA",
+   "name": "捕肢（出拳用）",
+   "pivot": [
+    262,
+    252
+   ],
+   "parent": "head",
+   "explode": [
+    -110,
+    -40
+   ]
+  },
+  {
+   "key": "clawB",
+   "name": "捕肢（出拳用）",
+   "pivot": [
+    258,
+    318
+   ],
+   "parent": "head",
+   "explode": [
+    -110,
+    40
+   ]
+  },
+  {
+   "key": "legA",
+   "name": "步足",
+   "pivot": [
+    652,
+    160
+   ],
+   "parent": "head",
+   "explode": [
+    0,
+    -110
+   ]
+  },
+  {
+   "key": "legB",
+   "name": "步足",
+   "pivot": [
+    746,
+    152
+   ],
+   "parent": "head",
+   "explode": [
+    40,
+    -110
+   ]
+  },
+  {
+   "key": "legC",
+   "name": "步足",
+   "pivot": [
+    588,
+    388
+   ],
+   "parent": "head",
+   "explode": [
+    -20,
+    120
+   ]
+  },
+  {
+   "key": "legD",
+   "name": "步足",
+   "pivot": [
+    655,
+    395
+   ],
+   "parent": "head",
+   "explode": [
+    20,
+    120
+   ]
+  },
+  {
+   "key": "legE",
+   "name": "步足",
+   "pivot": [
+    745,
+    402
+   ],
+   "parent": "head",
+   "explode": [
+    60,
+    120
+   ]
+  },
+  {
+   "key": "head",
+   "name": "头胸甲",
+   "pivot": [
+    560,
+    280
+   ],
+   "parent": null,
+   "explode": [
+    -30,
+    0
+   ]
+  },
+  {
+   "key": "abd1",
+   "name": "腹节",
+   "pivot": [
+    612,
+    280
+   ],
+   "parent": "head",
+   "explode": [
+    25,
+    0
+   ]
+  },
+  {
+   "key": "abd2",
+   "name": "腹节",
+   "pivot": [
+    660,
+    280
+   ],
+   "parent": "abd1",
+   "explode": [
+    50,
+    0
+   ]
+  },
+  {
+   "key": "abd3",
+   "name": "腹节",
+   "pivot": [
+    757,
+    280
+   ],
+   "parent": "abd2",
+   "explode": [
+    75,
+    0
+   ]
+  },
+  {
+   "key": "abd4",
+   "name": "腹节",
+   "pivot": [
+    857,
+    280
+   ],
+   "parent": "abd3",
+   "explode": [
+    100,
+    0
+   ]
+  },
+  {
+   "key": "abd5",
+   "name": "腹节",
+   "pivot": [
+    962,
+    280
+   ],
+   "parent": "abd4",
+   "explode": [
+    125,
+    0
+   ]
+  },
+  {
+   "key": "abd6",
+   "name": "腹节",
+   "pivot": [
+    1052,
+    280
+   ],
+   "parent": "abd5",
+   "explode": [
+    150,
+    0
+   ]
+  },
+  {
+   "key": "uroA",
+   "name": "尾扇",
+   "pivot": [
+    1112,
+    280
+   ],
+   "parent": "abd6",
+   "explode": [
+    200,
+    -110
+   ]
+  },
+  {
+   "key": "telson",
+   "name": "尾节",
+   "pivot": [
+    1112,
+    280
+   ],
+   "parent": "abd6",
+   "explode": [
+    200,
+    0
+   ]
+  },
+  {
+   "key": "uroB",
+   "name": "尾扇",
+   "pivot": [
+    1112,
+    280
+   ],
+   "parent": "abd6",
+   "explode": [
+    200,
+    110
+   ]
+  }
+ ]
+}

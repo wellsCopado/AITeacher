@@ -13,7 +13,7 @@
     "source": { "enum": ["孩子自述", "家长报告", "老师反馈"] },
     "said": { "type": ["string", "null"] },
     "observed_on": { "type": "string" },
-    "state": { "enum": ["近期最喜欢", "喜欢", "曾经喜欢", "下一课心愿", "只用于安全工程题材"] },
+    "state": { "enum": ["家长指定", "近期最喜欢", "喜欢", "曾经喜欢", "下一课心愿", "只用于安全工程题材"] },
     "lesson_ref": { "type": ["string", "null"] }
   }
 }
