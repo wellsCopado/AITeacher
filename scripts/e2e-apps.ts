@@ -162,16 +162,9 @@ try {
     await pad.waitForTimeout(800);
   }
   check(await pad.locator('#next').isEnabled(), '跟着引导一件件做完，「去挑战」才打开');
-  await pad.waitForSelector('.orgbar');
-  await pad.waitForFunction(() => (window as any).__player.scene?.organismState?.() != null, null, { timeout: 15000 });
-  check(['emerge', 'walk', 'idle'].includes((await pad.evaluate(() => (window as any).__player.scene.organismState().mode))), '点「看看螳螂虾的洞」：立体螳螂虾（照片做的可动模型）从洞里出来');
-  await pad.click('[data-org="anatomy"]', { force: true });
-  await pad.waitForFunction(() => (window as any).__player.scene.organismState().exploded && [...document.querySelectorAll('.organlab')].some(l => !(l as HTMLElement).hidden));
-  const labs = await pad.$$eval('.organlab:not([hidden])', ls => ls.map(l => l.textContent));
-  check(labs.includes('复眼') && labs.some(l => l?.includes('捕肢')) && labs.includes('尾扇'), `拆开看身体：标出 ${labs.join('、')}`);
-  await pad.screenshot({ path: join(shots, 'pad-anatomy.png') });
-  await pad.click('[data-org="anatomy"]', { force: true });
-  await pad.click('[data-org="photos"]', { force: true });
+  // the 2.5D relief shrimp made from one photo is off (gaps G3, parent: 像动画片): the animal is shown from its real pictures
+  check(await pad.locator('.orgbar').count() === 0 && await pad.evaluate(() => (window as any).__player.scene?.organismState?.() == null), '没有用一张照片做的 2.5D 浮雕螳螂虾（家长判定不写实，已关）');
+  await pad.click('[data-act="focus"]', { force: true });
   await pad.waitForSelector('.observe img');
   await pad.waitForTimeout(500);
   check(said.some(t => t.includes('孔雀螳螂虾的洞口') || t.startsWith('en:This is the burrow')), '点螳螂虾的洞，讲解读出声');

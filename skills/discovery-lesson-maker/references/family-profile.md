@@ -143,6 +143,7 @@ lesson.answer('span', { ok: world.state.span === 30, good: '桥墩位置放对�
 做完主角和场景、还没写题目之前，先做一张对照图 `evidence/visual-gate.jpg`：同一机位并排放真实照片（至少 1 张，最好 3 张：全景、关键部位近景、有尺度参照的视角）、课里实际网页的截图（`scripts/shoot_views.mjs`），有“看”的步骤时再放预渲染图（`scripts/render_stills.py`）。三种图写进 `visual_gate.views`（`media: render | realtime`），真实尺寸和来源写进 `visual_gate.dimensions`。实时截图必须有，预渲染图不能代替它。
 
 - 自己先对着照片挑毛病，写进 `visual_gate.self_review`：哪里像、哪里不像、不像的是怎么处理的。挑不出毛病就是没认真看。
+- 再请没参与制作的审看人盲看主角：照片和本课画面打乱成 A/B，至少 3 个角度，原话写进 `visual_gate.blind_review`。说像动画片或玩具就返工后重看。做法见 [主角三维](hero-production.md) 第 6 步。
 - 有家长在场时（对话里做课），把对照图给家长看，家长说“画面可以”再继续做整课；不行只返工画面，不扩写课程。
 - 家长端自动做课时没人在场：照样做对照图和自评。家长在课程卡片最前面先看到这张图，勾上“对照图看过了”才能发布；App 自己做的课没交对照图直接拒收。`验收结果.md` 第一段也放它。
 
@@ -151,6 +152,7 @@ lesson.answer('span', { ok: world.state.span === 30, good: '桥墩位置放对�
 - [ ] 用的是 `adw-family.mjs`，没有另写计时和夸奖。
 - [ ] `lesson-flow.json` 通过 `check_package.py`，没有 errors（含数学优先、按年级的句数、课末心愿选项）。
 - [ ] `python3 scripts/make_family_audio.py <web/public> --engine azure` 录好了全部声音（没有云端密钥才用 `--engine mac`，并写明），按 [语音制作](voice-direction.md) 的听检验收听过 8 句，没有一句“有 AI 味”。
+- [ ] 主角按 [主角三维](hero-production.md) 做：来源合这一类、≥3 张真实照片、真实尺寸、`hero_check.py` 没有 errors；盲看 3 个角度，审看人没参与制作，没人说像动画片或玩具。
 - [ ] 3 个以上实验，孩子真能用手指在平板上做。
 - [ ] 对照图里有实时截图（有“看”的步骤时还有预渲染图），真实尺寸带来源，自评按假感毛病表逐条看过。
 - [ ] 从头到尾走一遍：故意答错 3 次，看演示和同类题；等一步超时，看是否自动进下一步；点休息再继续。

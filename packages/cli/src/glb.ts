@@ -42,9 +42,16 @@ export function parseGlb(buf: Buffer): { json: GltfJson; bin: Buffer | null } {
   return { json, bin };
 }
 
-/** Width and height of a PNG or JPEG, or null for other formats (KTX2, WebP…). */
+/** Width and height of a PNG, JPEG, KTX2 or WebP, or null for other formats. */
 export function imageSize(b: Buffer): { w: number; h: number } | null {
   if (b.length > 24 && b.readUInt32BE(0) === 0x89504e47) return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) };
+  if (b.length >= 28 && b.subarray(0, 12).equals(Buffer.from([0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a]))) return { w: b.readUInt32LE(20), h: b.readUInt32LE(24) };
+  if (b.length >= 30 && b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WEBP') {
+    const kind = b.toString('latin1', 12, 16);
+    if (kind === 'VP8X') return { w: 1 + b.readUIntLE(24, 3), h: 1 + b.readUIntLE(27, 3) };
+    if (kind === 'VP8L') { const v = b.readUInt32LE(21); return { w: 1 + (v & 0x3fff), h: 1 + ((v >> 14) & 0x3fff) }; }
+    if (kind === 'VP8 ') return { w: b.readUInt16LE(26) & 0x3fff, h: b.readUInt16LE(28) & 0x3fff };
+  }
   if (b.length > 4 && b[0] === 0xff && b[1] === 0xd8) {
     let i = 2;
     while (i + 9 < b.length) {

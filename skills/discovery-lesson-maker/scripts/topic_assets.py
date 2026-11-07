@@ -7,6 +7,8 @@ import hashlib
 import json
 import re
 
+from hero_check import check_hero
+
 # 孩子看得到的画面文件：图片、贴图、模型、视频。声音、字体、代码不算
 VISUAL = re.compile(r'\.(png|jpe?g|webp|avif|gif|svg|ktx2|basis|hdr|exr|glb|gltf|usdz|fbx|obj|drc|mp4|webm|mov|m4v)$', re.I)
 MODEL = re.compile(r'\.(glb|gltf|usdz|fbx|obj|drc)$', re.I)
@@ -42,16 +44,17 @@ def check_assets(read, site, base, prefix, manifest):
     if topic and str(listing.get('topic') or '').strip() != topic:
         errors.append(f'素材清单的 topic（{listing.get("topic")!r}）和 exploration.json 的「{topic}」不一样')
 
-    every, hashes = {}, {}  # 网页里所有画面文件；其中够大、必须登记的
+    every, hashes, full_of = {}, {}, {}  # 网页里所有画面文件；其中够大、必须登记的
     for full in site:
         rel = full[len(prefix):]
         if VISUAL.search(rel):
             data = read(full)
             digest = hashlib.sha256(data).hexdigest()
             every[digest] = rel
+            full_of[digest] = full
             if len(data) >= MIN_BYTES:
                 hashes[digest] = rel
-    listed, heroes, made_elsewhere, missing = set(), [], [], {}
+    listed, heroes, made_elsewhere, missing, facts = set(), [], [], {}, {}
     for i, item in enumerate(items):
         if not isinstance(item, dict):
             errors.append(f'素材清单第 {i + 1} 项不是对象')
@@ -96,4 +99,11 @@ def check_assets(read, site, base, prefix, manifest):
             errors.append(f'主角 {hero.get("file")} 不是三维模型（glb/gltf…）：照片、视频、截图不能代替可以转着看的主角')
         if topic and not common(topic, str(hero.get('depicts') or '')):
             errors.append(f'主角画的是「{hero.get("depicts")}」，主题是「{topic}」：主角要写出主题里的那个东西（例如主题「火箭发射」写「长征二号F火箭」）')
-    return errors, warnings, {'topic': topic, 'assets': len(items), 'visualFiles': len(hashes)}
+        # 主角能不能当真看：来源、尺寸、细节、材质（references/hero-production.md）
+        sha = str(hero.get('sha256') or '').lower()
+        hero_errors, hero_facts = check_hero(hero, read(full_of[sha]) if sha in full_of else None)
+        errors.extend(hero_errors)
+        if hero_facts:
+            facts.setdefault('heroes', []).append({'file': hero.get('file'), **hero_facts})
+    facts.update({'topic': topic, 'assets': len(items), 'visualFiles': len(hashes)})
+    return errors, warnings, facts

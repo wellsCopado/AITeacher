@@ -10,6 +10,7 @@ import { dirname, join, posix } from 'node:path';
 import type { ExploreStatus, Store } from './db.js';
 import { fail, sha } from './http.js';
 import { VISUAL as VISUAL_FILE, checkAssets, visualHashes, type AssetLine } from './topic-assets.js';
+import { checkBlindReview } from './hero-check.js';
 
 export const BRIDGE = 'adw-explore/1';
 const MAX_ZIP = 600 * 1024 * 1024, MAX_SITE = 800 * 1024 * 1024, MAX_FILES = 5000;
@@ -95,8 +96,8 @@ export function readPackage(zip: Uint8Array) {
   // 家长定的上课规则（一中三英、每步计时、错三次演示……）由课里的 adw-family.mjs 执行；旧课没有，导入照收，但要让家长知道
   const family = has.has(prefix + 'lesson-flow.json') && site.some(f => /\.(m?js|html)$/.test(f.name) && Buffer.from(byName.get(f.name)!).includes('adw-family/1'));
   // 画面对照图（真实照片和课里画面并排）：家长在课程卡片上先看它，再预览
-  let sheet = 'evidence/visual-gate.jpg';
-  try { sheet = String(JSON.parse(Buffer.from(byName.get(prefix + 'lesson-flow.json') ?? new Uint8Array()).toString('utf8') || '{}')?.visual_gate?.sheet ?? sheet); } catch { /* checked by the Skill */ }
+  let sheet = 'evidence/visual-gate.jpg', visualGate: unknown;
+  try { visualGate = JSON.parse(Buffer.from(byName.get(prefix + 'lesson-flow.json') ?? new Uint8Array()).toString('utf8') || '{}')?.visual_gate; sheet = String((visualGate as { sheet?: unknown })?.sheet ?? sheet); } catch { /* checked by the Skill */ }
   const gateFile = GATE.test(sheet) && safePath(sheet) ? [base + sheet, prefix + sheet].map(n => files.find(f => f.name === n)).find(Boolean) : undefined;
   const gate = gateFile ? { path: `gate${posix.extname(gateFile.name).toLowerCase()}`, data: gateFile.name.startsWith(prefix) && byName.has(gateFile.name) ? byName.get(gateFile.name)! : extract(zip, [gateFile.raw])[gateFile.raw] } : null;
   if (!gate) warnings.push('没有画面对照图（真实照片和课里画面并排）：画面像不像，只能靠你预览时自己对照实物判断。');
@@ -115,7 +116,7 @@ export function readPackage(zip: Uint8Array) {
   if (listed) try { assetList = JSON.parse(Buffer.from(listed).toString('utf8')); } catch { assetList = null; }
   const digest = sha(Buffer.concat([...site, ...docs].sort((a, b) => a.name.localeCompare(b.name)).flatMap(f => [Buffer.from(f.name.slice(base.length) + '\0'), Buffer.from(byName.get(f.name)!)])));
   return {
-    manifest, assetList, title: title.slice(0, 80), pkgName, folder: base.replace(/\/$/, '').split('/').pop() ?? '', digest, bytes, warnings, bridge, family, gate,
+    manifest, assetList, visualGate, title: title.slice(0, 80), pkgName, folder: base.replace(/\/$/, '').split('/').pop() ?? '', digest, bytes, warnings, bridge, family, gate,
     site: site.map(f => ({ path: f.name.slice(prefix.length), data: byName.get(f.name)! })),
     docs: docs.map(f => ({ path: f.name.slice(base.length), data: byName.get(f.name)! })),
   };
@@ -170,7 +171,9 @@ export async function exploreRoutes(app: FastifyInstance, d: Deps) {
       if (problems.length) fail(422, `画面没有按「${q.topic}」做，没放进课程库：${problems.slice(0, 4).join('；')}`);
       // App 自己做的课必须守家里的上课规则，还要交画面对照图（family-profile.md）；家长手动导入的旧课只提醒
       const rules = [...(pkg.family ? [] : ['没用 adw-family.mjs 和 lesson-flow.json 跑家里的上课规则（一中三英、每步计时、按顺序解锁、错三次先演示）']),
-        ...(pkg.gate ? [] : ['没交画面对照图（lesson-flow.json 的 visual_gate.sheet）'])];
+        ...(pkg.gate ? [] : ['没交画面对照图（lesson-flow.json 的 visual_gate.sheet）']),
+        // 主角盲看：没参与制作的审看人看过，不像动画片、不像玩具（hero-production.md）
+        ...checkBlindReview(pkg.visualGate)];
       if (rules.length) fail(422, `「${q.topic}」这节课没按家里的规则做完，没放进课程库：${rules.join('；')}`);
     }
     const kids = store.children();

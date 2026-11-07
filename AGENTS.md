@@ -18,7 +18,7 @@
 - 和家长沟通用中文。孩子相关文字适龄、简短。
 - 整节的写实三维探索课走 `skills/discovery-lesson-maker`，交课程包 .zip 给家长导入（或用 `ADW_TOKEN` 交到 `/v1/explore/import`），不改 App。
 - LessonSpec 课走 `skills/discovery-learning-studio` 的六个阶段，用 `pnpm -s dls` 落盘和校验；不要手改 `content/published/` 下已发布的文件。
-- 写实底线 BL14、兴趣来自孩子本人（BL05）、数学优先（BL01）是硬约束。写实的具体规格和验收在 `skills/photoreal-3d-production`：复杂物体（机器、机器人、动物、人、建筑）只能来自素材文件或视频，不能在代码里用几何体拼。
+- 写实底线 BL14、兴趣来自孩子本人（BL05）、数学优先（BL01）是硬约束。写实的具体规格和验收在 `skills/photoreal-3d-production`：复杂物体（机器、机器人、动物、人、建筑）只能来自素材文件或视频，不能在代码里用几何体拼。任何课的主角都按 `skills/discovery-lesson-maker/references/hero-production.md` 为这个主题现做（定类别 → 真实照片 → 扫描 / 厂家 CAD / 依据照片生成 → 修整 → 盲看），检查器和 App 导入按 H1–H7 拒收。
 - 改了校验规则或 Schema，同时更新 `test/` 并跑 `pnpm test` 和 `pnpm typecheck`。
 - 发布只能由家长在家长端「课程库」点按钮完成。`dls review --approve` 只在家长明确确认对应类别后运行。AI 助手没有发布权限，也不要想办法绕过。
 - 看作业、写判断一律走 `skills/homework-analysis`，用 `pnpm -s dls homework …`；家长没勾选“同意 AI 识别”的作业不看照片，照片只放 `content/homework/`（不进 git）。
@@ -34,6 +34,7 @@ pnpm -s dls design --child gege      # 给 ChatGPT 等聊天模型的设计说�
 pnpm -s dls validate <课目录>        # 校验 V01–V23
 pnpm -s dls skill [<名称> [<文件>]]  # 读任意一份 Skill（不写名称时列出全部）
 pnpm -s dls asset-check [<素材id>] [--save]  # 3D 素材自动检查 A1–A9（不写 id 只查 A5：代码里有没有没登记的几何体）
+python3 skills/discovery-lesson-maker/scripts/hero_check.py <模型.glb> --class <类别> --size <米>  # 探索课主角的尺寸、面数、贴图（H4–H6），规则见 references/hero-production.md
 pnpm -s dls asset-sheet <素材id>      # 渲染四个角度的对照图，和同角度实拍照片并排，给家长判断像不像
 pnpm -s dls mcp                      # 以 MCP（stdio）提供做课工具
 pnpm test && pnpm typecheck          # 改代码后

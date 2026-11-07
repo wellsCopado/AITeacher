@@ -322,7 +322,7 @@ describe('server: models, AI lesson writer, MCP for agents', () => {
     calls.length = 0;
     const worm = await req('POST', '/v1/studio/generate', p, { child: 'gege', topic: '博比特虫' });
     expect(worm.status).toBe(400);
-    expect(worm.body.error).toContain('「博比特虫」没有现成的 3D 场景（现成的只有珊瑚礁样方调查、花园围栏与铺砖、积木方块、机器人工厂，画的都不是它）');
+    expect(worm.body.error).toContain('「博比特虫」没有现成的 3D 场景（现成的只有珊瑚礁样方调查、花园围栏与铺砖、积木方块，画的都不是它）');
     expect(worm.body.error).toContain('ChatGPT 账号');
     expect(calls).toHaveLength(0);
     expect((await req('GET', '/v1/interests?child=gege', p)).body.some((x: { topic: string }) => x.topic === '博比特虫')).toBe(false);
@@ -344,14 +344,11 @@ describe('server: models, AI lesson writer, MCP for agents', () => {
     ];
     modelReplies = [reply(arr)];
     const brief = `${BRIEF_HEADER}\n孩子：妹妹（2 年级）\n主题：工厂里的机械臂\n主角：工业机械臂\n知识点：乘法的意义`;
-    const j2 = (await req('POST', '/v1/studio/generate', p, { child: 'gege', wish: brief })).body.job;
-    const d2 = await until(`/v1/studio/jobs/${j2}`, p);
-    expect(d2).toMatchObject({ child: 'meimei' });
-    // the model wrote it on blocks, the parent named the robot arm: its scene is used anyway (no blocks for a robot arm)
-    expect((await req('GET', `/v1/drafts/${d2.key}`, p)).body.theme).toMatchObject({ skin: 'robot_factory', id: 'robot_factory' });
-    expect((await req('GET', `/v1/drafts/${d2.key}`, p)).body.component_params.ArrayMultiplier.theme).toBe('robot_factory');
-    expect(JSON.stringify(calls.at(-1)!.body)).toContain('第二单元 表内乘法（一）'); // her school progress went along
-    expect((await req('GET', '/v1/interests?child=meimei', p)).body.some((x: { topic: string }) => x.topic === '工厂里的机械臂')).toBe(true);
+    // the code-built robot-arm scene was turned down as cartoon (gaps G1) and is off: the robot arm becomes an 探索课,
+    // whose hero has to come from the maker's CAD or a scan (hero-production.md), never written into blocks or the old scene
+    const arm2 = await req('POST', '/v1/studio/generate', p, { child: 'gege', wish: brief });
+    expect(arm2.status).toBe(400);
+    expect(arm2.body.error).toContain('按「工厂里的机械臂」自己的样子做成探索课');
   });
 
   it('never puts a topic into a scene that does not depict it: the cricket of 11-04, the rocket of 11-05, from every way in', async () => {
@@ -573,7 +570,7 @@ describe('ChatGPT through Codex on the home computer, all from the parent app', 
     expect(x.imported_by).toMatch(/^AI 做探索课 · /);
     expect(x).toMatchObject({ family: true, gate: 'gate.jpg' }); // the family's lesson rules, and the visual gate the parent sees first
     expect(x.files).toBe(4); // the built page only: no node_modules, no link out of Codex's folder
-    expect(x).toMatchObject({ topic: '蜜蜂', assets: [{ role: 'hero', depicts: '蜜蜂（三维模型）', origin: 'modeled' }] });
+    expect(x).toMatchObject({ topic: '蜜蜂', assets: [{ role: 'hero', depicts: '蜜蜂（三维模型）', origin: 'scan' }] });
     expect(done.key).toMatch(/^X-GEGE-\d{8}-[0-9a-f]{4}@1\.0$/);
     expect((await app.inject({ method: 'GET', url: `/explore/${done.key}/index.html` })).statusCode).toBe(200);
     expect((await app.inject({ method: 'GET', url: `/explore/${done.key}/leak.txt` })).statusCode).toBe(404); // a link out of Codex's folder stays out
@@ -643,11 +640,25 @@ describe('ChatGPT through Codex on the home computer, all from the parent app', 
     // nor one that carries another lesson's model: the rocket's own, inside a 恐龙 lesson
     rmSync(join(home, 'assets-copied'));
     const rocketModel = join(home, 'rocket.glb');
-    writeFileSync(rocketModel, Buffer.concat([Buffer.from('glTF'), Buffer.alloc(2048, createHash('md5').update('火箭发射').digest())]));
+    writeFileSync(rocketModel, (await app.inject({ method: 'GET', url: `/explore/${rocket.key}/models/hero.glb` })).rawPayload);
     writeFileSync(join(home, 'assets-reused'), rocketModel);
     const reused = await until(`/v1/studio/jobs/${(await req('POST', '/v1/studio/generate', p, { child: 'gege', topic: '恐龙' })).body.job}`, p);
     expect(reused.status).toBe('failed');
     expect(reused.error).toContain('那节课的一模一样');
+    rmSync(join(home, 'assets-reused'));
+    // 改成真实写实: a hero hand-built from a few flat-coloured blocks is not taken, whatever the topic (hero-production.md)
+    writeFileSync(join(home, 'cartoon-hero'), '');
+    const cartoon = await until(`/v1/studio/jobs/${(await req('POST', '/v1/studio/generate', p, { child: 'gege', topic: '鲸鱼' })).body.job}`, p);
+    expect(cartoon.status).toBe('failed');
+    expect(cartoon.error).toContain('动物和人只能来自实物扫描');
+    expect(cartoon.error).toContain('个三角形');
+    rmSync(join(home, 'cartoon-hero'));
+    // nor one nobody looked at blind against real photos
+    writeFileSync(join(home, 'no-blind'), '');
+    const unseen = await until(`/v1/studio/jobs/${(await req('POST', '/v1/studio/generate', p, { child: 'gege', topic: '地铁' })).body.job}`, p);
+    expect(unseen.status).toBe('failed');
+    expect(unseen.error).toContain('盲看');
+    rmSync(join(home, 'no-blind'));
     expect((await req('GET', '/v1/explore', p)).body.map((x: { topic: string }) => x.topic).sort()).toEqual(['火山', '火山', '火箭发射', '蜜蜂', '蝴蝶'].sort());
   });
 

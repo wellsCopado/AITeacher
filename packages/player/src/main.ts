@@ -14,6 +14,12 @@ export interface LessonEvent { at: string; type: string; [k: string]: unknown }
 const NOT_REAL_YET: Record<string, string> = { robot_factory: '机械臂写实版制作中 · 这节课先别发布' };
 /** The end-of-lesson host: off until a photoreal host passes the parent's check (gaps G2). */
 const HOST_READY = false;
+/**
+ * The animal as a jointed 2.5D relief made from one top-down photo (organism.js): flat from the side, moved by code, so
+ * it fails the realism floor (gaps G3). Off: the animal is shown from its real photos and videos until a real 3D model
+ * of it passes the hero gate (skills/discovery-lesson-maker/references/hero-production.md).
+ */
+const RELIEF_READY = false;
 const ACTION_LABELS: Record<string, Record<string, string>> = {
   reef: { walk: '拉卷尺围一圈', fill: '放样方', focus: '看看螳螂虾的洞' },
   garden: { walk: '测距轮走一圈', fill: '铺地砖' },
@@ -176,7 +182,7 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
     if (stage) stageSub(stage as HTMLElement, `<span class="tag">${u.lang === 'zh' ? '中' : 'EN'}</span>${esc(u.text)}${u.fallback ? ' <span class="dimtext">（这条暂时没有英文，先用中文）</span>' : ''}`, voice.speak(u.text, u.lang));
     else void voice.speak(u.text, u.lang);
     if (anchor === 'shrimp' && organismPending.length && stage) {
-      if (animalIn3d && animalMedia.some(m => m.kind === 'cutout')) organismBar(stage as HTMLElement);
+      if (RELIEF_READY && animalIn3d && animalMedia.some(m => m.kind === 'cutout')) organismBar(stage as HTMLElement);
       else showOrganism(stage as HTMLElement);
     }
     log('hotspot', { hotspot: hs.id, lang: u.lang, ...(u.advance ? { count: pointers[key] } : {}), ...(u.fallback ? { fallback: true } : {}) });
@@ -315,7 +321,7 @@ export function play(root: HTMLElement, sp: LessonSpec, opts: PlayOptions = {}) 
         </div>
       </div>`;
     const stage = $('#stage');
-    const cut = animalIn3d ? animalMedia.find(m => m.kind === 'cutout') : undefined;
+    const cut = RELIEF_READY && animalIn3d ? animalMedia.find(m => m.kind === 'cutout') : undefined;
     scene = mount(stage, comp, sp.component_params[name] as Record<string, unknown>, {
       organism: cut ? { url: cut.url, rig: cut.rig ?? null, rigMeta: cut.rig_meta ?? null, lengthM: (cut.length_cm ?? (isShrimp ? 16 : 30)) / 100 } : undefined,
       hotspots: sp.hotspots.map(x => ({ anchor: x.anchor, label: x.label })),

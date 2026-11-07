@@ -3,6 +3,7 @@
 // the App's side of the rule the 探索课 Skill checks before handing in (scripts/topic_assets.py, references/topic-assets.md),
 // plus what only the App can see: a picture file that is exactly another lesson's.
 import { createHash } from 'node:crypto';
+import { checkHero, type HeroItem } from './hero-check.js';
 
 /** Files a child sees: pictures, textures, models, videos. Sound, fonts and code are not pictures. */
 export const VISUAL = /\.(png|jpe?g|webp|avif|gif|svg|ktx2|basis|hdr|exr|glb|gltf|usdz|fbx|obj|drc|mp4|webm|mov|m4v)$/i;
@@ -14,7 +15,7 @@ const ROLES = new Set(['hero', 'part', 'scene', 'picture', 'video', 'ui']);
 /** The fixed scenes' and the example lesson's things: on another topic's list they were most likely carried over. */
 const APP_SCENE_THINGS = ['机械臂', '齿轮', '转台', '积木', '珊瑚', '螳螂虾', '卷尺', '样方', 'PVC', '测距轮', '栅栏', '地砖', '石板'];
 
-export interface AssetItem { file?: string; sha256?: string; role?: string; depicts?: string; made_for?: string; origin?: string; how?: string; source?: string; sourceIds?: string[]; license?: string }
+export interface AssetItem extends HeroItem { file?: string; sha256?: string; role?: string; depicts?: string; made_for?: string; origin?: string; how?: string; source?: string; sourceIds?: string[]; license?: string }
 /** What the parent's card shows of the list: what each picture is of and where it came from. */
 export interface AssetLine { file: string; role: string; depicts: string; origin: string }
 
@@ -63,6 +64,9 @@ export function checkAssets(topic: string, list: unknown, site: { path: string; 
   for (const h of heroes) {
     if (!MODEL.test(String(h.file ?? ''))) errors.push(`主角 ${h.file} 不是三维模型：照片、视频、截图不能代替可以转着看的主角`);
     if (topic && !common(topic, String(h.depicts ?? ''))) errors.push(`主角画的是「${h.depicts ?? ''}」，主题是「${topic}」`);
+    // 主角能不能当真看：类别、来源、真实照片、真实尺寸、面数、贴图（hero-check.ts）
+    const sha = String(h.sha256 ?? '').toLowerCase();
+    errors.push(...checkHero(h, site.find(f => sha && sha256(f.data) === sha)?.data));
   }
   return { errors, warnings, lines };
 }
